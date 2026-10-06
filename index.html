@@ -38,11 +38,15 @@
         </div>
         <div class="card">
           <h2>Feedback</h2>
+          <p class="hint">Written automatically from the answers. Edit freely; a box you edit stops updating. "Regenerate" rebuilds all three.</p>
           <div class="grid one">
-            <label>Strengths<textarea id="fb_strengths" rows="2"></textarea></label>
-            <label>Areas to improve<textarea id="fb_improve" rows="2"></textarea></label>
-            <label>Coaching agreed with the agent<textarea id="fb_coaching" rows="2"></textarea></label>
+            <label>Strengths<textarea id="fb_strengths" rows="4"></textarea></label>
+            <label>Areas to improve<textarea id="fb_improve" rows="4"></textarea></label>
+            <label>Coaching agreed with the agent<textarea id="fb_coaching" rows="4"></textarea></label>
           </div>
+          <button id="btnRegen" type="button">Regenerate feedback</button>
+          <button id="btnCopyFb" type="button">Copy feedback for the agent</button>
+          <span class="msg" id="fbMsg"></span>
         </div>
       </div>
       <aside class="side-col">

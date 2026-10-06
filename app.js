@@ -89,6 +89,7 @@
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
+      feedbackEdited: {},
     };
   }
 
@@ -160,9 +161,9 @@
       it.applies.map((x) => h("span", { class: "tag", text: x })),
       isNc ? h("span", {}, "Weight ", h("b", { text: it.weight }), " · Not met if: " + it.guide) : h("span", { text: "Example: " + it.example }));
     const ev = h("input", { placeholder: isNc ? "Timestamp" : "Timestamp", value: ans.evidence || "" });
-    ev.addEventListener("input", () => { ans.evidence = ev.value; saveDraft(); });
+    ev.addEventListener("input", () => { ans.evidence = ev.value; autoFeedback(); saveDraft(); });
     const cm = h("input", { placeholder: "Comment", value: ans.comment || "" });
-    cm.addEventListener("input", () => { ans.comment = cm.value; saveDraft(); });
+    cm.addEventListener("input", () => { ans.comment = cm.value; autoFeedback(); saveDraft(); });
     const showExtra = ans.result === "Not met" || ans.result === "Error" || ans.evidence || ans.comment;
     const row = h("div", { class: "item" + (ans.locked ? " locked" : ""), "data-kind": kind, "data-i": i },
       h("div", { class: "num", text: isNc ? i + 1 : "C" + (i + 1) }),
@@ -180,12 +181,66 @@
     d.crit.forEach((it, i) => cr.append(itemRow("crit", it, i, a.crit[i])));
   }
 
+  // Builds feedback text from the answers: strengths from the heaviest items met,
+  // areas to improve and coaching tips from every miss (critical errors first).
+  function genFeedback(form, a) {
+    const d = F.forms[form];
+    const answered = a.nc.some((x) => x.result && !x.locked) || a.crit.some((x) => x.result && !x.locked);
+    if (!answered) return { strengths: "", improve: "", coaching: "" };
+    const note = (x) => (x.evidence ? " (" + x.evidence + ")" : "") + (x.comment ? " – " + x.comment : "");
+    const met = d.nc.map((it, i) => ({ it, x: a.nc[i] })).filter((o) => o.x.result === "Met").sort((p, q) => q.it.weight - p.it.weight);
+    const misses = [
+      ...d.crit.map((it, i) => ({ it, x: a.crit[i], crit: true })).filter((o) => o.x.result === "Error"),
+      ...d.nc.map((it, i) => ({ it, x: a.nc[i] })).filter((o) => o.x.result === "Not met").sort((p, q) => q.it.weight - p.it.weight),
+    ];
+    const strengths = met.slice(0, 4).map((o) => "- " + o.it.label).join("\n");
+    const improve = misses.length
+      ? misses.map((o) => "- " + (o.crit ? "[Critical " + o.it.bucket + "] " + o.it.item : o.it.label + ": " + o.it.item) + note(o.x)).join("\n")
+      : "No improvement areas on this interaction.";
+    const coaching = misses.length
+      ? misses.map((o, n) => n + 1 + ". " + o.it.coach).join("\n")
+      : "Keep the same approach. Consider sharing this interaction with the team as a good example.";
+    return { strengths, improve, coaching };
+  }
+
+  function autoFeedback(force) {
+    const a = current.answers;
+    if (!a.feedbackEdited) a.feedbackEdited = {};
+    const g = genFeedback(current.form, a);
+    for (const k of ["strengths", "improve", "coaching"]) {
+      if (force) a.feedbackEdited[k] = false;
+      if (a.feedbackEdited[k]) continue;
+      a.feedback[k] = g[k];
+      const t = $("#fb_" + k); if (t) t.value = g[k];
+    }
+  }
+
   function renderFeedback() {
     for (const k of ["strengths", "improve", "coaching"]) {
       const t = $("#fb_" + k);
       t.value = current.answers.feedback[k] || "";
-      t.oninput = () => { current.answers.feedback[k] = t.value; saveDraft(); };
+      t.oninput = () => {
+        current.answers.feedback[k] = t.value;
+        (current.answers.feedbackEdited = current.answers.feedbackEdited || {})[k] = true;
+        saveDraft();
+      };
     }
+    $("#btnRegen").onclick = () => {
+      if (Object.values(current.answers.feedbackEdited || {}).some(Boolean) && !confirm("Replace your edits with fresh feedback?")) return;
+      autoFeedback(true); saveDraft();
+    };
+    $("#btnCopyFb").onclick = async () => {
+      const a = current.answers, sc = score(current.form, a), fb = a.feedback;
+      const text = [
+        "QA feedback – " + F.forms[current.form].name + (a.header.type ? " (" + a.header.type + ")" : ""),
+        "Agent: " + (a.header.agent || "") + " | Date: " + (a.header.interactionDate || a.header.evalDate || "") + (a.header.odooRef ? " | Odoo: " + a.header.odooRef : ""),
+        "Score: " + pct(sc.final) + " – " + (sc.result || "") + (sc.critical ? " (" + sc.critical + " critical error" + (sc.critical > 1 ? "s" : "") + ")" : ""),
+        "", "Strengths:", fb.strengths || "-", "", "Areas to improve:", fb.improve || "-", "", "Coaching:", fb.coaching || "-",
+      ].join("\n");
+      const m = $("#fbMsg");
+      try { await navigator.clipboard.writeText(text); m.textContent = " Copied."; }
+      catch (e) { download("QA_feedback_" + (a.header.agent || "agent") + ".txt", text, "text/plain"); m.textContent = " Downloaded as a text file."; }
+    };
   }
 
   function updateScore() {
@@ -195,6 +250,7 @@
     $("#sNC").textContent = pct(s.nc);
     $("#sCC").textContent = pct(s.cc); $("#sEU").textContent = pct(s.eu); $("#sBC").textContent = pct(s.bc);
     $("#sCrit").textContent = s.critical; $("#sOpen").textContent = s.open;
+    autoFeedback();
   }
 
   function renderEvaluate() {
@@ -217,7 +273,7 @@
         ...d.nc.map((it, i) => ({ id: String(i + 1), kind: "NC", text: it.item, weight: it.weight, result: a.nc[i].result, evidence: a.nc[i].evidence, comment: a.nc[i].comment })),
         ...d.crit.map((it, i) => ({ id: "C" + (i + 1), kind: it.bucket, text: it.item, result: a.crit[i].result, evidence: a.crit[i].evidence, comment: a.crit[i].comment })),
       ],
-      feedback: a.feedback,
+      feedback: { strengths: a.feedback.strengths, improve: a.feedback.improve, coaching: a.feedback.coaching },
     };
   }
 
