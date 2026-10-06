@@ -380,10 +380,17 @@
 
   function updateScore() {
     const s = score(current.form, current.answers);
-    $("#sFinal").textContent = pct(s.final);
-    const r = $("#sResult"); r.textContent = s.result ? t(s.result) : ""; r.className = "result " + (s.result === "Pass" ? "pass" : s.result === "Fail" ? "fail" : "");
+    // Show a bucket / final number only once it is decided: an Error decides it at once (0%),
+    // otherwise every item in it must be answered first, so a blank form never shows 100%.
+    const crit = F.forms[current.form].crit;
+    const openIn = (b) => crit.some((it, i) => it.bucket === b && !current.answers.crit[i].result);
+    const bucket = (b, v) => (v === 0 ? pct(0) : openIn(b) ? "–" : pct(v));
+    const decided = s.critical > 0 || s.open === 0;
+    $("#sFinal").textContent = s.critical ? pct(0) : decided ? pct(s.final) : "–";
+    const res = s.critical ? "Fail" : decided ? s.result : "";
+    const r = $("#sResult"); r.textContent = res ? t(res) : t("pending"); r.className = "result " + (res === "Pass" ? "pass" : res === "Fail" ? "fail" : "muted");
     $("#sNC").textContent = pct(s.nc);
-    $("#sCC").textContent = pct(s.cc); $("#sEU").textContent = pct(s.eu); $("#sBC").textContent = pct(s.bc);
+    $("#sCC").textContent = bucket("CC", s.cc); $("#sEU").textContent = bucket("EU", s.eu); $("#sBC").textContent = bucket("BC", s.bc);
     $("#sCrit").textContent = s.critical; $("#sOpen").textContent = s.open;
     autoFeedback();
   }

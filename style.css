@@ -123,3 +123,4 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 #guideOut h3.crit-h { color: var(--bad); }
 @media (max-width: 600px) { .g-head { grid-template-columns: 34px 1fr; } .g-head > .meta:last-child { grid-column: 2; } }
 @media print { .top, #view-guide .toolbar { display: none; } .view { display: none !important; } #view-guide { display: block !important; } .card { border: 0; } }
+.result.muted { color: var(--muted); font-weight: 400; font-size: 13px; }

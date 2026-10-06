@@ -1,7 +1,7 @@
 // Interface text in English and Arabic. Item text lives in forms.js.
 window.I18N = {
   en: {
-    nav_guide: "Item guide", vs_label: "Not to be confused with", print: "Print",
+    pending: "Final score appears when every item is scored", nav_guide: "Item guide", vs_label: "Not to be confused with", print: "Print",
     guide_title: "Item guide", guide_hint: "What every item means, when it is not met, and how it differs from items that look similar.",
     rule1: "Each mistake is counted once, on the most serious item that fits. Never mark the same moment on two items.",
     rule2: "If a behaviour fits a critical item, mark the critical item only, and judge the related non-critical item on the rest of the interaction.",
@@ -73,7 +73,7 @@ window.I18N = {
     agents: "Agents", none_yet: "none yet",
   },
   ar: {
-    nav_guide: "دليل البنود", vs_label: "الفرق عن البنود الشبيهة", print: "اطبع",
+    pending: "السكور النهائي بيظهر لما تقيّم كل البنود", nav_guide: "دليل البنود", vs_label: "الفرق عن البنود الشبيهة", print: "اطبع",
     guide_title: "دليل البنود", guide_hint: "كل بند معناه إيه، إمتى يتحسب غلط، وإيه الفرق بينه وبين البنود اللي شبهه.",
     rule1: "كل غلطة بتتحسب مرة واحدة بس، على أخطر بند مناسب لها. ماينفعش نفس الموقف يتعلّم على بندين.",
     rule2: "لو التصرف بيدخل تحت بند حرج، علّم البند الحرج بس، وقيّم البند العادي اللي شبهه على باقي المكالمة.",
