@@ -46,10 +46,10 @@ button.ghost { border-color: transparent; color: var(--muted); }
 .item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .item:first-child { border-top: 0; }
 .item .num { font-weight: 700; color: var(--muted); }
-.item .title { font-weight: 600; }
+.item .title, .g-item .title { font-weight: 600; }
 .item .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .item .meta b { color: var(--text); font-weight: 600; }
-.item .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); margin-inline-end: 4px; }
+.item .tag, .g-item .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); margin-inline-end: 4px; }
 .item.locked { opacity: .55; }
 .item.missing .seg { outline: 2px solid var(--bad); outline-offset: 2px; border-radius: 7px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; height: fit-content; }
@@ -110,3 +110,16 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 .explain { display: none; margin: 6px 0 2px; padding: 8px 10px; border-inline-start: 3px solid var(--brand); background: var(--brand-soft); border-radius: 4px; font-size: 13px; line-height: 1.6; }
 .explain.open { display: block; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+/* item guide */
+.explain .vs, .g-item .vs { margin-top: 6px; }
+.vs b { color: var(--brand); }
+.rules { margin: 0 0 12px; padding-inline-start: 20px; line-height: 1.7; }
+.g-item { border-top: 1px solid var(--line); padding: 10px 0; }
+.g-item p { margin: 6px 0 0; line-height: 1.6; }
+.g-head { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: start; }
+.g-head .num { font-weight: 700; color: var(--muted); }
+#guideOut h3 { margin: 18px 0 4px; }
+#guideOut h3.crit-h { color: var(--bad); }
+@media (max-width: 600px) { .g-head { grid-template-columns: 34px 1fr; } .g-head > .meta:last-child { grid-column: 2; } }
+@media print { .top, #view-guide .toolbar { display: none; } .view { display: none !important; } #view-guide { display: block !important; } .card { border: 0; } }

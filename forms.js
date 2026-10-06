@@ -1,7 +1,7 @@
 // Scorecard items. Edit this file to change items, weights, examples, explanations or coaching tips.
 // Each item has an "ar" block with the Arabic text shown when the tool is switched to Arabic.
 window.FORMS = {
- "version": "v2.2-draft",
+ "version": "v2.3-draft",
  "forms": {
   "calls": {
    "name": "Calls",
@@ -57,8 +57,10 @@ window.FORMS = {
       "item": "يعرّف بنفسه وبالمركز: اسم الإيجنت + 'مركز هاندسم آند بريتي الطبي'",
       "guide": "مفيش اسم، أو اسم المركز ناقص / مش واضح.",
       "coach": "قول اسمك واسم 'مركز هاندسم آند بريتي الطبي' بوضوح في أول المكالمة دايمًا.",
-      "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان. ده بيبني ثقة ويمنع إنه يتلخبط بين المراكز."
-     }
+      "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان. ده بيبني ثقة ويمنع إنه يتلخبط بين المراكز.",
+      "vs": "الاسم أو اسم المركز ماتقالش ← N2. اتقال اسم مركز غلط ← C16 (حرج)."
+     },
+     "vs": "Name or clinic not said → N2. A wrong clinic name said → C16 (critical)."
     },
     {
      "section": "Opening",
@@ -133,8 +135,10 @@ window.FORMS = {
       "item": "يسمع كويس: مش بيقاطع، وبياخد باله من كلام العميل",
       "guide": "بيقاطع، أو بيسأل عن حاجة العميل قالها قبل كده.",
       "coach": "سيب العميل يخلص كلامه، وبعدين أكّد اللي فهمته ('يعني أكتر حاجة مضايقاكي…') قبل ما ترد.",
-      "explain": "بيبيّن للعميل إننا سامعينه. المقاطعة أو السؤال عن حاجة اتقالت قبل كده بيدّي إحساس بعدم الاهتمام."
-     }
+      "explain": "بيبيّن للعميل إننا سامعينه. المقاطعة أو السؤال عن حاجة اتقالت قبل كده بيدّي إحساس بعدم الاهتمام.",
+      "vs": "N6 عن السماع (مايقاطعش ومايسألش تاني على حاجة اتقالت). إنه يطمّن العميل ويقدّر مشاعره ده N15."
+     },
+     "vs": "N6 is about listening (no interrupting, no asking again for what was said). Acknowledging feelings and concerns is N15."
     },
     {
      "section": "Offer",
@@ -164,17 +168,19 @@ window.FORMS = {
       "FU"
      ],
      "weight": 6,
-     "guide": "Next step not offered or offered without any value.",
+     "guide": "Offered without explaining its value. If it was never offered at all → C17.",
      "label": "Selling the free consultation",
      "coach": "Explain the value of the free consultation: a doctor assesses her case and the follow-up is free too.",
      "explain": "The free consultation is the main goal of the call. The agent should explain why it is worth coming (a doctor assesses her case, free follow-up).",
      "ar": {
       "label": "بيع الاستشارة المجانية",
       "item": "يعرض الاستشارة المجانية (أو الجلسة الجاية) كخطوة جاية مع توضيح قيمتها",
-      "guide": "الخطوة الجاية مش معروضة، أو معروضة من غير أي قيمة.",
+      "guide": "اتعرضت من غير ما يوضح قيمتها. لو ماتعرضتش خالص ← C17.",
       "coach": "وضّح قيمة الاستشارة المجانية: دكتور هيقيّم حالتها، والفولو أب كمان مجاني.",
-      "explain": "الاستشارة المجانية هي الهدف الأساسي من المكالمة. الإيجنت لازم يوضح ليه تستاهل تيجي (دكتور يقيّم حالتها، والفولو أب مجاني)."
-     }
+      "explain": "الاستشارة المجانية هي الهدف الأساسي من المكالمة. الإيجنت لازم يوضح ليه تستاهل تيجي (دكتور يقيّم حالتها، والفولو أب مجاني).",
+      "vs": "اتعرضت بشكل ضعيف ← N8. ماتعرضتش خالص ← C17 (حرج). ضاعت بعد اعتراض ← N9."
+     },
+     "vs": "Offered weakly → N8. Never offered at all → C17 (critical). Lost after an objection → N9."
     },
     {
      "section": "Offer",
@@ -193,8 +199,10 @@ window.FORMS = {
       "item": "يتعامل مع الاعتراضات بالطريقة المعتمدة: يتفهم، يوضح، يرد، ويعرض تاني",
       "guide": "يتجاهل الاعتراض، أو يجادل، أو يستسلم على طول.",
       "coach": "استخدم: تفهّم، وضّح، رد، وبعدين اعرض تاني. ودرّب نفسك على أشهر اعتراضين في الجايد.",
-      "explain": "الاعتراضات (السعر، 'جربت ومفيش نتيجة'، 'هفكر') طبيعية. التعامل الصح معاها هو اللي بيحوّل الرفض لحجز."
-     }
+      "explain": "الاعتراضات (السعر، 'جربت ومفيش نتيجة'، 'هفكر') طبيعية. التعامل الصح معاها هو اللي بيحوّل الرفض لحجز.",
+      "vs": "تعامل ضعيف أو استسلام بعد الاعتراض ← N9. جدال بقلة ذوق ← C14. ماعرضش الحجز خالص ← C17."
+     },
+     "vs": "Weak handling or giving up after an objection → N9. Arguing rudely → C14. Never offering the booking at all → C17."
     },
     {
      "section": "Complaint",
@@ -212,8 +220,10 @@ window.FORMS = {
       "item": "ياخد بيانات الشكوى صح: يسمع، يعتذر عن التجربة، ياخد الاسم والرقم والفرع والتاريخ والمشكلة، ويوضح إنها هتتبعت لفريق العيادة",
       "guide": "بيانات ناقصة، أو بيدافع عن العيادة، أو مش بيوضح اللي هيحصل بعد كده.",
       "coach": "اسمع واعتذر عن التجربة، وخد الاسم والرقم والفرع والتاريخ والمشكلة، ووضّح إن فريق العيادة هيتابع. من غير وعود.",
-      "explain": "إحنا مش بنحل الشكوى، إحنا بنسجلها صح ونبعتها لفريق الإمارات. المهم البيانات تكون كاملة والأسلوب هادي."
-     }
+      "explain": "إحنا مش بنحل الشكوى، إحنا بنسجلها صح ونبعتها لفريق الإمارات. المهم البيانات تكون كاملة والأسلوب هادي.",
+      "vs": "N10 = طريقة أخد بيانات الشكوى. ماتسجلتش / ماتصعّدتش ← C11. وعد بنتيجة أو حكم مين الصح ← C19."
+     },
+     "vs": "N10 = how the complaint details were taken. Not logged / not escalated → C11. Promising an outcome or deciding who is right → C19."
     },
     {
      "section": "Closing",
@@ -222,17 +232,19 @@ window.FORMS = {
       "ALL"
      ],
      "weight": 7,
-     "guide": "Customer is not clear what happens next.",
+     "guide": "No recap at the end; the customer is not sure what happens next.",
      "label": "Clear next step",
      "coach": "Before closing, repeat the service, branch and landmark, date and time, and any pre-visit instructions.",
      "explain": "A clear summary prevents no-shows and wrong bookings.",
      "ar": {
       "label": "وضوح الخطوة الجاية",
       "item": "يلخّص الخطوة الجاية: الخدمة، الفرع وعلامة مميزة، اليوم والساعة، تعليمات قبل الزيارة (أو اللي هيحصل في الشكوى / الفيدباك)",
-      "guide": "العميل مش واضح عنده إيه اللي هيحصل بعد كده.",
+      "guide": "مفيش تلخيص في الآخر، والعميل مش متأكد إيه اللي هيحصل.",
       "coach": "قبل ما تقفل، كرر الخدمة والفرع والعلامة المميزة واليوم والساعة وأي تعليمات قبل الزيارة.",
-      "explain": "التلخيص الواضح بيقلل إن العميل ميجيش أو يحصل غلط في الحجز."
-     }
+      "explain": "التلخيص الواضح بيقلل إن العميل ميجيش أو يحصل غلط في الحجز.",
+      "vs": "المعلومة اتقالت بس ماتلخصتش في الآخر ← N11. المعلومة ماتقالتش خالص ← C9. الحجز غلط على أودوو ← C10."
+     },
+     "vs": "Information given but not recapped at the end → N11. Information never given at all → C9. Booked wrong in Odoo → C10."
     },
     {
      "section": "Closing",
@@ -269,8 +281,10 @@ window.FORMS = {
       "item": "نبرة الصوت: واضحة، ودودة، واثقة (مش سريعة، ولا نايمة، ولا رتيبة، ولا مترددة)",
       "guide": "النبرة باينة زهقانة أو مستعجلة أو مش واثقة في جزء كبير من المكالمة.",
       "coach": "ابتسم وإنت بتتكلم، وحافظ على سرعة وطاقة ثابتة. اسمع المكالمة تاني عشان تحس بالفرق.",
-      "explain": "في التليفون، الصوت هو كل اللي العميل شايفه. النبرة هي اللي بتحدد هيثق ويكمل المكالمة ولا لأ."
-     }
+      "explain": "في التليفون، الصوت هو كل اللي العميل شايفه. النبرة هي اللي بتحدد هيثق ويكمل المكالمة ولا لأ.",
+      "vs": "N13 = الصوت نفسه بيتسمع إزاي. الكلمات المستخدمة ← N16. اللهجة ووضوحها للعميل ← N14."
+     },
+     "vs": "N13 = how the voice sounds. The words used → N16. Dialect and clarity for the customer → N14."
     },
     {
      "section": "Soft skills",
@@ -288,8 +302,10 @@ window.FORMS = {
       "item": "لغة مناسبة للعميل: عربي واضح يفهمه العميل في الإمارات والخليج، من غير كلمات عامية محيرة أو مصطلحات",
       "guide": "العميل بيطلب إعادة أو مش فاهم الكلام.",
       "coach": "استخدم عربي واضح يفهمه العميل في الإمارات، وابعد عن العامية المصرية والمصطلحات الإنجليزي. راجع صفحة المصطلحات الخليجية.",
-      "explain": "العملاء في الإمارات. العامية المصرية أو المصطلحات الإنجليزي ممكن تلخبطهم وتطوّل المكالمة."
-     }
+      "explain": "العملاء في الإمارات. العامية المصرية أو المصطلحات الإنجليزي ممكن تلخبطهم وتطوّل المكالمة.",
+      "vs": "N14 = العميل فاهم ولا لأ (اللهجة والمصطلحات). نبرة الصوت ← N13. الكلمات مهذبة ولا سلبية ← N16."
+     },
+     "vs": "N14 = can the customer understand (dialect, terms). Tone of voice → N13. Polite vs negative wording → N16."
     },
     {
      "section": "Soft skills",
@@ -307,8 +323,10 @@ window.FORMS = {
       "item": "التعاطف والألفة: أسلوب محترم، ويطمّن العميل على مخاوفه",
       "guide": "العميل قال قلق ومحدش رد عليه.",
       "coach": "اعترف بقلق العميل قبل ما ترد، وخلي أسلوبك محترم طول المكالمة.",
-      "explain": "العلاجات التجميلية حاجة شخصية. العميل بيحجز لما يحس إن فيه حد فاهمه ومطمّنه."
-     }
+      "explain": "العلاجات التجميلية حاجة شخصية. العميل بيحجز لما يحس إن فيه حد فاهمه ومطمّنه.",
+      "vs": "N15 = تقدير مشاعر العميل وقلقه. السماع من غير مقاطعة ← N6."
+     },
+     "vs": "N15 = acknowledging feelings and concerns. Listening without interrupting → N6."
     },
     {
      "section": "Soft skills",
@@ -326,8 +344,10 @@ window.FORMS = {
       "item": "لغة إيجابية ومهنية",
       "guide": "عبارات سلبية ('مقدرش'، 'مش شغلي')، أو كلام فيه تبسّط زيادة.",
       "coach": "بدّل العبارات السلبية ('مقدرش') باللي تقدر تعمله، وخليك ودود بس مهني.",
-      "explain": "الكلام الإيجابي بيخلي العميل يركز على الحلول مش على المشاكل."
-     }
+      "explain": "الكلام الإيجابي بيخلي العميل يركز على الحلول مش على المشاكل.",
+      "vs": "كلمة سلبية بسيطة أو تبسّط زيادة ← N16. قلة ذوق أو تريقة أو جدال ← C14 (حرج)."
+     },
+     "vs": "Minor negative or over-familiar wording → N16. Rude, sarcastic or arguing → C14 (critical)."
     },
     {
      "section": "Soft skills",
@@ -345,8 +365,10 @@ window.FORMS = {
       "item": "أسلوب الانتظار (يستأذن، أقصى حاجة دقيقة، يشكر) ومفيش سكوت أكتر من 15 ثانية",
       "guide": "انتظار من غير استئذان، أو أكتر من دقيقة، أو سكوت أكتر من 15 ثانية.",
       "coach": "استأذن قبل الانتظار، وخليه أقل من دقيقة، واشكر العميل بعده. واملا السكوت وإنت بتدوّر على المعلومة.",
-      "explain": "الانتظار الطويل أو السكوت بيحسّس العميل إنه متجاهل، وغالبًا بيقفل."
-     }
+      "explain": "الانتظار الطويل أو السكوت بيحسّس العميل إنه متجاهل، وغالبًا بيقفل.",
+      "vs": "هولد أو سكوت متعملش صح ← N17. قفل السكة أو الميوت أو تجاهل العميل عن قصد ← C15 (حرج)."
+     },
+     "vs": "Hold or silence handled badly → N17. Deliberately hanging up, muting or ignoring the customer → C15 (critical)."
     },
     {
      "section": "Odoo (minor)",
@@ -364,8 +386,10 @@ window.FORMS = {
       "item": "غلطات بسيطة في ملاحظات أو خانات أودوو مش بتغيّر حالة الليد أو الحجز أو التصعيد",
       "guide": "غلطات كتابة أو ملاحظات ناقصة بس لسه مفهومة.",
       "coach": "راجع ملاحظاتك على أودوو قبل الحفظ، وخليها قصيرة وواضحة وكاملة.",
-      "explain": "ملاحظات أودوو النضيفة بتساعد الزميل اللي هيكلم نفس العميل بعد كده."
-     }
+      "explain": "ملاحظات أودوو النضيفة بتساعد الزميل اللي هيكلم نفس العميل بعد كده.",
+      "vs": "غلطة بسيطة على أودوو ومش بتغيّر حاجة ← N18. لو بتغيّر حالة الليد أو الحجز أو التصعيد ← C10 أو C11 أو C21 أو C22 أو C23."
+     },
+     "vs": "Small Odoo mistakes that change nothing → N18. If it changes the lead status, booking or escalation → C10, C11, C21, C22 or C23."
     }
    ],
    "crit": [
@@ -382,8 +406,10 @@ window.FORMS = {
       "item": "يدّي نصيحة طبية أو تشخيص أو يقرر الحالة تنفع ولا لأ بدل ما يحوّل للدكتور",
       "example": "'البوتوكس عادي وإنتي بترضعي'، 'مع حالتك الليزر آمن'.",
       "coach": "متدّيش رأي طبي أبدًا. قول: 'الدكتور هيقيّم ده في الاستشارة المجانية' واحجزها.",
-      "explain": "الإيجنت مش دكتور. أي رأي طبي ممكن يأذي العميل ويعرّض المركز لمشاكل قانونية. الأسئلة الطبية دايمًا للدكتور."
-     }
+      "explain": "الإيجنت مش دكتور. أي رأي طبي ممكن يأذي العميل ويعرّض المركز لمشاكل قانونية. الأسئلة الطبية دايمًا للدكتور.",
+      "vs": "أي نصيحة طبية أو تشخيص أو 'ده آمن ليكي' ← C1 بس (مش C12 كمان). إنه يقول لحامل إن العلاج آمن برضه C1؛ أما إجراءات الحجز / الـ Hold للحمل ← C3."
+     },
+     "vs": "Any medical advice, diagnosis or 'it's safe for you' → C1 only (not C12 too). Telling a pregnant customer a treatment is safe is also C1; the booking / hold process for pregnancy is C3."
     },
     {
      "bucket": "CC",
@@ -398,8 +424,10 @@ window.FORMS = {
       "item": "يوعد بنتايج أو يستخدم ادعاءات مش معتمدة",
       "example": "'مضمون'، 'دايم'، '100%'، 'هتخسي 10 كيلو'، 'معتمد من FDA'، 'بديل للعمليات'، 'مفيش أعراض جانبية'.",
       "coach": "استخدم الكلام المعتمد بس: 'النتايج بتختلف من شخص للتاني'. ومتقولش 'مضمون' أو 'دايم' أو '100%' أو وعود بالكيلو.",
-      "explain": "النتايج بتختلف من شخص للتاني. الوعود بتعمل توقعات غلط وشكاوى، وممكن تكون مخالفة لقوانين الإعلان الطبي."
-     }
+      "explain": "النتايج بتختلف من شخص للتاني. الوعود بتعمل توقعات غلط وشكاوى، وممكن تكون مخالفة لقوانين الإعلان الطبي.",
+      "vs": "C2 = ادعاءات عن النتيجة ('مضمون'، 'دايم'). الضغط أو مواعيد نهائية مخترعة ← C6."
+     },
+     "vs": "C2 = claims about results ('guaranteed', 'permanent'). Pressure tactics or invented deadlines → C6."
     },
     {
      "bucket": "CC",
@@ -415,8 +443,10 @@ window.FORMS = {
       "item": "مش ملتزم بقاعدة الحمل",
       "example": "يحجز لعميلة حامل من غير ما تصر / من غير ما يكتب ده، أو مش بيحطها Hold مع مكالمة بعد الولادة.",
       "coach": "راجع قاعدة الحمل: Hold ومكالمة بعد الولادة. ومتحجزش غير لو هي أصرّت، واكتب ده.",
-      "explain": "أغلب العلاجات مش بتتعمل أثناء الحمل. القاعدة المعتمدة: Hold ومكالمة بعد الولادة."
-     }
+      "explain": "أغلب العلاجات مش بتتعمل أثناء الحمل. القاعدة المعتمدة: Hold ومكالمة بعد الولادة.",
+      "vs": "C3 = إجراءات الحجز / الـ Hold للحامل. إنه يقول العلاج آمن في الحمل ← C1."
+     },
+     "vs": "C3 = the pregnancy booking / hold process. Saying a treatment is safe in pregnancy → C1."
     },
     {
      "bucket": "CC",
@@ -431,8 +461,10 @@ window.FORMS = {
       "item": "يقول أرقام مش معتمدة",
       "example": "نسبة الضريبة، نسبة رسوم التقسيط، عدد جلسات Sculptra، أو يحسب سعر عادي.",
       "coach": "متقولش نسبة الضريبة أو رسوم التقسيط أو عدد الجلسات. قول إن التفاصيل دي بتتأكد قبل الحجز.",
-      "explain": "فيه أرقام لسه العيادة مأكدهاش. قولها بيعمل توقعات غلط وشكاوى بعد كده."
-     }
+      "explain": "فيه أرقام لسه العيادة مأكدهاش. قولها بيعمل توقعات غلط وشكاوى بعد كده.",
+      "vs": "C4 = رقم ممنوع نقوله أصلًا (نسبة الضريبة، نسبة رسوم التقسيط، عدد الجلسات، السعر الأصلي). سعر معتمد اتقال غلط ← C8. وعد بخصم زيادة ← C18."
+     },
+     "vs": "C4 = a figure we must never quote (VAT %, installment fee %, session counts, regular price). A wrong approved price → C8. Promising an extra discount → C18."
     },
     {
      "bucket": "CC",
@@ -463,8 +495,10 @@ window.FORMS = {
       "item": "يستخدم حجة مضللة أو استعجال مش حقيقي",
       "example": "'بنحدّث ملف الـ VIP بتاعك'، أو ميعاد نهاية عرض مش حقيقي.",
       "coach": "استخدم الأسباب المعتمدة بس للاتصال، ومتخترعش مواعيد أو حجج.",
-      "explain": "الأسباب المضللة بتضيّع الثقة وسمعة المركز أول ما تتكشف."
-     }
+      "explain": "الأسباب المضللة بتضيّع الثقة وسمعة المركز أول ما تتكشف.",
+      "vs": "C6 = سبب مضلل للمكالمة أو استعجال مزيف. ادعاءات عن النتيجة ← C2."
+     },
+     "vs": "C6 = misleading reason for the call or false urgency. Claims about results → C2."
     },
     {
      "bucket": "CC",
@@ -496,8 +530,10 @@ window.FORMS = {
       "item": "معلومة غلط في السعر أو العرض أو الهدية",
       "example": "سعر غلط، هدية غلط، أو مش بيقول إن الأسعار قبل الضريبة.",
       "coach": "راجع شيت العروض قبل ما تقول السعر، وقول دايمًا إن الأسعار قبل الضريبة.",
-      "explain": "الأسعار الغلط بتعمل خلاف في العيادة وبتضيّع الثقة."
-     }
+      "explain": "الأسعار الغلط بتعمل خلاف في العيادة وبتضيّع الثقة.",
+      "vs": "غلطة في سعر أو عرض أو هدية معتمدة ← C8. وعد بحاجة زيادة مش معتمدة ← C18. رقم ممنوع نقوله أصلًا ← C4."
+     },
+     "vs": "Honest mistake in an approved price, offer or gift → C8. Promising something extra that is not approved → C18. Quoting a figure we must never quote → C4."
     },
     {
      "bucket": "EU",
@@ -513,8 +549,10 @@ window.FORMS = {
       "item": "معلومات ناقصة العميل محتاجها",
       "example": "الفرع والعنوان، المواعيد، الاستشارة المجانية، تحضيرات الليزر، رسوم الحلاقة.",
       "coach": "استخدم قايمة الحجز: الفرع والعنوان، المواعيد، الاستشارة المجانية، تحضيرات الليزر، رسوم الحلاقة.",
-      "explain": "المعلومات الناقصة (العنوان، التحضيرات، الرسوم) بتبوّظ الزيارة أو بتفاجئ العميل."
-     }
+      "explain": "المعلومات الناقصة (العنوان، التحضيرات، الرسوم) بتبوّظ الزيارة أو بتفاجئ العميل.",
+      "vs": "المعلومة ماتقالتش خالص ← C9. اتقالت بس ماتلخصتش في الآخر ← N11. سعر غلط ← C8."
+     },
+     "vs": "Information never given at all → C9. Given but not recapped at the end → N11. Wrong price → C8."
     },
     {
      "bucket": "EU",
@@ -530,8 +568,10 @@ window.FORMS = {
       "item": "حجز غلط أو مش متسجل (اليوم، الساعة، الفرع، الخدمة)",
       "example": "حجز في فرع غلط أو مش متسجل على أودوو خالص.",
       "coach": "راجع اليوم والساعة والفرع والخدمة على أودوو قبل ما تقفل، واقراهم للعميل.",
-      "explain": "الحجز الغلط معناه إن العميل يوصل ومحدش مستنيه، ودي أسوأ تجربة ممكنة."
-     }
+      "explain": "الحجز الغلط معناه إن العميل يوصل ومحدش مستنيه، ودي أسوأ تجربة ممكنة.",
+      "vs": "حجز غلط أو مش متسجل ← C10 بس (مش C21 كمان)."
+     },
+     "vs": "Wrong or missing booking → C10 only (not C21 too)."
     },
     {
      "bucket": "EU",
@@ -547,24 +587,28 @@ window.FORMS = {
       "item": "شكوى أو تجربة سلبية مش متسجلة على أودوو أو مش متصعّدة لفريق الإمارات",
       "example": "العميل اشتكى ومحدش سجّل أو بعت حاجة.",
       "coach": "سجّل أي شكوى أو تجربة سلبية على أودوو وصعّدها لفريق الإمارات في نفس اليوم.",
-      "explain": "دورنا في الشكاوى إننا نسجل ونصعّد. لو معملناش كده محدش في العيادة هيعرف، والعميل هيضيع."
-     }
+      "explain": "دورنا في الشكاوى إننا نسجل ونصعّد. لو معملناش كده محدش في العيادة هيعرف، والعميل هيضيع.",
+      "vs": "الشكوى ماتسجلتش أو ماتصعّدتش ← C11 بس (مش C22 كمان). اتسجلت بس الإيجنت وعد بنتيجة ← C19."
+     },
+     "vs": "Complaint not logged or not escalated → C11 only (not C22 too). Logged, but the agent promised an outcome → C19."
     },
     {
      "bucket": "EU",
-     "item": "Does not refer when required (medical question to the doctor, request for a supervisor)",
+     "item": "Does not escalate when required (customer asks for a supervisor, or a request the agent is not allowed to decide)",
      "applies": [
       "ALL"
      ],
-     "example": "Answers a medical question instead of booking a doctor consultation.",
-     "coach": "When a medical question or supervisor request comes up, refer it or book the doctor; don't handle it yourself.",
-     "explain": "Some requests are beyond the agent's role. Referring them correctly protects the customer and the agent.",
+     "example": "Customer asks for a supervisor and the agent refuses or ends the call.",
+     "coach": "When a customer asks for a supervisor or something you can't decide, say you'll pass it on and escalate it to your team leader the same day.",
+     "explain": "Some requests are beyond the agent's role. Passing them on correctly protects the customer and the agent.",
      "ar": {
-      "item": "مش بيحوّل لما يكون لازم (سؤال طبي للدكتور، طلب مشرف)",
-      "example": "بيرد على سؤال طبي بدل ما يحجز استشارة مع الدكتور.",
-      "coach": "لما يجي سؤال طبي أو طلب مشرف، حوّله أو احجز للدكتور، ومتتعاملش معاه بنفسك.",
-      "explain": "فيه طلبات أكبر من دور الإيجنت. تحويلها صح بيحمي العميل والإيجنت."
-     }
+      "item": "مش بيصعّد لما يكون لازم (العميل طلب مشرف، أو طلب مش من صلاحية الإيجنت)",
+      "example": "العميل طلب مشرف والإيجنت رفض أو قفل المكالمة.",
+      "coach": "لما العميل يطلب مشرف أو حاجة مش من صلاحيتك، قوله إنك هتوصّلها، وصعّدها للتيم ليدر في نفس اليوم.",
+      "explain": "فيه طلبات أكبر من دور الإيجنت. توصيلها صح بيحمي العميل والإيجنت.",
+      "vs": "الأسئلة الطبية ← C1 بس. الشكاوى ← C11 / C19. C12 لطلب المشرف وأي قرار مش من صلاحية الإيجنت."
+     },
+     "vs": "Medical questions → C1 only. Complaints → C11 / C19. C12 is for supervisor requests and other decisions outside the agent's authority."
     },
     {
      "bucket": "EU",
@@ -579,8 +623,10 @@ window.FORMS = {
       "item": "مش بيتصل في ميعاد المكالمة اللي وعد بيه",
       "example": "وعد بمكالمة وفاتت من غير سبب مكتوب على أودوو.",
       "coach": "حط المكالمة كـ Activity على أودوو بتذكير، واتصل في الميعاد اللي وعدت بيه.",
-      "explain": "المكالمة اللي اتوعد بيها وماتعملتش بتقول للعميل إننا مش بنلتزم بكلامنا."
-     }
+      "explain": "المكالمة اللي اتوعد بيها وماتعملتش بتقول للعميل إننا مش بنلتزم بكلامنا.",
+      "vs": "C13 = مكالمة اتوعد بيها العميل ده بالذات وماتعملتش. قواعد الاتصال العامة (مواعيد الاتصال، عدد المحاولات) ← C20."
+     },
+     "vs": "C13 = a callback promised to this customer and missed. General calling rules (calling hours, number of attempts) → C20."
     },
     {
      "bucket": "EU",
@@ -595,8 +641,10 @@ window.FORMS = {
       "item": "قلة ذوق، أو جدال، أو ياخد الكلام بشكل شخصي",
       "example": "يعلّي صوته، أو يتريق، أو يجادل العميل.",
       "coach": "خليك هادي ومحترم حتى لو العميل مش كده، ومتجادلش. واطلب دعم التيم ليدر في المكالمات الصعبة.",
-      "explain": "مكالمة واحدة فيها قلة ذوق ممكن تخسرنا العميل وتأذي سمعة المركز."
-     }
+      "explain": "مكالمة واحدة فيها قلة ذوق ممكن تخسرنا العميل وتأذي سمعة المركز.",
+      "vs": "قلة ذوق أو تريقة أو جدال ← C14. كلمة سلبية بسيطة ← N16. الجدال في تفاصيل الشكوى برضه C14."
+     },
+     "vs": "Rude, sarcastic or arguing → C14. Minor negative wording → N16. Arguing about what happened in a complaint is also C14."
     },
     {
      "bucket": "EU",
@@ -611,8 +659,10 @@ window.FORMS = {
       "item": "تهرّب من المكالمة أو قفلها",
       "example": "يقفل في وش العميل، أو يعمل ميوت، أو يتجاهله.",
       "coach": "متقفلش في وش العميل ومتتجاهلوش. ولو الخط وحش، اتصل تاني واكتب ده على أودوو.",
-      "explain": "القفل في وش العميل أو تجاهله مخالفة كبيرة في الأسلوب."
-     }
+      "explain": "القفل في وش العميل أو تجاهله مخالفة كبيرة في الأسلوب.",
+      "vs": "قفل السكة أو الميوت أو التجاهل عن قصد ← C15. هولد طويل أو سكوت متعملش صح ← N17."
+     },
+     "vs": "Deliberately hanging up, muting or ignoring → C15. A long hold or silence handled badly → N17."
     },
     {
      "bucket": "BC",
@@ -627,25 +677,29 @@ window.FORMS = {
       "item": "اسم المركز غلط",
       "example": "لازم يكون 'مركز هاندسم آند بريتي الطبي' إلا لو فيه تعليمات مختلفة للفرع.",
       "coach": "عرّف المركز باسم 'مركز هاندسم آند بريتي الطبي' بس.",
-      "explain": "العيادة طلب الاسم ده في المكالمات. الاسم الغلط بيلخبط العملاء والبراند."
-     }
+      "explain": "العيادة طلب الاسم ده في المكالمات. الاسم الغلط بيلخبط العملاء والبراند.",
+      "vs": "اتقال اسم مركز غلط ← C16. اسم المركز ماتقالش خالص ← N2."
+     },
+     "vs": "A wrong clinic name said → C16. Clinic name not said at all → N2."
     },
     {
      "bucket": "BC",
-     "item": "No attempt to book, or gives up at the first objection, when the customer is eligible",
+     "item": "No attempt at all to book or offer the consultation when the customer is eligible",
      "applies": [
       "SALES",
       "FU"
      ],
-     "example": "Ends the call without offering the consultation.",
+     "example": "Answers questions only and ends the call without ever offering the consultation.",
      "coach": "Always offer the free consultation and handle at least one objection before ending the call.",
      "explain": "Booking the free consultation is the purpose of the call. Not trying is a lost opportunity for the business.",
      "ar": {
-      "item": "مفيش محاولة حجز، أو يستسلم من أول اعتراض، والعميل ينفع يحجز",
-      "example": "يقفل المكالمة من غير ما يعرض الاستشارة.",
+      "item": "مفيش أي محاولة لحجز أو عرض الاستشارة والعميل ينفع يحجز",
+      "example": "بيرد على الأسئلة بس ويقفل المكالمة من غير ما يعرض الاستشارة خالص.",
       "coach": "اعرض الاستشارة المجانية دايمًا، واتعامل مع اعتراض واحد على الأقل قبل ما تقفل.",
-      "explain": "حجز الاستشارة المجانية هو الهدف من المكالمة. عدم المحاولة فرصة ضايعة على الشغل."
-     }
+      "explain": "حجز الاستشارة المجانية هو الهدف من المكالمة. عدم المحاولة فرصة ضايعة على الشغل.",
+      "vs": "ماتعرضتش خالص ← C17. اتعرضت بشكل ضعيف ← N8. استسلم أو اتعامل غلط مع اعتراض ← N9."
+     },
+     "vs": "Never offered at all → C17. Offered weakly → N8. Gave up or handled an objection badly → N9."
     },
     {
      "bucket": "BC",
@@ -660,41 +714,47 @@ window.FORMS = {
       "item": "يوعد بخصم أو هدية أو سعر أو تعويض مش معتمد",
       "example": "خصم زيادة، هدية زيادة، استرجاع فلوس، أو جلسة مجانية.",
       "coach": "اعرض اللي في شيت العروض المعتمد بس، وأي طلب خاص صعّده للتيم ليدر.",
-      "explain": "الوعود اللي مش معتمدة بتكلف فلوس، وبتعمل خلاف لما العيادة ترفضها."
-     }
+      "explain": "الوعود اللي مش معتمدة بتكلف فلوس، وبتعمل خلاف لما العيادة ترفضها.",
+      "vs": "وعد بحاجة زيادة مش معتمدة ← C18. غلطة في سعر معتمد ← C8. رقم ممنوع نقوله ← C4."
+     },
+     "vs": "Promising something extra that is not approved → C18. An honest mistake in an approved price → C8. Quoting a forbidden figure → C4."
     },
     {
      "bucket": "BC",
-     "item": "Handles a complaint beyond our scope",
+     "item": "Goes beyond our role in a complaint: promises an outcome, refund or timeline, or decides who is right",
      "applies": [
       "CMP",
       "FU"
      ],
-     "example": "Promises an outcome, blames the doctor or clinic, or argues about what happened.",
+     "example": "'We'll refund you', 'the doctor will redo it for free', 'you're right, the doctor made a mistake'.",
      "coach": "Take complaint details and escalate; don't promise outcomes or comment on the doctor or clinic.",
      "explain": "Complaints are resolved by the UAE team. Promises or blame from the agent make the situation harder.",
      "ar": {
-      "item": "يتعامل مع الشكوى بأكتر من دوره",
-      "example": "يوعد بنتيجة، أو يلوم الدكتور أو العيادة، أو يجادل في اللي حصل.",
+      "item": "يتعدّى دوره في الشكوى: يوعد بنتيجة أو استرجاع فلوس أو ميعاد حل، أو يحكم مين الصح",
+      "example": "'هنرجعلك فلوسك'، 'الدكتور هيعيدها ببلاش'، 'عندك حق، الدكتور غلط'.",
       "coach": "خد بيانات الشكوى وصعّدها، ومتوعدش بنتيجة ومتعلقش على الدكتور أو العيادة.",
-      "explain": "الشكاوى بيحلها فريق الإمارات. وعود الإيجنت أو لومه بيصعّب الموقف."
-     }
+      "explain": "الشكاوى بيحلها فريق الإمارات. وعود الإيجنت أو لومه بيصعّب الموقف.",
+      "vs": "وعد أو حكم في الشكوى ← C19. جدال مع العميل ← C14. كلام وحش عن العيادة أو الدكاترة بره الشكوى ← C24. بيانات الشكوى ناقصة ← N10."
+     },
+     "vs": "Promising or judging in a complaint → C19. Arguing with the customer → C14. Speaking badly about the clinic or doctors outside a complaint → C24. Missing complaint details → N10."
     },
     {
      "bucket": "BC",
-     "item": "Work instructions not followed",
+     "item": "Other work instructions not followed (only when no other item covers it)",
      "applies": [
       "ALL"
      ],
-     "example": "Mandatory script lines, calling hours, attempts.",
+     "example": "Mandatory script lines skipped, calling outside the allowed hours, more or fewer attempts than the lead process.",
      "coach": "Follow the mandatory script lines, calling hours and attempt rules.",
      "explain": "Work instructions keep every call consistent and compliant with the client's rules.",
      "ar": {
-      "item": "مش ملتزم بتعليمات الشغل",
-      "example": "جمل السكريبت الإجبارية، مواعيد الاتصال، عدد المحاولات.",
+      "item": "مش ملتزم بتعليمات الشغل التانية (بس لو مفيش بند تاني بيغطيها)",
+      "example": "ساب جمل السكريبت الإجبارية، أو اتصل بره المواعيد المسموحة، أو عدد محاولات أكتر أو أقل من نظام الليدز.",
       "coach": "التزم بجمل السكريبت الإجبارية ومواعيد الاتصال وقواعد عدد المحاولات.",
-      "explain": "تعليمات الشغل بتخلي كل المكالمات بنفس المستوى وملتزمة بقواعد العميل."
-     }
+      "explain": "تعليمات الشغل بتخلي كل المكالمات بنفس المستوى وملتزمة بقواعد العميل.",
+      "vs": "استخدم C20 بس لو مفيش بند تاني مناسب. مكالمة اتوعد بيها وماتعملتش ← C13. اسم مركز غلط ← C16. غلطات أودوو ← C21–C23."
+     },
+     "vs": "Use C20 only when no other item fits. Missed promised callback → C13. Wrong clinic name → C16. Odoo mistakes → C21–C23."
     },
     {
      "bucket": "BC",
@@ -709,8 +769,10 @@ window.FORMS = {
       "item": "أودوو: حالة الليد أو نتيجة المكالمة أو سبب عدم الحجز غلط أو مش موجود",
       "example": "الليد فاضل 'New' بعد المكالمة؛ سبب عدم الحجز مش مكتوب.",
       "coach": "حدّث حالة الليد ونتيجة المكالمة وسبب عدم الحجز على أودوو بعد كل مكالمة على طول.",
-      "explain": "التقارير والمتابعة معتمدة على حالة الليد. الداتا الغلط معناها ليدز بتضيع وأرقام غلط."
-     }
+      "explain": "التقارير والمتابعة معتمدة على حالة الليد. الداتا الغلط معناها ليدز بتضيع وأرقام غلط.",
+      "vs": "C21 = حالة الليد ونتيجة المكالمة وسبب عدم الحجز. الملاحظات والـ Next activity ← C22. الحجز ← C10. الشكوى ← C11. أخطاء كتابة بسيطة ← N18."
+     },
+     "vs": "C21 = lead stage, call result, reason for not booking. Notes and next activity → C22. Booking → C10. Complaint → C11. Small typos → N18."
     },
     {
      "bucket": "BC",
@@ -725,8 +787,10 @@ window.FORMS = {
       "item": "أودوو: ملاحظات ناقصة أو Next activity (ميعاد المكالمة الجاية) مش متحدد",
       "example": "مفيش Next activity على ليد محتاج مكالمة تانية.",
       "coach": "اكتب ملاحظات واضحة وحدد الـ Next activity (ميعاد المكالمة الجاية) لكل ليد محتاج متابعة.",
-      "explain": "من غير ملاحظات وNext activity، محدش هيعرف يتصل بالعميل إمتى أو اتقال إيه."
-     }
+      "explain": "من غير ملاحظات وNext activity، محدش هيعرف يتصل بالعميل إمتى أو اتقال إيه.",
+      "vs": "C22 = ملاحظات ناقصة أو الـ Next activity مش متحدد. حالة الليد / النتيجة ← C21. المكالمة الموعودة نفسها ماتعملتش ← C13. أخطاء كتابة بسيطة ← N18."
+     },
+     "vs": "C22 = notes missing or next activity not set. Lead stage / result → C21. Missed the promised call itself → C13. Small typos → N18."
     },
     {
      "bucket": "BC",
@@ -757,8 +821,10 @@ window.FORMS = {
       "item": "كلام سلبي عن العيادة أو الدكاترة أو الزملاء أو المنافسين",
       "example": "'الفرع التاني وحش'، 'العيادة دي رخيصة'.",
       "coach": "خلي كلامك عن العيادة والدكاترة والزملاء والمنافسين إيجابي أو محايد.",
-      "explain": "الكلام السلبي بيأذي البراند وبيبان مش مهني."
-     }
+      "explain": "الكلام السلبي بيأذي البراند وبيبان مش مهني.",
+      "vs": "كلام سلبي عام عن العيادة أو الدكاترة أو الزملا أو المنافسين ← C24. الانحياز جوه شكوى ← C19."
+     },
+     "vs": "General negative talk about the clinic, doctors, colleagues or competitors → C24. Taking sides inside a complaint → C19."
     }
    ],
    "ar": {
@@ -821,8 +887,10 @@ window.FORMS = {
       "item": "أول رد على الليد الجديد في الوقت المتفق عليه (اقتراح: 5 دقايق في مواعيد الشغل – لسه هيتأكد)",
       "guide": "أول رد اتأخر عن الوقت المتفق عليه، محسوب من وقت نزول الليد على أودوو.",
       "coach": "تابع الليدز الجديدة باستمرار وابعت أول رد في الوقت المتفق عليه؛ أول دقايق هي اللي بتفرق في الحجز.",
-      "explain": "الليد اللي بياخد رد سريع بيحجز أكتر بكتير. الوقت بيتحسب من وقت ما الليد ينزل على أودوو."
-     }
+      "explain": "الليد اللي بياخد رد سريع بيحجز أكتر بكتير. الوقت بيتحسب من وقت ما الليد ينزل على أودوو.",
+      "vs": "N1 = أول رد على ليد جديد. الردود بعد كده في الشات ← N2."
+     },
+     "vs": "N1 = the first reply to a new lead. Replies later in the chat → N2."
     },
     {
      "section": "Speed",
@@ -840,8 +908,10 @@ window.FORMS = {
       "item": "يكمّل المحادثة: يرد في الوقت المتفق عليه طول ما العميل متفاعل (اقتراح: 3 دقايق)",
       "guide": "العميل بيستنى ويكرر السؤال أو يمشي.",
       "coach": "كمّل الرد طول ما العميل متفاعل، ولو محتاج تتأكد من حاجة قوله الأول.",
-      "explain": "الفترات الطويلة وسط محادثة شغالة بتخلي العميل يزهق أو يروح لمركز تاني."
-     }
+      "explain": "الفترات الطويلة وسط محادثة شغالة بتخلي العميل يزهق أو يروح لمركز تاني.",
+      "vs": "ردود بطيئة أثناء الشات ← N2. آخر رسالة للعميل فضلت من غير رد خالص ← C11 (حرج)."
+     },
+     "vs": "Slow replies during the chat → N2. Customer's last message left with no reply at all → C11 (critical)."
     },
     {
      "section": "Opening",
@@ -859,8 +929,10 @@ window.FORMS = {
       "item": "يرحّب ويعرّف بنفسه وبـ 'مركز هاندسم آند بريتي الطبي' بالافتتاحية المعتمدة",
       "guide": "مفيش ترحيب / اسم / اسم المركز.",
       "coach": "استخدم الافتتاحية المعتمدة باسمك واسم 'مركز هاندسم آند بريتي الطبي'.",
-      "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان، زي المكالمة بالظبط."
-     }
+      "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان، زي المكالمة بالظبط.",
+      "vs": "الاسم أو اسم المركز ماتقالش ← N3. اسم مركز غلط ← C14 (حرج)."
+     },
+     "vs": "Name or clinic not said → N3. A wrong clinic name → C14 (critical)."
     },
     {
      "section": "Engagement",
@@ -878,8 +950,10 @@ window.FORMS = {
       "item": "ردود مخصوصة بترد على سؤال العميل نفسه (مش نسخ ولصق أو ردود آلية)",
       "guide": "نفس التمبلت بيتبعت أيًا كان السؤال.",
       "coach": "رد على سؤالها بالظبط الأول، وبعدين عدّل التمبلت؛ ومتبعتش نفس الكلام للكل.",
-      "explain": "الردود المنسوخة بتحسّس العميل إنه بيكلم روبوت. الرد على سؤاله بالظبط بيخليه يكمل."
-     }
+      "explain": "الردود المنسوخة بتحسّس العميل إنه بيكلم روبوت. الرد على سؤاله بالظبط بيخليه يكمل.",
+      "vs": "N4 = الرد بيجاوب على السؤال نفسه. رسايل قصيرة وسهلة ← N10. الأسلوب ← N12."
+     },
+     "vs": "N4 = the reply answers the actual question. Short, readable messages → N10. Tone → N12."
     },
     {
      "section": "Discovery",
@@ -928,17 +1002,19 @@ window.FORMS = {
       "FU"
      ],
      "weight": 8,
-     "guide": "Conversation ends without a next step.",
+     "guide": "Next step suggested without its value. If there is no call to action at all → C15.",
      "label": "Call to action",
      "coach": "End every useful exchange with a clear next step: book the free consultation and explain its value.",
      "explain": "Without a clear next step, chats end with questions answered but no booking.",
      "ar": {
       "label": "الدعوة للحجز",
       "item": "دعوة واضحة للخطوة الجاية: الاستشارة المجانية / الحجز، مع توضيح قيمتها",
-      "guide": "المحادثة بتخلص من غير خطوة جاية.",
+      "guide": "الخطوة الجاية اتقالت من غير قيمتها. لو مفيش دعوة للحجز خالص ← C15.",
       "coach": "اختم أي كلام مفيد بخطوة واضحة: احجزي الاستشارة المجانية، ووضّح قيمتها.",
-      "explain": "من غير خطوة جاية واضحة، المحادثة بتخلص والأسئلة اتجاوبت بس من غير حجز."
-     }
+      "explain": "من غير خطوة جاية واضحة، المحادثة بتخلص والأسئلة اتجاوبت بس من غير حجز.",
+      "vs": "دعوة للحجز ضعيفة ← N7. مفيش دعوة للحجز خالص ← C15 (حرج)."
+     },
+     "vs": "Weak call to action → N7. No call to action at all → C15 (critical)."
     },
     {
      "section": "Offer",
@@ -976,8 +1052,10 @@ window.FORMS = {
       "item": "يتعامل مع الاعتراضات بالطريقة المعتمدة",
       "guide": "يتجاهل الاعتراض أو يجادل.",
       "coach": "استخدم: تفهّم، وضّح، رد، وبعدين اعرض تاني؛ واستخدم الردود المعتمدة لأشهر الاعتراضات.",
-      "explain": "الاعتراضات طبيعية. التعامل الصح معاها في الكتابة بيحوّل التردد لحجز."
-     }
+      "explain": "الاعتراضات طبيعية. التعامل الصح معاها في الكتابة بيحوّل التردد لحجز.",
+      "vs": "تعامل ضعيف مع الاعتراض ← N9. قلة ذوق أو جدال ← C13. مفيش دعوة للحجز خالص ← C15."
+     },
+     "vs": "Weak handling of an objection → N9. Rude or arguing → C13. Never inviting to book → C15."
     },
     {
      "section": "Writing",
@@ -1033,8 +1111,10 @@ window.FORMS = {
       "item": "أسلوب ولغة مناسبين للعميل (محترم، مناسب للخليج، إيموجي باعتدال)",
       "guide": "تبسّط زيادة، أو رسمي زيادة، أو كلمات عامية ممكن العميل ميفهمهاش.",
       "coach": "استخدم كلام محترم ومناسب للخليج، وإيموجي باعتدال، وابعد عن العامية والتبسّط الزيادة.",
-      "explain": "أسلوب الكتابة لازم يناسب مركز طبي وعميل من الخليج."
-     }
+      "explain": "أسلوب الكتابة لازم يناسب مركز طبي وعميل من الخليج.",
+      "vs": "N12 = الأسلوب والكلمات. تقدير مشاعر العميل ← N13. قلة ذوق أو جدال ← C13."
+     },
+     "vs": "N12 = style and wording. Acknowledging feelings → N13. Rude or arguing → C13."
     },
     {
      "section": "Writing",
@@ -1052,8 +1132,10 @@ window.FORMS = {
       "item": "التعاطف: يعترف بمخاوف العميل ومشاعره",
       "guide": "العميل قال قلق ومحدش رد عليه.",
       "coach": "اعترف بقلق العميل بالكلام قبل ما تدّي المعلومة.",
-      "explain": "الاعتراف بمشاعر العميل في الكتابة بيحسّسه إن فيه حد سامعه."
-     }
+      "explain": "الاعتراف بمشاعر العميل في الكتابة بيحسّسه إن فيه حد سامعه.",
+      "vs": "N13 = تقدير مشاعر العميل وقلقه. الأسلوب والكلمات ← N12."
+     },
+     "vs": "N13 = acknowledging feelings and concerns. Style and wording → N12."
     },
     {
      "section": "Closing",
@@ -1071,8 +1153,10 @@ window.FORMS = {
       "item": "يأكد الحجز في رسالة واحدة واضحة: الخدمة، الفرع + لوكيشن، اليوم والساعة، تعليمات قبل الزيارة",
       "guide": "التفاصيل متفرقة أو ناقصة.",
       "coach": "ابعت رسالة تأكيد واحدة: الخدمة، الفرع مع اللوكيشن، اليوم والساعة، تعليمات قبل الزيارة.",
-      "explain": "رسالة تأكيد واحدة واضحة سهل العميل يلاقيها بعدين، وبتقلل إنه ميجيش."
-     }
+      "explain": "رسالة تأكيد واحدة واضحة سهل العميل يلاقيها بعدين، وبتقلل إنه ميجيش.",
+      "vs": "التفاصيل اتقالت بس مش في رسالة تأكيد واحدة واضحة ← N14. معلومة ماتقالتش خالص ← C9. الحجز غلط على أودوو ← C10."
+     },
+     "vs": "Details given but not in one clear confirmation → N14. A detail never given at all → C9. Booked wrong in Odoo → C10."
     },
     {
      "section": "Odoo (minor)",
@@ -1090,8 +1174,10 @@ window.FORMS = {
       "item": "غلطات بسيطة في ملاحظات أو خانات أودوو مش بتغيّر حالة الليد أو الحجز أو التصعيد",
       "guide": "غلطات كتابة أو ملاحظات ناقصة بس لسه مفهومة.",
       "coach": "راجع ملاحظاتك على أودوو قبل الحفظ، وخليها قصيرة وواضحة وكاملة.",
-      "explain": "ملاحظات أودوو النضيفة بتساعد الزميل اللي هيكلم نفس العميل بعد كده."
-     }
+      "explain": "ملاحظات أودوو النضيفة بتساعد الزميل اللي هيكلم نفس العميل بعد كده.",
+      "vs": "غلطة بسيطة على أودوو ومش بتغيّر حاجة ← N15. لو بتغيّر حالة الليد أو الحجز أو التصعيد ← C10 أو C12 أو C19 أو C20."
+     },
+     "vs": "Small Odoo mistakes that change nothing → N15. If it changes the lead status, booking or escalation → C10, C12, C19 or C20."
     }
    ],
    "crit": [
@@ -1108,8 +1194,10 @@ window.FORMS = {
       "item": "يدّي نصيحة طبية أو يقيّم الحالة، حتى من الصور اللي العميل بيبعتها",
       "example": "'من صورتك محتاجة سرنجتين'، 'آمن مع الدوا اللي بتاخديه'.",
       "coach": "متقيّمش الصور أو الحالة الطبية في الشات أبدًا. قول إن الدكتور هيقيّمها في الاستشارة المجانية واحجزها.",
-      "explain": "تقييم الصور أو الحالة رأي طبي، والدكتور بس هو اللي يقدر يعمله."
-     }
+      "explain": "تقييم الصور أو الحالة رأي طبي، والدكتور بس هو اللي يقدر يعمله.",
+      "vs": "أي نصيحة طبية أو حكم على الحالة حتى من الصور ← C1. إنه يقول العلاج آمن في الحمل برضه C1؛ إجراءات الحجز / الـ Hold للحمل ← C3."
+     },
+     "vs": "Any medical advice or suitability judgement, including from photos → C1. Saying a treatment is safe in pregnancy is also C1; the pregnancy booking / hold process → C3."
     },
     {
      "bucket": "CC",
@@ -1141,8 +1229,10 @@ window.FORMS = {
       "item": "مش ملتزم بقاعدة الحمل",
       "example": "يحجز لعميلة حامل من غير ما تصر / من غير ما يكتب ده.",
       "coach": "راجع قاعدة الحمل: Hold ومتابعة بعد الولادة. ومتحجزش غير لو هي أصرّت، واكتب ده.",
-      "explain": "أغلب العلاجات مش بتتعمل أثناء الحمل. القاعدة المعتمدة: Hold ومتابعة بعد الولادة."
-     }
+      "explain": "أغلب العلاجات مش بتتعمل أثناء الحمل. القاعدة المعتمدة: Hold ومتابعة بعد الولادة.",
+      "vs": "C3 = إجراءات الحجز / الـ Hold للحامل. إنه يقول العلاج آمن في الحمل ← C1."
+     },
+     "vs": "C3 = the pregnancy booking / hold process. Saying a treatment is safe in pregnancy → C1."
     },
     {
      "bucket": "CC",
@@ -1157,8 +1247,10 @@ window.FORMS = {
       "item": "يقول أرقام مش معتمدة",
       "example": "نسبة الضريبة، رسوم التقسيط، عدد جلسات Sculptra، سعر عادي.",
       "coach": "متكتبش نسبة الضريبة أو رسوم التقسيط أو عدد الجلسات. قول إن التفاصيل دي بتتأكد قبل الحجز.",
-      "explain": "الأرقام اللي مش متأكدة لما تتكتب بتبقى التزام ممكن العيادة متقدرش تنفذه."
-     }
+      "explain": "الأرقام اللي مش متأكدة لما تتكتب بتبقى التزام ممكن العيادة متقدرش تنفذه.",
+      "vs": "C4 = رقم ممنوع نقوله أصلًا. سعر معتمد اتقال غلط ← C8. وعد بخصم زيادة ← C16."
+     },
+     "vs": "C4 = a figure we must never quote. A wrong approved price → C8. Promising an extra discount → C16."
     },
     {
      "bucket": "CC",
@@ -1173,8 +1265,10 @@ window.FORMS = {
       "item": "يبعت محتوى مش معتمد أو بيانات عملاء تانيين",
       "example": "صور قبل / بعد، ملفات، أو أسعار مش في القايمة المعتمدة؛ أو بيانات عميل تاني.",
       "coach": "ابعت الميديا والأسعار المعتمدة بس، ومتشاركش أبدًا صور أو بيانات عملاء تانيين.",
-      "explain": "صور وبيانات العملاء التانيين خاصة. والميديا اللي مش معتمدة ممكن تخالف قواعد الإعلان."
-     }
+      "explain": "صور وبيانات العملاء التانيين خاصة. والميديا اللي مش معتمدة ممكن تخالف قواعد الإعلان.",
+      "vs": "C5 = بعت ملفات أو صور أو بيانات مش معتمدة أو بتاعة عميل تاني. الحكم الطبي من الصور ← C1."
+     },
+     "vs": "C5 = sending files, photos or data that are not approved or belong to another customer. Medical judgement from photos → C1."
     },
     {
      "bucket": "CC",
@@ -1222,8 +1316,10 @@ window.FORMS = {
       "item": "معلومة غلط في السعر أو العرض أو الهدية",
       "example": "سعر غلط، أو مش بيقول إن الأسعار قبل الضريبة.",
       "coach": "راجع شيت العروض قبل ما تكتب السعر، وقول دايمًا إن الأسعار قبل الضريبة.",
-      "explain": "السعر الغلط المكتوب صعب يترجع فيه وبيعمل خلاف."
-     }
+      "explain": "السعر الغلط المكتوب صعب يترجع فيه وبيعمل خلاف.",
+      "vs": "غلطة في سعر أو عرض أو هدية معتمدة ← C8. وعد بحاجة زيادة مش معتمدة ← C16. رقم ممنوع نقوله ← C4."
+     },
+     "vs": "Honest mistake in an approved price, offer or gift → C8. Promising something extra that is not approved → C16. Quoting a forbidden figure → C4."
     },
     {
      "bucket": "EU",
@@ -1239,8 +1335,10 @@ window.FORMS = {
       "item": "معلومات ناقصة العميل محتاجها",
       "example": "الفرع، المواعيد، الاستشارة المجانية، تعليمات التحضير.",
       "coach": "استخدم قايمة الحجز: الفرع، المواعيد، الاستشارة المجانية، تعليمات التحضير.",
-      "explain": "المعلومات الناقصة بتبوّظ الزيارة أو بتفاجئ العميل."
-     }
+      "explain": "المعلومات الناقصة بتبوّظ الزيارة أو بتفاجئ العميل.",
+      "vs": "المعلومة ماتقالتش خالص ← C9. اتقالت بس مش في رسالة تأكيد واضحة ← N14. سعر غلط ← C8."
+     },
+     "vs": "Information never given at all → C9. Given but not in one clear confirmation → N14. Wrong price → C8."
     },
     {
      "bucket": "EU",
@@ -1256,8 +1354,10 @@ window.FORMS = {
       "item": "حجز غلط أو مش متسجل",
       "example": "فرع / ميعاد غلط، أو مش متسجل على أودوو.",
       "coach": "راجع اليوم والساعة والفرع والخدمة على أودوو قبل ما تأكد في الشات.",
-      "explain": "الحجز الغلط معناه إن العميل يوصل ومحدش مستنيه."
-     }
+      "explain": "الحجز الغلط معناه إن العميل يوصل ومحدش مستنيه.",
+      "vs": "حجز غلط أو مش متسجل ← C10 بس (مش C19 كمان)."
+     },
+     "vs": "Wrong or missing booking → C10 only (not C19 too)."
     },
     {
      "bucket": "EU",
@@ -1272,8 +1372,10 @@ window.FORMS = {
       "item": "العميل اتساب من غير رد (محادثة متروكة)",
       "example": "آخر رسالة سؤال من العميل ومحدش رد عليه.",
       "coach": "متسيبش سؤال عميل من غير رد أبدًا؛ ولو شيفتك خلصت سلّم المحادثة لزميل.",
-      "explain": "السؤال اللي ملوش رد عميل ضايع وصورة وحشة عن المركز."
-     }
+      "explain": "السؤال اللي ملوش رد عميل ضايع وصورة وحشة عن المركز.",
+      "vs": "الشات اتساب من غير رد خالص ← C11. ردود بطيئة ← N2."
+     },
+     "vs": "Chat left with no reply at all → C11. Slow replies → N2."
     },
     {
      "bucket": "EU",
@@ -1289,8 +1391,10 @@ window.FORMS = {
       "item": "شكوى مش متسجلة على أودوو أو مش متصعّدة لفريق الإمارات",
       "example": "شكوى في الشات ومحدش سجّلها.",
       "coach": "سجّل أي شكوى على أودوو وصعّدها لفريق الإمارات في نفس اليوم.",
-      "explain": "دورنا إننا نسجل الشكاوى ونصعّدها عشان العيادة تتصرف."
-     }
+      "explain": "دورنا إننا نسجل الشكاوى ونصعّدها عشان العيادة تتصرف.",
+      "vs": "الشكوى ماتسجلتش أو ماتصعّدتش ← C12 بس (مش C19 كمان). اتسجلت بس الإيجنت وعد بنتيجة ← C17."
+     },
+     "vs": "Complaint not logged or not escalated → C12 only (not C19 too). Logged, but the agent promised an outcome → C17."
     },
     {
      "bucket": "EU",
@@ -1305,8 +1409,10 @@ window.FORMS = {
       "item": "قلة ذوق أو جدال",
       "example": "تريقة، أو لوم العميل.",
       "coach": "خليك محترم في الكتابة حتى لو العميل مش كده، ومتجادلش أو تتريق.",
-      "explain": "الرسايل اللي فيها قلة ذوق ممكن تتصوّر وتتنشر وتأذي البراند."
-     }
+      "explain": "الرسايل اللي فيها قلة ذوق ممكن تتصوّر وتتنشر وتأذي البراند.",
+      "vs": "قلة ذوق أو تريقة أو جدال ← C13. أسلوب متبسّط زيادة أو ناشف شوية ← N12."
+     },
+     "vs": "Rude, sarcastic or arguing → C13. Style that is a bit too informal or stiff → N12."
     },
     {
      "bucket": "BC",
@@ -1321,12 +1427,14 @@ window.FORMS = {
       "item": "اسم المركز غلط",
       "example": "لازم يكون 'مركز هاندسم آند بريتي الطبي'.",
       "coach": "عرّف المركز باسم 'مركز هاندسم آند بريتي الطبي' بس.",
-      "explain": "العيادة طلبت الاسم ده. الاسم الغلط بيلخبط العملاء."
-     }
+      "explain": "العيادة طلبت الاسم ده. الاسم الغلط بيلخبط العملاء.",
+      "vs": "اسم مركز غلط ← C14. اسم المركز ماتقالش خالص ← N3."
+     },
+     "vs": "A wrong clinic name → C14. Clinic name not said at all → N3."
     },
     {
      "bucket": "BC",
-     "item": "No call to action / no booking attempt when the customer is eligible",
+     "item": "No call to action at all / no booking attempt when the customer is eligible",
      "applies": [
       "SALES",
       "FU"
@@ -1335,11 +1443,13 @@ window.FORMS = {
      "coach": "Always invite the customer to book the free consultation when she is eligible.",
      "explain": "Booking is the goal of the chat. Answering questions without inviting to book loses the lead.",
      "ar": {
-      "item": "مفيش دعوة للحجز / مفيش محاولة حجز والعميل ينفع يحجز",
+      "item": "مفيش أي دعوة للحجز / محاولة حجز والعميل ينفع يحجز",
       "example": "بيرد على الأسئلة بس، وعمره ما يدعو للحجز.",
       "coach": "ادعِ العميل دايمًا يحجز الاستشارة المجانية لما يكون ينفع.",
-      "explain": "الحجز هو هدف المحادثة. الرد على الأسئلة من غير دعوة للحجز بيضيّع الليد."
-     }
+      "explain": "الحجز هو هدف المحادثة. الرد على الأسئلة من غير دعوة للحجز بيضيّع الليد.",
+      "vs": "مفيش دعوة للحجز خالص ← C15. دعوة ضعيفة ← N7. تعامل ضعيف مع اعتراض ← N9."
+     },
+     "vs": "No call to action at all → C15. A weak call to action → N7. Weak objection handling → N9."
     },
     {
      "bucket": "BC",
@@ -1354,25 +1464,29 @@ window.FORMS = {
       "item": "يوعد بخصم أو هدية أو سعر أو تعويض مش معتمد",
       "example": "خصم أو هدية زيادة.",
       "coach": "اعرض اللي في شيت العروض المعتمد بس، وأي طلب خاص صعّده للتيم ليدر.",
-      "explain": "الوعد المكتوب لازم يتنفذ؛ واللي مش معتمد بيكلف فلوس أو يعمل خلاف."
-     }
+      "explain": "الوعد المكتوب لازم يتنفذ؛ واللي مش معتمد بيكلف فلوس أو يعمل خلاف.",
+      "vs": "وعد بحاجة زيادة مش معتمدة ← C16. غلطة في سعر معتمد ← C8. رقم ممنوع نقوله ← C4."
+     },
+     "vs": "Promising something extra that is not approved → C16. An honest mistake in an approved price → C8. Quoting a forbidden figure → C4."
     },
     {
      "bucket": "BC",
-     "item": "Handles a complaint beyond our scope",
+     "item": "Goes beyond our role in a complaint: promises an outcome, refund or timeline, or decides who is right",
      "applies": [
       "CMP",
       "FU"
      ],
-     "example": "Promises an outcome or blames the clinic.",
+     "example": "'We'll refund you', 'you're right, the doctor made a mistake'.",
      "coach": "Take complaint details and escalate; don't promise outcomes or comment on the clinic.",
      "explain": "Complaints are resolved by the UAE team, not in the chat.",
      "ar": {
-      "item": "يتعامل مع الشكوى بأكتر من دوره",
-      "example": "يوعد بنتيجة أو يلوم العيادة.",
+      "item": "يتعدّى دوره في الشكوى: يوعد بنتيجة أو استرجاع فلوس أو ميعاد حل، أو يحكم مين الصح",
+      "example": "'هنرجعلك فلوسك'، 'عندك حق، الدكتور غلط'.",
       "coach": "خد بيانات الشكوى وصعّدها، ومتوعدش بنتيجة ومتعلقش على العيادة.",
-      "explain": "الشكاوى بيحلها فريق الإمارات، مش في الشات."
-     }
+      "explain": "الشكاوى بيحلها فريق الإمارات، مش في الشات.",
+      "vs": "وعد أو حكم في الشكوى ← C17. جدال ← C13. ماتسجلتش / ماتصعّدتش ← C12."
+     },
+     "vs": "Promising or judging in a complaint → C17. Arguing → C13. Not logged / not escalated → C12."
     },
     {
      "bucket": "BC",
@@ -1403,8 +1517,10 @@ window.FORMS = {
       "item": "أودوو: حالة أو نتيجة أو ملاحظات أو Next activity غلط أو مش موجودة",
       "example": "المحادثة مش ظاهرة على كارت الليد.",
       "coach": "حدّث الحالة والنتيجة والملاحظات والـ Next activity على أودوو بعد كل محادثة.",
-      "explain": "أودوو هو سجل كل ليد؛ المحادثات لازم تتسجل عليه عشان المتابعة والتقارير."
-     }
+      "explain": "أودوو هو سجل كل ليد؛ المحادثات لازم تتسجل عليه عشان المتابعة والتقارير.",
+      "vs": "حالة الليد أو النتيجة أو الملاحظات أو الـ Next activity ← C19. الحجز ← C10. الشكوى ← C12. أخطاء كتابة بسيطة ← N15."
+     },
+     "vs": "Lead stage, result, notes or next activity → C19. Booking → C10. Complaint → C12. Small typos → N15."
     },
     {
      "bucket": "BC",

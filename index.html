@@ -13,6 +13,7 @@
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
+    <button data-view="guide" data-i18n="nav_guide"></button>
     <button data-view="settings" data-i18n="nav_settings"></button>
     <button id="btnLang" class="lang" data-i18n="lang_switch"></button>
   </nav>
@@ -112,6 +113,25 @@
       <div class="card" id="dbEvaluators"></div>
     </div>
     <div class="card" id="dbAgents"></div>
+  </section>
+
+  <!-- Item guide -->
+  <section id="view-guide" class="view">
+    <div class="card">
+      <h2 data-i18n="guide_title"></h2>
+      <p class="hint" data-i18n="guide_hint"></p>
+      <ol class="rules">
+        <li data-i18n="rule1"></li>
+        <li data-i18n="rule2"></li>
+        <li data-i18n="rule3"></li>
+        <li data-i18n="rule4"></li>
+      </ol>
+      <div class="toolbar">
+        <label><span data-i18n="f_form"></span><select id="guideForm"></select></label>
+        <button id="btnPrintGuide" data-i18n="print"></button>
+      </div>
+    </div>
+    <div class="card" id="guideOut"></div>
   </section>
 
   <!-- Settings -->

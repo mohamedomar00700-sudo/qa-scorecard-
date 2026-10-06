@@ -288,7 +288,8 @@
       it.applies.map((x) => h("span", { class: "tag", text: x })),
       isNc ? h("span", {}, t("weight") + " ", h("b", { text: it.weight }), " · " + t("not_met_if") + ": " + L(it, "guide")) : h("span", { text: t("example") + ": " + L(it, "example") }));
     const explainOpen = showExplain || openExplain.has(kind + i);
-    const explain = L(it, "explain") ? h("div", { class: "explain" + (explainOpen ? " open" : "") }, L(it, "explain")) : null;
+    const explain = L(it, "explain") ? h("div", { class: "explain" + (explainOpen ? " open" : "") }, L(it, "explain"),
+      L(it, "vs") ? h("div", { class: "vs" }, h("b", { text: t("vs_label") + ": " }), L(it, "vs")) : null) : null;
     const infoBtn = explain ? h("button", { class: "info", type: "button", title: t("explain_btn"), "aria-label": t("explain_btn"), text: "?",
       onclick: () => { const k = kind + i; openExplain.has(k) ? openExplain.delete(k) : openExplain.add(k); explain.classList.toggle("open"); } }) : null;
     const ev = h("input", { placeholder: t("timestamp"), value: ans.evidence || "" });
@@ -297,7 +298,7 @@
     cm.addEventListener("input", () => { ans.comment = cm.value; autoFeedback(); saveDraft(); });
     const showExtra = ans.result === "Not met" || ans.result === "Error" || ans.evidence || ans.comment;
     const row = h("div", { class: "item" + (ans.locked ? " locked" : ""), "data-kind": kind, "data-i": i },
-      h("div", { class: "num", text: isNc ? i + 1 : "C" + (i + 1) }),
+      h("div", { class: "num", text: (isNc ? "N" : "C") + (i + 1) }),
       h("div", {}, h("div", { class: "title" }, L(it, "item"), infoBtn), explain, meta, ans.locked ? h("div", { class: "meta", text: t("not_applicable") }) : null),
       seg,
       showExtra ? h("div", { class: "extra" }, ev, cm) : null);
@@ -497,7 +498,36 @@
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
 
-  function refreshViews() { renderCalibration(); renderDashboard(); }
+  function refreshViews() { renderCalibration(); renderDashboard(); renderGuide(); }
+
+  // ---------- item guide: every item with its meaning and how it differs from similar items ----------
+  function renderGuide() {
+    const out = $("#guideOut"); if (!out) return;
+    const sel = $("#guideForm");
+    if (!sel.options.length || sel.dataset.lang !== lang) {
+      const prev = sel.value || "calls"; sel.innerHTML = "";
+      sel.append(...Object.keys(F.forms).map((k) => h("option", { value: k, text: formName(k) })));
+      sel.value = prev; sel.dataset.lang = lang;
+    }
+    const f = F.forms[sel.value];
+    const ap = (x) => x.applies.map((c) => h("span", { class: "tag", text: c }));
+    const card = (num, title, sub, it, extra) => h("div", { class: "g-item" },
+      h("div", { class: "g-head" }, h("span", { class: "num", text: num }), h("div", {}, h("div", { class: "title", text: title }), sub ? h("div", { class: "meta", text: sub }) : null), h("div", { class: "meta" }, ap(it), extra)),
+      h("p", { text: L(it, "explain") }),
+      it.guide ? h("p", { class: "meta" }, h("b", { text: t("not_met_if") + ": " }), L(it, "guide")) : h("p", { class: "meta" }, h("b", { text: t("example") + ": " }), L(it, "example")),
+      L(it, "vs") ? h("p", { class: "vs" }, h("b", { text: t("vs_label") + ": " }), L(it, "vs")) : null);
+    out.innerHTML = "";
+    let sec = null;
+    f.nc.forEach((it, i) => {
+      if (it.section !== sec) { sec = it.section; out.append(h("h3", { text: t("partA") + " · " + secLabel(sec) })); }
+      out.append(card("N" + (i + 1), L(it, "label"), L(it, "item"), it, h("span", {}, t("weight") + " ", h("b", { text: it.weight }))));
+    });
+    let b = null;
+    f.crit.forEach((it, i) => {
+      if (it.bucket !== b) { b = it.bucket; out.append(h("h3", { class: "crit-h", text: t("bucket_" + b) }), h("p", { class: "hint", text: t("bucket_" + b + "_hint") })); }
+      out.append(card("C" + (i + 1), L(it, "item"), null, it));
+    });
+  }
 
   // Item definition for a stored item ("4" = NC item 4, "C3" = critical item 3).
   function itemDef(form, it) {
@@ -540,7 +570,7 @@
     g[0].items.forEach((it, idx) => {
       const vals = g.map((r) => (r.items[idx] || {}).result || "");
       const differ = new Set(vals).size > 1; if (differ) diffs++;
-      itemsTbl.append(h("tr", { class: differ ? "diff" : "" }, h("td", { text: it.id }), h("td", { text: L(itemDef(g[0].form, it), "item") || it.text }),
+      itemsTbl.append(h("tr", { class: differ ? "diff" : "" }, h("td", { text: (it.kind === "NC" ? "N" : "") + it.id }), h("td", { text: L(itemDef(g[0].form, it), "item") || it.text }),
         g.map((r) => { const x = r.items[idx] || {}; const v = x.result || "";
           return h("td", {}, h("span", { class: "pill " + (v === "Met" || v === "No error" ? "good" : v === "N/A" || !v ? "na" : "bad"), text: v ? t(v) : "–" }), x.comment ? h("div", { class: "meta", text: x.comment }) : null); })));
     });
@@ -668,7 +698,7 @@
       if (it.result === "Not met" || it.result === "Error") s.miss++;
     }));
     const multiForm = new Set(recs.map((r) => r.form)).size > 1;
-    const nm = (s) => (multiForm ? formName(s.form) + " · " : "") + s.id + " " + s.text;
+    const nm = (s) => (multiForm ? formName(s.form) + " · " : "") + (s.kind === "NC" ? "N" : "") + s.id + " " + s.text;
     const ncMiss = [...stat.values()].filter((s) => s.kind === "NC" && s.miss).sort((a, b) => b.miss / b.n - a.miss / a.n || b.miss - a.miss).slice(0, 10);
     section("#dbItems", t("most_missed"), t("most_missed_hint"),
       ncMiss.length ? bars(ncMiss.map((s) => ({ label: nm(s), value: s.miss / s.n, display: pct(s.miss / s.n) + " (" + s.miss + "/" + s.n + ")", title: s.full + "\n" + t("tip") + ": " + (s.coach || "") })), { max: 1 }) : h("div", { class: "empty", text: t("no_missed") }));
@@ -765,6 +795,8 @@
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
+    $("#guideForm").addEventListener("input", renderGuide);
+    $("#btnPrintGuide").onclick = () => window.print();
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#btnSave").onclick = onSave;
     $("#btnCsv").onclick = () => { const r = buildRecord(); download(fileName(r, "csv"), recordCsv(r), "text/csv"); };
