@@ -65,13 +65,80 @@
   }
 
   // ---------- settings ----------
+  const CFG = window.QA_CONFIG || {};
   const settings = Object.assign({ url: "", key: "", evaluator: "" }, store(LS_SETTINGS) || {});
+  if (!settings.url && CFG.sheetUrl) settings.url = CFG.sheetUrl;
+  const connected = () => !!(settings.url && settings.key);
+
+  async function apiGet(params) {
+    const u = new URL(settings.url); u.searchParams.set("key", settings.key);
+    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+    const j = await (await fetch(u)).json();
+    if (!j.ok) throw new Error(j.error || "Rejected");
+    return j;
+  }
+  async function apiPost(obj) {
+    const body = JSON.stringify(Object.assign({ key: settings.key }, obj));
+    try {
+      const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Rejected");
+      return "saved";
+    } catch (e) {
+      if (String(e.message).match(/key|Rejected|Bad/i)) throw e;
+      // Some browsers block reading the reply; send again without reading it.
+      await fetch(settings.url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
+      return "sent";
+    }
+  }
+
+  // ---------- names (one shared list so reports group correctly) ----------
+  const LS_ROSTER = "qa_roster";
+  let roster = Object.assign({ agents: [], evaluators: [] }, store(LS_ROSTER) || {});
+  const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
+  function lev(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  function similarName(list, name) {
+    const k = nameKey(name);
+    return list.find((x) => {
+      const y = nameKey(x);
+      return y === k || (Math.min(y.length, k.length) >= 4 && (y.startsWith(k) || k.startsWith(y))) || lev(y, k) <= 2;
+    });
+  }
+  async function loadRoster() {
+    if (!connected()) return;
+    try {
+      const j = await apiGet({ action: "roster" });
+      if (!Array.isArray(j.agents)) return;
+      roster = { agents: j.agents, evaluators: j.evaluators || [] };
+      store(LS_ROSTER, roster);
+    } catch (e) { /* keep the cached list */ }
+  }
+  async function addPerson(role, raw) {
+    const name = normName(raw);
+    if (!name) return null;
+    const list = roster[role];
+    const near = similarName(list, name);
+    if (near && (nameKey(near) === nameKey(name) || confirm('"' + near + '" is already on the list. Use "' + near + '" instead of "' + name + '"?'))) return near;
+    list.push(name); list.sort((a, b) => a.localeCompare(b)); store(LS_ROSTER, roster);
+    if (connected()) {
+      try { await apiPost({ action: "addPerson", role, name }); }
+      catch (e) { alert("Added on this device only. It could not be added to the shared list: " + e.message); }
+    }
+    return name;
+  }
 
   // ---------- evaluate view ----------
   let current = { form: "calls", answers: null };
   const HEADER = [
-    ["agent", "Agent name", "text", true],
-    ["evaluator", "Evaluator", "text", true],
+    ["agent", "Agent name", "person", true],
+    ["evaluator", "Evaluator", "person", true],
     ["evalDate", "Evaluation date", "date", true],
     ["interactionDate", "Interaction date / time", "datetime-local"],
     ["odooRef", "Odoo lead ref", "text"],
@@ -124,10 +191,24 @@
       if (kind === "select") {
         const opts = key === "type" ? Object.keys(d.types) : d.outcomes;
         input = h("select", {}, h("option", { value: "", text: "– select –" }), opts.map((o) => h("option", { value: o, text: o })));
+      } else if (kind === "person") {
+        const role = key === "agent" ? "agents" : "evaluators";
+        const opts = roster[role].slice();
+        if (a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
+        input = h("select", {}, h("option", { value: "", text: "– select –" }), opts.map((o) => h("option", { value: o, text: o })),
+          h("option", { value: "__new", text: "+ Add a new name…" }));
       } else input = h("input", { type: kind });
       input.value = a.header[key] || "";
       input.id = "hd_" + key;
-      input.addEventListener("input", () => {
+      input.addEventListener("input", async () => {
+        if (input.value === "__new") {
+          const role = key === "agent" ? "agents" : "evaluators";
+          const name = await addPerson(role, prompt(key === "agent" ? "New agent's full name:" : "Evaluator's full name:") || "");
+          a.header[key] = name || a.header[key] || "";
+          if (key === "evaluator" && name) { settings.evaluator = name; store(LS_SETTINGS, settings); }
+          saveDraft(); renderHeader(); return;
+        }
+        if (key === "evaluator" && input.value) { settings.evaluator = input.value; store(LS_SETTINGS, settings); }
         a.header[key] = input.value;
         if (key === "type") { applyType(); renderItems(); }
         saveDraft(); updateScore();
@@ -299,20 +380,7 @@
     return toCsv(rows);
   }
 
-  async function postRecord(rec) {
-    const body = JSON.stringify({ key: settings.key, record: rec });
-    try {
-      const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "Rejected");
-      return "saved";
-    } catch (e) {
-      if (String(e.message).match(/key|Rejected/i)) throw e;
-      // Some browsers block reading the reply; send again without reading it.
-      await fetch(settings.url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
-      return "sent";
-    }
-  }
+  const postRecord = (rec) => apiPost({ record: rec });
 
   async function onSave() {
     const msg = $("#saveMsg"); msg.className = "msg";
@@ -352,16 +420,7 @@
     $$("[data-loader]").forEach((box) => {
       box.append($("#loaderTpl").content.cloneNode(true));
       const info = $(".loadInfo", box);
-      $(".loadSheet", box).onclick = async () => {
-        if (!settings.url) { info.textContent = "Add the Google Sheet link in Settings first."; return; }
-        info.textContent = "Loading…";
-        try {
-          const u = new URL(settings.url); u.searchParams.set("key", settings.key);
-          const j = await (await fetch(u)).json();
-          if (!j.ok) throw new Error(j.error || "Rejected");
-          addRecords(j.records); info.textContent = j.records.length + " evaluations loaded."; refreshViews();
-        } catch (e) { info.textContent = "Could not load: " + e.message; }
-      };
+      $(".loadSheet", box).onclick = () => loadFromSheet();
       $(".loadFiles", box).onchange = async (ev) => {
         let n = 0;
         for (const f of ev.target.files) {
@@ -370,6 +429,19 @@
         info.textContent = n + " evaluations imported."; ev.target.value = ""; refreshViews();
       };
     });
+  }
+
+  let sheetLoaded = false;
+  async function loadFromSheet() {
+    const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
+    if (!connected()) { say("Not connected to the Google Sheet yet (open the setup link or Settings)."); return; }
+    say("Loading from the Google Sheet…");
+    try {
+      const j = await apiGet({});
+      addRecords(j.records); sheetLoaded = true;
+      say(j.records.length + " evaluations loaded · " + new Date().toLocaleTimeString());
+      refreshViews();
+    } catch (e) { say("Could not load: " + e.message); }
   }
 
   function refreshViews() { renderCalibration(); renderDashboard(); }
@@ -423,61 +495,197 @@
   }
 
   // ---------- dashboard ----------
+  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
+  function fillSelect(sel, values, allLabel) {
+    const prev = sel.value;
+    sel.innerHTML = "";
+    sel.append(h("option", { value: "", text: allLabel }), values.map((v) => h("option", { value: v, text: v })));
+    if (values.includes(prev)) sel.value = prev;
+  }
+
+  // Horizontal bar list: one hue, value label at the end, tooltip on hover.
+  function bars(rows, opts = {}) {
+    const max = opts.max || Math.max(1, ...rows.map((r) => r.value));
+    const box = h("div", { class: "bars" });
+    rows.forEach((r) => {
+      const w = Math.max(0, Math.min(1, r.value / max));
+      box.append(h("div", { class: "bar-row", title: r.title || "" },
+        h("div", { class: "bar-label", text: r.label }),
+        h("div", { class: "bar-track" },
+          h("div", { class: "bar-fill" + (r.flag ? " flag" : ""), style: "width:" + (w * 100).toFixed(1) + "%" }),
+          opts.target ? h("div", { class: "bar-target", style: "left:" + (opts.target / max * 100) + "%" }) : null),
+        h("div", { class: "bar-value", text: r.display })));
+    });
+    return box;
+  }
+
+  function weekStart(d) {
+    const t = new Date(d + "T00:00:00");
+    if (isNaN(t)) return null;
+    t.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+    return t.toISOString().slice(0, 10);
+  }
+
+  function section(id, title, hint, ...content) {
+    const box = $(id); box.innerHTML = "";
+    box.append(...[h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...content].filter(Boolean));
+  }
+
   function renderDashboard() {
-    const form = $("#dbForm").value, from = $("#dbFrom").value, to = $("#dbTo").value, withCal = $("#dbCal").value === "yes";
-    const recs = allRecords().filter((r) => (!form || r.form === form) && (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to) && (withCal || !r.sampleRef));
-    const box = $("#dbAgents"); box.innerHTML = "";
-    if (!recs.length) { box.append(h("div", { class: "empty", text: "No evaluations yet. Load them from the Google Sheet or import files." })); $("#dbItems").innerHTML = ""; return; }
+    const all = allRecords();
+    fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), "All agents");
+    fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), "All evaluators");
+    fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), "All types");
+    const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, cal: $("#dbCal").value === "yes" };
+    const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
+      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && (f.cal || !r.sampleRef));
+
+    const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
+    if (!recs.length) {
+      ids.forEach((i) => ($(i).innerHTML = ""));
+      $("#dbKpis").append(h("div", { class: "empty", text: all.length ? "No evaluations match these filters." : "No evaluations yet. They appear here once evaluations are saved to the Google Sheet (or imported as files)." }));
+      ids.slice(1).forEach((i) => ($(i).style.display = "none"));
+      return;
+    }
+    ids.forEach((i) => ($(i).style.display = ""));
+
+    // KPI tiles
+    const finals = recs.map((r) => r.final).filter((x) => x !== null && x !== undefined);
+    const passRate = recs.filter((r) => r.result === "Pass").length / recs.length;
+    const withCrit = recs.filter((r) => r.critical > 0).length;
+    const tiles = [
+      ["Evaluations", recs.length, new Set(recs.map((r) => r.agent)).size + " agents"],
+      ["Average final score", pct(avg(finals)), "target 85%"],
+      ["Pass rate", pct(passRate), recs.filter((r) => r.result === "Pass").length + " of " + recs.length + " passed"],
+      ["Average NC score", pct(avg(recs.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined))), "before critical errors"],
+      ["With a critical error", withCrit, pct(withCrit / recs.length) + " of evaluations"],
+      ["CC accuracy", pct(avg(recs.map((r) => r.cc))), "compliance"],
+      ["EU accuracy", pct(avg(recs.map((r) => r.eu))), "customer"],
+      ["BC accuracy", pct(avg(recs.map((r) => r.bc))), "business"],
+    ];
+    section("#dbKpis", "Overview", null, h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))));
+
+    // Weekly trend
+    const weeks = new Map();
+    recs.forEach((r) => { const w = weekStart(r.evalDate); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
+    const wk = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
+    section("#dbTrend", "Average final score by week", "Week starting Monday. Hover a bar for the number of evaluations.",
+      bars(wk.map(([w, l]) => { const v = avg(l.map((r) => r.final || 0)); return { label: "Week of " + w, value: v, display: pct(v), flag: v < PASS, title: l.length + " evaluations · pass rate " + pct(l.filter((r) => r.result === "Pass").length / l.length) }; }), { max: 1, target: PASS }));
+
+    // Agents
     const by = new Map();
     recs.forEach((r) => { const k = r.agent || "–"; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
-    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-    const tbl = h("table", {}, h("tr", {}, ["Agent", "Evaluations", "Avg final", "Avg NC", "CC acc.", "EU acc.", "BC acc.", "Critical errors", "Status"].map((t, i) => h("th", { class: i && i < 8 ? "num" : "", text: t }))));
-    const rows = [["Agent", "Evaluations", "Avg final", "Avg NC", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Status"]];
-    [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([agent, list]) => {
+    const agents = [...by.entries()].map(([agent, list]) => {
       const fin = avg(list.map((r) => r.final).filter((x) => x !== null));
-      const nc = avg(list.map((r) => r.ncScore).filter((x) => x !== null));
-      const cc = avg(list.map((r) => r.cc)), eu = avg(list.map((r) => r.eu)), bc = avg(list.map((r) => r.bc));
       const crit = list.reduce((s, r) => s + (r.critical || 0), 0);
-      const ok = fin !== null && fin >= PASS && crit === 0;
-      const status = ok ? "Meets 85% & no critical" : "Below standard";
-      tbl.append(h("tr", {}, h("td", { text: agent }), h("td", { class: "num", text: list.length }), h("td", { class: "num", text: pct(fin) }), h("td", { class: "num", text: pct(nc) }),
-        h("td", { class: "num", text: pct(cc) }), h("td", { class: "num", text: pct(eu) }), h("td", { class: "num", text: pct(bc) }), h("td", { class: "num", text: crit }),
-        h("td", {}, h("span", { class: "pill " + (ok ? "good" : "bad"), text: status }))));
-      rows.push([agent, list.length, pct(fin), pct(nc), pct(cc), pct(eu), pct(bc), crit, status]);
+      return { agent, list, fin, nc: avg(list.map((r) => r.ncScore).filter((x) => x !== null)), cc: avg(list.map((r) => r.cc)), eu: avg(list.map((r) => r.eu)), bc: avg(list.map((r) => r.bc)), crit, ok: fin !== null && fin >= PASS && crit === 0 };
+    }).sort((a, b) => (b.fin || 0) - (a.fin || 0));
+    section("#dbAgentsChart", "Average final score by agent", "The line marks the 85% target. Highlighted bars are below it.",
+      bars(agents.map((a) => ({ label: a.agent, value: a.fin || 0, display: pct(a.fin), flag: (a.fin || 0) < PASS, title: a.list.length + " evaluations · " + a.crit + " critical errors" })), { max: 1, target: PASS }));
+    const rows = [["Agent", "Evaluations", "Avg final", "Avg NC", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Status"]];
+    const tbl = h("table", {}, h("tr", {}, rows[0].map((t, i) => h("th", { class: i && i < 8 ? "num" : "", text: t }))));
+    agents.forEach((a) => {
+      const status = a.ok ? "Meets 85% & no critical" : "Below standard";
+      tbl.append(h("tr", {}, h("td", {}, h("a", { href: "#", text: a.agent, onclick: (e) => { e.preventDefault(); $("#dbAgent").value = a.agent; renderDashboard(); } })),
+        h("td", { class: "num", text: a.list.length }), h("td", { class: "num", text: pct(a.fin) }), h("td", { class: "num", text: pct(a.nc) }),
+        h("td", { class: "num", text: pct(a.cc) }), h("td", { class: "num", text: pct(a.eu) }), h("td", { class: "num", text: pct(a.bc) }), h("td", { class: "num", text: a.crit }),
+        h("td", {}, h("span", { class: "pill " + (a.ok ? "good" : "bad"), text: status }))));
+      rows.push([a.agent, a.list.length, pct(a.fin), pct(a.nc), pct(a.cc), pct(a.eu), pct(a.bc), a.crit, status]);
     });
-    box.append(h("h2", { text: "Agents (" + recs.length + " evaluations)" }), tbl,
+    section("#dbAgents", "Agents table", "Click a name to see that agent only.", tbl,
       h("p", {}, h("button", { text: "Download (CSV)", onclick: () => download("QA_Dashboard_" + today() + ".csv", toCsv(rows), "text/csv") })));
 
-    const counts = new Map();
+    // Item-level analysis: miss rate = misses / evaluations where the item applied.
+    const stat = new Map();
     recs.forEach((r) => r.items.forEach((it) => {
-      if (it.result !== "Not met" && it.result !== "Error") return;
-      const k = F.forms[r.form].name + " · " + it.id + " · " + it.text;
-      counts.set(k, (counts.get(k) || 0) + 1);
+      if (!it.result || it.result === "N/A") return;
+      const key = r.form + "|" + it.id;
+      if (!stat.has(key)) {
+        const def = it.kind === "NC" ? F.forms[r.form].nc[+it.id - 1] : F.forms[r.form].crit[+it.id.slice(1) - 1];
+        stat.set(key, { form: r.form, id: it.id, kind: it.kind, text: (def && def.label) || it.text, full: it.text, section: def && def.section, coach: def && def.coach, n: 0, miss: 0 });
+      }
+      const s = stat.get(key); s.n++;
+      if (it.result === "Not met" || it.result === "Error") s.miss++;
     }));
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const ib = $("#dbItems"); ib.innerHTML = "";
-    ib.append(h("h2", { text: "Most missed items (coaching focus)" }));
-    if (!top.length) ib.append(h("div", { class: "empty", text: "No missed items in this selection." }));
-    else ib.append(h("table", {}, h("tr", {}, h("th", { text: "Item" }), h("th", { class: "num", text: "Times missed" })), top.map(([k, n]) => h("tr", {}, h("td", { text: k }), h("td", { class: "num", text: n })))));
+    const multiForm = new Set(recs.map((r) => r.form)).size > 1;
+    const nm = (s) => (multiForm ? F.forms[s.form].name + " · " : "") + s.id + " " + s.text;
+    const ncMiss = [...stat.values()].filter((s) => s.kind === "NC" && s.miss).sort((a, b) => b.miss / b.n - a.miss / a.n || b.miss - a.miss).slice(0, 10);
+    section("#dbItems", "Most missed items (coaching focus)", "Share of evaluations where the item applied and was not met. Hover for the coaching tip.",
+      ncMiss.length ? bars(ncMiss.map((s) => ({ label: nm(s), value: s.miss / s.n, display: pct(s.miss / s.n) + " (" + s.miss + "/" + s.n + ")", title: s.full + "\nTip: " + (s.coach || "") })), { max: 1 }) : h("div", { class: "empty", text: "No missed non-critical items in this selection." }));
+
+    const crMiss = [...stat.values()].filter((s) => s.kind !== "NC" && s.miss).sort((a, b) => b.miss - a.miss).slice(0, 10);
+    section("#dbCrit", "Critical errors", "Number of evaluations with each critical error. Hover for the coaching tip.",
+      crMiss.length ? bars(crMiss.map((s) => ({ label: (multiForm ? F.forms[s.form].name + " · " : "") + "[" + s.kind + "] " + s.full, value: s.miss, display: String(s.miss), flag: true, title: "Tip: " + (s.coach || "") }))) : h("div", { class: "empty", text: "No critical errors in this selection." }));
+
+    const secs = new Map();
+    [...stat.values()].filter((s) => s.kind === "NC").forEach((s) => { const k = s.section || "Other"; const v = secs.get(k) || { n: 0, miss: 0 }; v.n += s.n; v.miss += s.miss; secs.set(k, v); });
+    const secRows = [...secs.entries()].map(([k, v]) => ({ k, rate: v.n ? v.miss / v.n : 0, v })).sort((a, b) => b.rate - a.rate);
+    section("#dbSections", "Misses by skill area", "Share of applicable items not met in each area.",
+      bars(secRows.map((x) => ({ label: x.k, value: x.rate, display: pct(x.rate), title: x.v.miss + " misses out of " + x.v.n + " applicable items" })), { max: Math.max(0.05, ...secRows.map((x) => x.rate)) }));
+
+    // Evaluators: spot scoring that is much stricter or softer than the team.
+    const evs = new Map();
+    recs.forEach((r) => { const k = r.evaluator || "–"; if (!evs.has(k)) evs.set(k, []); evs.get(k).push(r); });
+    const teamAvg = avg(finals);
+    const et = h("table", {}, h("tr", {}, ["Evaluator", "Evaluations", "Avg final given", "Gap vs team", "Critical errors marked"].map((t, i) => h("th", { class: i ? "num" : "", text: t }))));
+    [...evs.entries()].sort((a, b) => b[1].length - a[1].length).forEach(([ev, list]) => {
+      const a = avg(list.map((r) => r.final).filter((x) => x !== null));
+      const gap = a === null || teamAvg === null ? null : a - teamAvg;
+      et.append(h("tr", {}, h("td", { text: ev }), h("td", { class: "num", text: list.length }), h("td", { class: "num", text: pct(a) }),
+        h("td", { class: "num", text: gap === null ? "–" : (gap >= 0 ? "+" : "") + (Math.round(gap * 1000) / 10) + " pts" }),
+        h("td", { class: "num", text: list.reduce((s, r) => s + (r.critical || 0), 0) })));
+    });
+    section("#dbEvaluators", "Evaluators", "A large gap vs the team average can mean an evaluator scores more strictly or softly; bring it to calibration.", et);
   }
 
   // ---------- settings view ----------
-  function renderSettings() {
-    $("#setUrl").value = settings.url; $("#setKey").value = settings.key; $("#setEvaluator").value = settings.evaluator;
-    $("#btnSaveSettings").onclick = () => {
-      settings.url = $("#setUrl").value.trim(); settings.key = $("#setKey").value; settings.evaluator = $("#setEvaluator").value.trim();
+  function setupLink() {
+    const blob = btoa(unescape(encodeURIComponent(JSON.stringify({ u: settings.url, k: settings.key }))));
+    return location.origin + location.pathname + "#setup=" + blob;
+  }
+  function readSetupLink() {
+    const m = location.hash.match(/^#setup=(.+)$/);
+    if (!m) return false;
+    try {
+      const j = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+      if (j.u) settings.url = j.u;
+      if (j.k) settings.key = j.k;
       store(LS_SETTINGS, settings);
+    } catch (e) { /* ignore a broken link */ }
+    history.replaceState(null, "", location.pathname);
+    return true;
+  }
+
+  function renderSettings() {
+    $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
+    const status = $("#connStatus");
+    status.textContent = connected() ? "Connected to the team's Google Sheet." : "Not connected: evaluations are downloaded as files.";
+    status.className = "msg " + (connected() ? "ok" : "err");
+    $("#btnSaveSettings").onclick = async () => {
+      settings.url = $("#setUrl").value.trim(); settings.key = $("#setKey").value;
+      store(LS_SETTINGS, settings);
+      await loadRoster(); renderSettings(); renderHeader();
       const m = $("#setMsg"); m.className = "msg ok"; m.textContent = "Settings saved in this browser.";
     };
     $("#btnTest").onclick = async () => {
       const m = $("#setMsg"); m.className = "msg"; m.textContent = "Testing…";
       try {
-        const u = new URL($("#setUrl").value.trim()); u.searchParams.set("key", $("#setKey").value);
-        const j = await (await fetch(u)).json();
-        if (!j.ok) throw new Error(j.error || "Rejected");
+        const j = await apiGet({});
         m.className = "msg ok"; m.textContent = "Connected. The sheet has " + j.records.length + " evaluations.";
       } catch (e) { m.className = "msg err"; m.textContent = "Could not connect: " + e.message; }
     };
+    $("#btnSetupLink").onclick = async () => {
+      const m = $("#setMsg");
+      if (!connected()) { m.className = "msg err"; m.textContent = "Save the link and access key first."; return; }
+      const link = setupLink();
+      try { await navigator.clipboard.writeText(link); m.className = "msg ok"; m.textContent = "Setup link copied. Send it privately to each evaluator; opening it once connects their browser."; }
+      catch (e) { m.className = "msg"; m.textContent = link; }
+    };
+    const rl = $("#rosterList"); rl.innerHTML = "";
+    for (const [role, label] of [["agents", "Agents"], ["evaluators", "Evaluators"]]) {
+      rl.append(h("div", {}, h("b", { text: label + " (" + roster[role].length + "): " }), roster[role].join(", ") || "none yet"));
+    }
   }
 
   // ---------- boot ----------
@@ -486,10 +694,10 @@
     $$("nav button").forEach((b) => b.onclick = () => {
       $$("nav button").forEach((x) => x.classList.toggle("active", x === b));
       $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + b.dataset.view));
-      if (b.dataset.view !== "evaluate") refreshViews();
+      if (b.dataset.view !== "evaluate") { if (!sheetLoaded && connected()) loadFromSheet(); refreshViews(); }
     });
     for (const [k, d] of Object.entries(F.forms)) $("#dbForm").append(h("option", { value: k, text: d.name }));
-    ["#dbForm", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
+    ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#btnSave").onclick = onSave;
@@ -497,7 +705,13 @@
     $("#btnReset").onclick = () => { if (!dirty() || confirm("Clear all answers?")) { current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } };
     const draft = store(LS_DRAFT);
     if (draft && F.forms[draft.form] && draft.answers && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
+    const fromLink = readSetupLink();
     setupLoaders(); renderSettings(); renderEvaluate();
+    if (fromLink) {
+      const m = $("#saveMsg"); m.className = "msg ok";
+      m.textContent = connected() ? "This browser is now connected to the team's Google Sheet. Pick your name as evaluator." : "The setup link was incomplete.";
+    }
+    loadRoster().then(() => { renderHeader(); renderSettings(); });
   }
   boot();
 })();

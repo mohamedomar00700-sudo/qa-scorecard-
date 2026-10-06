@@ -9,16 +9,26 @@ Evaluation tool for calls and WhatsApp conversations: live scoring, calibration 
 
 Items, weights and examples live in `forms.js`. Change them there and bump `version`.
 
-## Saving to a Google Sheet (one-time setup)
+## Connecting to the Google Sheet
 
-1. Create a new Google Sheet (e.g. "QA Evaluations").
+The sheet link is set in `config.js`. The access key is not stored in this public repository.
+
+- **Admin (once):** Settings > paste the access key > Save > **Copy setup link for evaluators**. Send that link privately to each evaluator.
+- **Evaluators (once):** open the setup link. Their browser is connected; they then pick their own name on the Evaluate page.
+
+## Names
+
+Agents and evaluators are chosen from one shared list (the "Roster" tab in the Google Sheet) so reports group correctly. "+ Add a new name…" adds a name; names that look similar to an existing one are flagged first. Rename or deactivate names in the Roster tab (Active = No).
+
+## Google Sheet setup (one time)
+
+1. Create a Google Sheet (e.g. "QA Evaluations").
 2. Extensions > Apps Script. Replace the code with `apps-script/Code.gs`.
-3. Change `ACCESS_KEY` at the top to a private key of your choice. Save.
-4. Deploy > New deployment > type **Web app**. Execute as: **Me**. Who has access: **Anyone**. Deploy and allow access.
-5. Copy the web app link (ends with `/exec`).
-6. In the tool, open **Settings**, paste the link and the key, then **Test connection**.
+3. Change `ACCESS_KEY` at the top to a private key. Save.
+4. Deploy > New deployment > **Web app**. Execute as: **Me**. Who has access: **Anyone**. Deploy and allow access.
+5. Put the web app link (ends with `/exec`) in `config.js`.
 
-Each evaluator does step 6 once in their own browser. Without the link, each evaluation is downloaded as a file; files can be imported back on the Calibration and Dashboard pages.
+After updating `Code.gs` later: Deploy > Manage deployments > Edit > Version: **New version** > Deploy. The link stays the same.
 
 ## Privacy
 

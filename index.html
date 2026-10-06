@@ -91,29 +91,46 @@
       <h2>Dashboard</h2>
       <div class="toolbar" data-loader></div>
       <div class="grid">
-        <label>Form<select id="dbForm"><option value="">All</option></select></label>
+        <label>Form<select id="dbForm"><option value="">All forms</option></select></label>
+        <label>Agent<select id="dbAgent"></select></label>
+        <label>Evaluator<select id="dbEvaluator"></select></label>
+        <label>Interaction type<select id="dbType"></select></label>
         <label>From<input type="date" id="dbFrom"></label>
         <label>To<input type="date" id="dbTo"></label>
-        <label>Include calibration samples<select id="dbCal"><option value="no">No</option><option value="yes">Yes</option></select></label>
+        <label>Calibration samples<select id="dbCal"><option value="no">Exclude</option><option value="yes">Include</option></select></label>
       </div>
     </div>
+    <div class="card" id="dbKpis"></div>
+    <div class="dash-grid">
+      <div class="card" id="dbItems"></div>
+      <div class="card" id="dbCrit"></div>
+      <div class="card" id="dbAgentsChart"></div>
+      <div class="card" id="dbSections"></div>
+      <div class="card" id="dbTrend"></div>
+      <div class="card" id="dbEvaluators"></div>
+    </div>
     <div class="card" id="dbAgents"></div>
-    <div class="card" id="dbItems"></div>
   </section>
 
   <!-- Settings -->
   <section id="view-settings" class="view">
     <div class="card">
-      <h2>Settings</h2>
-      <p class="hint">Evaluations are saved to the team's Google Sheet. Without a link, each evaluation is downloaded as a file and kept in this browser only.</p>
+      <h2>Connection</h2>
+      <div class="msg" id="connStatus"></div>
+      <p class="hint">Evaluators don't need this page: they open the setup link once and pick their name on the Evaluate page. Without a connection, each evaluation is downloaded as a file.</p>
       <div class="grid one">
         <label>Google Sheet web app link<input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec"></label>
         <label>Access key<input id="setKey" type="password"></label>
-        <label>Default evaluator name<input id="setEvaluator"></label>
       </div>
-      <button class="primary" id="btnSaveSettings">Save settings</button>
+      <button class="primary" id="btnSaveSettings">Save</button>
       <button id="btnTest">Test connection</button>
+      <button id="btnSetupLink">Copy setup link for evaluators</button>
       <div class="msg" id="setMsg"></div>
+    </div>
+    <div class="card">
+      <h2>Names list</h2>
+      <p class="hint">Agents and evaluators are picked from one shared list so reports group correctly. Add a name with "+ Add a new name…" on the Evaluate page; similar names are flagged before they are added. To rename or remove a name, edit the "Roster" tab in the Google Sheet.</p>
+      <div id="rosterList" class="roster"></div>
     </div>
   </section>
 </main>
@@ -124,6 +141,7 @@
   <span class="loadInfo"></span>
 </template>
 
+<script src="config.js"></script>
 <script src="forms.js"></script>
 <script src="app.js"></script>
 </body>
