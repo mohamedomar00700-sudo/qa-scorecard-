@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,10 +10,11 @@
 <header class="top">
   <div class="brand">QA Scorecard <span class="ver" id="ver"></span></div>
   <nav>
-    <button data-view="evaluate" class="active">Evaluate</button>
-    <button data-view="calibration">Calibration</button>
-    <button data-view="dashboard">Dashboard</button>
-    <button data-view="settings">Settings</button>
+    <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
+    <button data-view="calibration" data-i18n="nav_calibration"></button>
+    <button data-view="dashboard" data-i18n="nav_dashboard"></button>
+    <button data-view="settings" data-i18n="nav_settings"></button>
+    <button id="btnLang" class="lang" data-i18n="lang_switch"></button>
   </nav>
 </header>
 
@@ -27,44 +28,45 @@
           <div class="grid" id="headerFields"></div>
         </div>
         <div class="card">
-          <h2>Part A – Non-critical items</h2>
-          <p class="hint">Met / Not met / N/A. Items that do not apply to the interaction type are set to N/A automatically.</p>
+          <h2 data-i18n="partA"></h2>
+          <p class="hint" data-i18n="partA_hint"></p>
+          <label class="check"><input type="checkbox" id="showExplain"> <span data-i18n="show_explain"></span></label>
           <div id="ncList"></div>
         </div>
         <div class="card crit">
-          <h2>Part B – Critical errors</h2>
-          <p class="hint">Any "Error" fails that bucket and sets the final score to 0%.</p>
+          <h2 data-i18n="partB"></h2>
+          <p class="hint" data-i18n="partB_hint"></p>
           <div id="critList"></div>
         </div>
         <div class="card">
-          <h2>Feedback</h2>
-          <p class="hint">Written automatically from the answers. Edit freely; a box you edit stops updating. "Regenerate" rebuilds all three.</p>
+          <h2 data-i18n="feedback"></h2>
+          <p class="hint" data-i18n="feedback_hint"></p>
           <div class="grid one">
-            <label>Strengths<textarea id="fb_strengths" rows="4"></textarea></label>
-            <label>Areas to improve<textarea id="fb_improve" rows="4"></textarea></label>
-            <label>Coaching agreed with the agent<textarea id="fb_coaching" rows="4"></textarea></label>
+            <label><span data-i18n="fb_strengths"></span><textarea id="fb_strengths" rows="4"></textarea></label>
+            <label><span data-i18n="fb_improve"></span><textarea id="fb_improve" rows="4"></textarea></label>
+            <label><span data-i18n="fb_coaching"></span><textarea id="fb_coaching" rows="4"></textarea></label>
           </div>
-          <button id="btnRegen" type="button">Regenerate feedback</button>
-          <button id="btnCopyFb" type="button">Copy feedback for the agent</button>
+          <button id="btnRegen" type="button" data-i18n="regen"></button>
+          <button id="btnCopyFb" type="button" data-i18n="copy_fb"></button>
           <span class="msg" id="fbMsg"></span>
         </div>
       </div>
       <aside class="side-col">
         <div class="card sticky" id="scorePanel">
-          <h2>Score</h2>
+          <h2 data-i18n="score"></h2>
           <div class="big" id="sFinal">–</div>
           <div class="result" id="sResult"></div>
           <dl class="kv">
-            <dt>NC score</dt><dd id="sNC">–</dd>
-            <dt>CC accuracy</dt><dd id="sCC">–</dd>
-            <dt>EU accuracy</dt><dd id="sEU">–</dd>
-            <dt>BC accuracy</dt><dd id="sBC">–</dd>
-            <dt>Critical errors</dt><dd id="sCrit">0</dd>
-            <dt>Unanswered</dt><dd id="sOpen">–</dd>
+            <dt data-i18n="nc_score"></dt><dd id="sNC">–</dd>
+            <dt data-i18n="cc_acc"></dt><dd id="sCC">–</dd>
+            <dt data-i18n="eu_acc"></dt><dd id="sEU">–</dd>
+            <dt data-i18n="bc_acc"></dt><dd id="sBC">–</dd>
+            <dt data-i18n="crit_errors"></dt><dd id="sCrit">0</dd>
+            <dt data-i18n="unanswered"></dt><dd id="sOpen">–</dd>
           </dl>
-          <button class="primary" id="btnSave">Save evaluation</button>
-          <button id="btnCsv">Download as CSV</button>
-          <button class="ghost" id="btnReset">Clear form</button>
+          <button class="primary" id="btnSave" data-i18n="save_eval"></button>
+          <button id="btnCsv" data-i18n="download_csv"></button>
+          <button class="ghost" id="btnReset" data-i18n="clear_form"></button>
           <div class="msg" id="saveMsg"></div>
         </div>
       </aside>
@@ -74,12 +76,12 @@
   <!-- Calibration -->
   <section id="view-calibration" class="view">
     <div class="card">
-      <h2>Calibration</h2>
-      <p class="hint">Every evaluator scores the same sample with the same "Sample ref". Load the evaluations, pick the sample, and compare item by item. Target: every NC score within ±5 points of the agreed score and full agreement on critical errors.</p>
+      <h2 data-i18n="cal_title"></h2>
+      <p class="hint" data-i18n="cal_hint"></p>
       <div class="toolbar" data-loader></div>
       <div class="grid">
-        <label>Sample ref<select id="calSample"></select></label>
-        <label>Agreed NC score (%)<input id="calAgreed" type="number" min="0" max="100" placeholder="median if empty"></label>
+        <label><span data-i18n="cal_sample"></span><select id="calSample"></select></label>
+        <label><span data-i18n="cal_agreed"></span><input id="calAgreed" type="number" min="0" max="100" data-i18n-ph="cal_agreed_ph"></label>
       </div>
     </div>
     <div class="card" id="calOut"></div>
@@ -88,16 +90,16 @@
   <!-- Dashboard -->
   <section id="view-dashboard" class="view">
     <div class="card">
-      <h2>Dashboard</h2>
+      <h2 data-i18n="db_title"></h2>
       <div class="toolbar" data-loader></div>
       <div class="grid">
-        <label>Form<select id="dbForm"><option value="">All forms</option></select></label>
-        <label>Agent<select id="dbAgent"></select></label>
-        <label>Evaluator<select id="dbEvaluator"></select></label>
-        <label>Interaction type<select id="dbType"></select></label>
-        <label>From<input type="date" id="dbFrom"></label>
-        <label>To<input type="date" id="dbTo"></label>
-        <label>Calibration samples<select id="dbCal"><option value="no">Exclude</option><option value="yes">Include</option></select></label>
+        <label><span data-i18n="f_form"></span><select id="dbForm"></select></label>
+        <label><span data-i18n="f_agent"></span><select id="dbAgent"></select></label>
+        <label><span data-i18n="f_evaluator"></span><select id="dbEvaluator"></select></label>
+        <label><span data-i18n="f_type"></span><select id="dbType"></select></label>
+        <label><span data-i18n="f_from"></span><input type="date" id="dbFrom"></label>
+        <label><span data-i18n="f_to"></span><input type="date" id="dbTo"></label>
+        <label><span data-i18n="f_cal"></span><select id="dbCal"><option value="no" data-i18n="f_exclude"></option><option value="yes" data-i18n="f_include"></option></select></label>
       </div>
     </div>
     <div class="card" id="dbKpis"></div>
@@ -115,33 +117,34 @@
   <!-- Settings -->
   <section id="view-settings" class="view">
     <div class="card">
-      <h2>Connection</h2>
+      <h2 data-i18n="conn"></h2>
       <div class="msg" id="connStatus"></div>
-      <p class="hint">Evaluators don't need this page: they open the setup link once and pick their name on the Evaluate page. Without a connection, each evaluation is downloaded as a file.</p>
+      <p class="hint" data-i18n="conn_hint"></p>
       <div class="grid one">
-        <label>Google Sheet web app link<input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec"></label>
-        <label>Access key<input id="setKey" type="password"></label>
+        <label><span data-i18n="set_url"></span><input id="setUrl" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec"></label>
+        <label><span data-i18n="set_key"></span><input id="setKey" type="password" dir="ltr"></label>
       </div>
-      <button class="primary" id="btnSaveSettings">Save</button>
-      <button id="btnTest">Test connection</button>
-      <button id="btnSetupLink">Copy setup link for evaluators</button>
+      <button class="primary" id="btnSaveSettings" data-i18n="save"></button>
+      <button id="btnTest" data-i18n="test"></button>
+      <button id="btnSetupLink" data-i18n="setup_link"></button>
       <div class="msg" id="setMsg"></div>
     </div>
     <div class="card">
-      <h2>Names list</h2>
-      <p class="hint">Agents and evaluators are picked from one shared list so reports group correctly. Add a name with "+ Add a new name…" on the Evaluate page; similar names are flagged before they are added. To rename or remove a name, edit the "Roster" tab in the Google Sheet.</p>
+      <h2 data-i18n="names"></h2>
+      <p class="hint" data-i18n="names_hint"></p>
       <div id="rosterList" class="roster"></div>
     </div>
   </section>
 </main>
 
 <template id="loaderTpl">
-  <button class="loadSheet">Load from Google Sheet</button>
-  <label class="filebtn">Import files<input type="file" class="loadFiles" accept=".json" multiple hidden></label>
+  <button class="loadSheet" data-i18n="load_sheet"></button>
+  <label class="filebtn"><span data-i18n="import_files"></span><input type="file" class="loadFiles" accept=".json" multiple hidden></label>
   <span class="loadInfo"></span>
 </template>
 
 <script src="config.js"></script>
+<script src="i18n.js"></script>
 <script src="forms.js"></script>
 <script src="app.js"></script>
 </body>
