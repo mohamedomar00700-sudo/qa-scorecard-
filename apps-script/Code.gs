@@ -1,0 +1,70 @@
+/**
+ * QA Scorecard – Google Sheet storage.
+ * Paste this into Extensions > Apps Script of the evaluations Google Sheet,
+ * change ACCESS_KEY, then Deploy > New deployment > Web app
+ * (Execute as: Me, Who has access: Anyone). Put the web app link and the key
+ * in the tool's Settings page.
+ */
+const ACCESS_KEY = 'CHANGE-ME';
+const SHEET_NAME = 'Evaluations';
+const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation date', 'Interaction date',
+  'Odoo ref', 'Interaction type', 'Outcome', 'Duration', 'KB version', 'Calibration sample',
+  'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
+  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)'];
+
+function sheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(SHEET_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NAME);
+    sh.appendRow(COLUMNS);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
+  }
+  return sh;
+}
+
+function reply_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    if (body.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+    const r = body.record;
+    if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const sh = sheet_();
+      const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
+      if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
+      const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
+        .map(function (i) { return i.id + ' ' + i.text; }).join(' | ');
+      const fb = r.feedback || {};
+      sh.appendRow([new Date(), r.id, r.form, r.agent, r.evaluator, r.evalDate, r.interactionDate, r.odooRef,
+        r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
+        r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r)]);
+      const row = sh.getLastRow();
+      sh.getRange(row, 14, 1, 4).setNumberFormat('0%');
+      sh.getRange(row, 19).setNumberFormat('0%');
+    } finally {
+      lock.releaseLock();
+    }
+    return reply_({ ok: true });
+  } catch (err) {
+    return reply_({ ok: false, error: String(err) });
+  }
+}
+
+function doGet(e) {
+  if ((e.parameter || {}).key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+  const sh = sheet_();
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return reply_({ ok: true, records: [] });
+  const json = sh.getRange(2, COLUMNS.length, n, 1).getValues().flat();
+  const records = [];
+  json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
+  return reply_({ ok: true, records: records });
+}

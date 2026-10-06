@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Scorecard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">QA Scorecard <span class="ver" id="ver"></span></div>
+  <nav>
+    <button data-view="evaluate" class="active">Evaluate</button>
+    <button data-view="calibration">Calibration</button>
+    <button data-view="dashboard">Dashboard</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Evaluate -->
+  <section id="view-evaluate" class="view active">
+    <div class="layout">
+      <div class="main-col">
+        <div class="card">
+          <div class="form-switch" id="formSwitch"></div>
+          <div class="grid" id="headerFields"></div>
+        </div>
+        <div class="card">
+          <h2>Part A – Non-critical items</h2>
+          <p class="hint">Met / Not met / N/A. Items that do not apply to the interaction type are set to N/A automatically.</p>
+          <div id="ncList"></div>
+        </div>
+        <div class="card crit">
+          <h2>Part B – Critical errors</h2>
+          <p class="hint">Any "Error" fails that bucket and sets the final score to 0%.</p>
+          <div id="critList"></div>
+        </div>
+        <div class="card">
+          <h2>Feedback</h2>
+          <div class="grid one">
+            <label>Strengths<textarea id="fb_strengths" rows="2"></textarea></label>
+            <label>Areas to improve<textarea id="fb_improve" rows="2"></textarea></label>
+            <label>Coaching agreed with the agent<textarea id="fb_coaching" rows="2"></textarea></label>
+          </div>
+        </div>
+      </div>
+      <aside class="side-col">
+        <div class="card sticky" id="scorePanel">
+          <h2>Score</h2>
+          <div class="big" id="sFinal">–</div>
+          <div class="result" id="sResult"></div>
+          <dl class="kv">
+            <dt>NC score</dt><dd id="sNC">–</dd>
+            <dt>CC accuracy</dt><dd id="sCC">–</dd>
+            <dt>EU accuracy</dt><dd id="sEU">–</dd>
+            <dt>BC accuracy</dt><dd id="sBC">–</dd>
+            <dt>Critical errors</dt><dd id="sCrit">0</dd>
+            <dt>Unanswered</dt><dd id="sOpen">–</dd>
+          </dl>
+          <button class="primary" id="btnSave">Save evaluation</button>
+          <button id="btnCsv">Download as CSV</button>
+          <button class="ghost" id="btnReset">Clear form</button>
+          <div class="msg" id="saveMsg"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Calibration -->
+  <section id="view-calibration" class="view">
+    <div class="card">
+      <h2>Calibration</h2>
+      <p class="hint">Every evaluator scores the same sample with the same "Sample ref". Load the evaluations, pick the sample, and compare item by item. Target: every NC score within ±5 points of the agreed score and full agreement on critical errors.</p>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label>Sample ref<select id="calSample"></select></label>
+        <label>Agreed NC score (%)<input id="calAgreed" type="number" min="0" max="100" placeholder="median if empty"></label>
+      </div>
+    </div>
+    <div class="card" id="calOut"></div>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="view-dashboard" class="view">
+    <div class="card">
+      <h2>Dashboard</h2>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label>Form<select id="dbForm"><option value="">All</option></select></label>
+        <label>From<input type="date" id="dbFrom"></label>
+        <label>To<input type="date" id="dbTo"></label>
+        <label>Include calibration samples<select id="dbCal"><option value="no">No</option><option value="yes">Yes</option></select></label>
+      </div>
+    </div>
+    <div class="card" id="dbAgents"></div>
+    <div class="card" id="dbItems"></div>
+  </section>
+
+  <!-- Settings -->
+  <section id="view-settings" class="view">
+    <div class="card">
+      <h2>Settings</h2>
+      <p class="hint">Evaluations are saved to the team's Google Sheet. Without a link, each evaluation is downloaded as a file and kept in this browser only.</p>
+      <div class="grid one">
+        <label>Google Sheet web app link<input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec"></label>
+        <label>Access key<input id="setKey" type="password"></label>
+        <label>Default evaluator name<input id="setEvaluator"></label>
+      </div>
+      <button class="primary" id="btnSaveSettings">Save settings</button>
+      <button id="btnTest">Test connection</button>
+      <div class="msg" id="setMsg"></div>
+    </div>
+  </section>
+</main>
+
+<template id="loaderTpl">
+  <button class="loadSheet">Load from Google Sheet</button>
+  <label class="filebtn">Import files<input type="file" class="loadFiles" accept=".json" multiple hidden></label>
+  <span class="loadInfo"></span>
+</template>
+
+<script src="forms.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
