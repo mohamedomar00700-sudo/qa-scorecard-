@@ -124,3 +124,12 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 @media (max-width: 600px) { .g-head { grid-template-columns: 34px 1fr; } .g-head > .meta:last-child { grid-column: 2; } }
 @media print { .top, #view-guide .toolbar { display: none; } .view { display: none !important; } #view-guide { display: block !important; } .card { border: 0; } }
 .result.muted { color: var(--muted); font-weight: 400; font-size: 13px; }
+
+/* certification */
+.pill.warn { background: #fff4d6; color: #8a5a00; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table.cert td { vertical-align: top; }
+table.cert td.short { color: var(--muted); }
+.cert-num { width: 72px; }
+.cert-crit { margin: 4px 0 0; font-size: 12px; }
+#view-certification .rules { margin-top: 12px; font-size: 13px; }
