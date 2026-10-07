@@ -505,7 +505,7 @@
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
 
-  function refreshViews() { renderCalibration(); renderDashboard(); renderGuide(); }
+  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); }
 
   // ---------- item guide: every item with its meaning and how it differs from similar items ----------
   function renderGuide() {
@@ -735,6 +735,92 @@
     section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), et);
   }
 
+  // ---------- certification ----------
+  // Live QA comes from saved evaluations (calibration samples left out); Odoo accuracy and the
+  // two role-plays are typed in here and kept on this browser only.
+  const CERT = { qa: PASS, odoo: 0.9, minCalls: 5, failCrit: 2 };
+  const LS_CERT = "qa_cert";
+  const certInputs = store(LS_CERT) || {};
+  const numIn = (v) => (v === "" || v === undefined || v === null || isNaN(Number(v)) ? null : Number(v) / 100);
+
+  function certDecision(c) {
+    if (c.calls < CERT.minCalls) return "Pending";
+    if (c.avg < CERT.qa || c.crit >= CERT.failCrit) return "Not certified";
+    if (c.crit >= 1 || (c.odoo !== null && c.odoo < CERT.odoo) || c.rp1c || c.rp2c) return "Conditional";
+    return "Certified";
+  }
+
+  function renderCertification() {
+    const out = $("#ctOut"); if (!out) return;
+    const sel = $("#ctForm");
+    if (!sel.options.length || sel.dataset.lang !== lang) {
+      const prev = sel.value || "calls"; sel.innerHTML = "";
+      sel.append(...Object.keys(F.forms).map((k) => h("option", { value: k, text: formName(k) })));
+      sel.value = prev; sel.dataset.lang = lang;
+    }
+    $("#ctRules").innerHTML = "";
+    $("#ctRules").append(...["cert_r1", "cert_r2", "cert_r3", "cert_r4", "cert_r5"].map((k) => h("li", { text: t(k, { q: pct(CERT.qa), o: pct(CERT.odoo), n: CERT.minCalls, c: CERT.failCrit }) })));
+    const from = $("#ctFrom").value, to = $("#ctTo").value;
+    const recs = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && r.agent &&
+      (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+    const names = [...new Set([...recs.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
+    out.innerHTML = "";
+    if (!names.length) { out.append(h("div", { class: "empty", text: t("cert_empty") })); return; }
+
+    const rows = names.map((agent) => {
+      const list = recs.filter((r) => r.agent === agent);
+      // Average the score before critical zeroing: critical errors are counted on their own below,
+      // so one error is not charged twice (a single 0% would otherwise sink the average by itself).
+      const fin = list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined);
+      const m = certInputs[agent] || {};
+      const c = { agent, calls: list.length, avg: avg(fin), crit: list.filter((r) => r.critical > 0).length,
+        odoo: numIn(m.odoo), rp1: numIn(m.rp1), rp1c: !!m.rp1c, rp2: numIn(m.rp2), rp2c: !!m.rp2c, notes: m.notes || "" };
+      c.decision = certDecision(c);
+      return c;
+    });
+
+    const cls = { Certified: "good", Conditional: "warn", "Not certified": "bad", Pending: "na" };
+    const save = (agent, k, v) => { (certInputs[agent] = certInputs[agent] || {})[k] = v; store(LS_CERT, certInputs); };
+    const pctInput = (agent, k) => {
+      const i = h("input", { type: "number", min: "0", max: "100", step: "1", class: "cert-num", value: (certInputs[agent] || {})[k] ?? "", "aria-label": t("c_" + k) + " · " + agent });
+      i.addEventListener("change", () => { save(agent, k, i.value); renderCertification(); });
+      return i;
+    };
+    const critBox = (agent, k) => {
+      const i = h("input", { type: "checkbox", "aria-label": t("c_crit_rp") + " · " + agent });
+      i.checked = !!(certInputs[agent] || {})[k];
+      i.addEventListener("change", () => { save(agent, k, i.checked); renderCertification(); });
+      return h("label", { class: "check cert-crit" }, i, t("c_crit_rp"));
+    };
+    const heads = ["c_agent", "c_calls", "c_live", "c_crit_live", "c_odoo", "c_rp1", "c_rp2", "c_decision", "c_notes"];
+    const tbl = h("table", { class: "cert" }, h("tr", {}, heads.map((k, i) => h("th", { class: i && i < 4 ? "num" : "", text: t(k) }))));
+    rows.forEach((c) => {
+      const notes = h("input", { value: c.notes, placeholder: t("c_notes_ph"), "aria-label": t("c_notes") + " · " + c.agent });
+      notes.addEventListener("change", () => save(c.agent, "notes", notes.value));
+      tbl.append(h("tr", {},
+        h("td", { text: c.agent }),
+        h("td", { class: "num" + (c.calls < CERT.minCalls ? " short" : ""), dir: "ltr", text: c.calls + " / " + CERT.minCalls }),
+        h("td", { class: "num", text: pct(c.avg) }),
+        h("td", { class: "num", text: c.crit }),
+        h("td", {}, pctInput(c.agent, "odoo")),
+        h("td", {}, pctInput(c.agent, "rp1"), critBox(c.agent, "rp1c")),
+        h("td", {}, pctInput(c.agent, "rp2"), critBox(c.agent, "rp2c")),
+        h("td", {}, h("span", { class: "pill " + cls[c.decision], text: t("d_" + c.decision) })),
+        h("td", {}, notes)));
+    });
+
+    const count = (d) => rows.filter((c) => c.decision === d).length;
+    const tiles = ["Certified", "Conditional", "Not certified", "Pending"].map((d) =>
+      h("div", { class: "tile" }, h("div", { class: "tile-k", text: t("d_" + d) }), h("div", { class: "tile-v", text: count(d) })));
+    out.append(h("h2", { text: t("cert_results") }), h("div", { class: "tiles" }, tiles), h("div", { class: "table-wrap" }, tbl),
+      h("p", { class: "hint", text: t("cert_local") }),
+      h("p", {}, h("button", { text: t("download"), onclick: () => {
+        const csv = [["Agent", "Calls scored", "Live QA average (before critical)", "Evaluations with critical error", "Odoo accuracy", "Role-play 1", "RP1 critical", "Role-play 2", "RP2 critical", "Decision", "Notes"]];
+        rows.forEach((c) => csv.push([c.agent, c.calls, pct(c.avg), c.crit, pct(c.odoo), pct(c.rp1), c.rp1c ? "Yes" : "No", pct(c.rp2), c.rp2c ? "Yes" : "No", c.decision, c.notes]));
+        download("Certification_" + formName(sel.value).replace(/\W+/g, "_") + "_" + today() + ".csv", toCsv(csv), "text/csv");
+      } })));
+  }
+
   // ---------- settings view ----------
   function setupLink() {
     const blob = btoa(unescape(encodeURIComponent(JSON.stringify({ u: settings.url, k: settings.key }))));
@@ -803,6 +889,7 @@
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#guideForm").addEventListener("input", renderGuide);
+    ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#btnPrintGuide").onclick = () => window.print();
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#btnSave").onclick = onSave;

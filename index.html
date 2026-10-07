@@ -13,6 +13,7 @@
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
+    <button data-view="certification" data-i18n="nav_cert"></button>
     <button data-view="guide" data-i18n="nav_guide"></button>
     <button data-view="settings" data-i18n="nav_settings"></button>
     <button id="btnLang" class="lang" data-i18n="lang_switch"></button>
@@ -113,6 +114,22 @@
       <div class="card" id="dbEvaluators"></div>
     </div>
     <div class="card" id="dbAgents"></div>
+  </section>
+
+  <!-- Certification -->
+  <section id="view-certification" class="view">
+    <div class="card">
+      <h2 data-i18n="cert_title"></h2>
+      <p class="hint" data-i18n="cert_hint"></p>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label><span data-i18n="f_form"></span><select id="ctForm"></select></label>
+        <label><span data-i18n="f_from"></span><input type="date" id="ctFrom"></label>
+        <label><span data-i18n="f_to"></span><input type="date" id="ctTo"></label>
+      </div>
+      <ul class="rules" id="ctRules"></ul>
+    </div>
+    <div class="card" id="ctOut"></div>
   </section>
 
   <!-- Item guide -->
