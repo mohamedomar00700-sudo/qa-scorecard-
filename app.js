@@ -167,6 +167,7 @@
     ["outcome", "h_outcome", "select"],
     ["kbVersion", "h_kbVersion", "text"],
     ["sampleRef", "h_sampleRef", "text"],
+    ["rolePlay", "h_rolePlay", "check"],
   ];
 
   function blankAnswers(form) {
@@ -208,6 +209,13 @@
     for (const [key, label, kind, req] of HEADER) {
       let input;
       if (kind === "duration") { box.append(durationField(d, a)); continue; }
+      if (kind === "check") {
+        const cb = h("input", { type: "checkbox", id: "hd_" + key });
+        cb.checked = !!a.header[key];
+        cb.addEventListener("change", () => { a.header[key] = cb.checked; saveDraft(); });
+        box.append(h("label", { class: "check hd-check" }, cb, t(label)));
+        continue;
+      }
       const lab = t(label);
       if (kind === "select") {
         const opts = key === "type" ? Object.keys(d.types) : d.outcomes;
@@ -635,7 +643,7 @@
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, cal: $("#dbCal").value === "yes" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && (f.cal || !r.sampleRef));
+      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && (f.cal || (!r.sampleRef && !r.rolePlay)));
 
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
@@ -736,17 +744,18 @@
   }
 
   // ---------- certification ----------
-  // Live QA comes from saved evaluations (calibration samples left out); Odoo accuracy and the
-  // two role-plays are typed in here and kept on this browser only.
-  const CERT = { qa: PASS, odoo: 0.9, minCalls: 5, failCrit: 2 };
+  // Everything comes from saved evaluations in the chosen window: live calls (calibration samples and
+  // role-plays left out), Odoo accuracy from the Odoo items of those calls, and role-plays scored on
+  // the same form with "Certification role-play" ticked. Only coaching notes are typed here.
+  const CERT = { qa: PASS, odoo: 0.9, minCalls: 5, rolePlays: 2, failCrit: 2 };
   const LS_CERT = "qa_cert";
   const certInputs = store(LS_CERT) || {};
-  const numIn = (v) => (v === "" || v === undefined || v === null || isNaN(Number(v)) ? null : Number(v) / 100);
+  const isOdoo = (def, it) => /odoo/i.test(((def && (def.item + " " + (def.section || ""))) || it.text || ""));
 
   function certDecision(c) {
-    if (c.calls < CERT.minCalls) return "Pending";
+    if (c.calls < CERT.minCalls || c.rps.length < CERT.rolePlays) return "Pending";
     if (c.avg < CERT.qa || c.crit >= CERT.failCrit) return "Not certified";
-    if (c.crit >= 1 || (c.odoo !== null && c.odoo < CERT.odoo) || c.rp1c || c.rp2c) return "Conditional";
+    if (c.crit >= 1 || (c.odoo !== null && c.odoo < CERT.odoo) || c.rps.some((r) => r.critical > 0)) return "Conditional";
     return "Certified";
   }
 
@@ -759,11 +768,12 @@
       sel.value = prev; sel.dataset.lang = lang;
     }
     $("#ctRules").innerHTML = "";
-    $("#ctRules").append(...["cert_r1", "cert_r2", "cert_r3", "cert_r4", "cert_r5"].map((k) => h("li", { text: t(k, { q: pct(CERT.qa), o: pct(CERT.odoo), n: CERT.minCalls, c: CERT.failCrit }) })));
+    $("#ctRules").append(...["cert_r1", "cert_r2", "cert_r3", "cert_r4", "cert_r5"].map((k) => h("li", { text: t(k, { q: pct(CERT.qa), o: pct(CERT.odoo), n: CERT.minCalls, r: CERT.rolePlays, c: CERT.failCrit }) })));
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const recs = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
-    const names = [...new Set([...recs.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
+    const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
+    const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
     out.innerHTML = "";
     if (!names.length) { out.append(h("div", { class: "empty", text: t("cert_empty") })); return; }
 
@@ -772,39 +782,33 @@
       // Average the score before critical zeroing: critical errors are counted on their own below,
       // so one error is not charged twice (a single 0% would otherwise sink the average by itself).
       const fin = list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined);
-      const m = certInputs[agent] || {};
+      let ok = 0, n = 0;
+      list.forEach((r) => r.items.forEach((it) => {
+        if (!it.result || it.result === "N/A" || !isOdoo(itemDef(r.form, it), it)) return;
+        n++; if (it.result === "Met" || it.result === "No error") ok++;
+      }));
+      const rps = rpAll.filter((r) => r.agent === agent).sort((a, b) => (a.savedAt || "").localeCompare(b.savedAt || "")).slice(-CERT.rolePlays);
       const c = { agent, calls: list.length, avg: avg(fin), crit: list.filter((r) => r.critical > 0).length,
-        odoo: numIn(m.odoo), rp1: numIn(m.rp1), rp1c: !!m.rp1c, rp2: numIn(m.rp2), rp2c: !!m.rp2c, notes: m.notes || "" };
+        odoo: n ? ok / n : null, odooN: n, rps, notes: (certInputs[agent] || {}).notes || "" };
       c.decision = certDecision(c);
       return c;
     });
 
     const cls = { Certified: "good", Conditional: "warn", "Not certified": "bad", Pending: "na" };
-    const save = (agent, k, v) => { (certInputs[agent] = certInputs[agent] || {})[k] = v; store(LS_CERT, certInputs); };
-    const pctInput = (agent, k) => {
-      const i = h("input", { type: "number", min: "0", max: "100", step: "1", class: "cert-num", value: (certInputs[agent] || {})[k] ?? "", "aria-label": t("c_" + k) + " · " + agent });
-      i.addEventListener("change", () => { save(agent, k, i.value); renderCertification(); });
-      return i;
-    };
-    const critBox = (agent, k) => {
-      const i = h("input", { type: "checkbox", "aria-label": t("c_crit_rp") + " · " + agent });
-      i.checked = !!(certInputs[agent] || {})[k];
-      i.addEventListener("change", () => { save(agent, k, i.checked); renderCertification(); });
-      return h("label", { class: "check cert-crit" }, i, t("c_crit_rp"));
-    };
+    const rpCell = (r) => r ? h("div", {}, pct(r.ncScore), r.critical > 0 ? h("span", { class: "pill bad cert-crit", text: t("c_crit_rp") }) : null) : "–";
     const heads = ["c_agent", "c_calls", "c_live", "c_crit_live", "c_odoo", "c_rp1", "c_rp2", "c_decision", "c_notes"];
-    const tbl = h("table", { class: "cert" }, h("tr", {}, heads.map((k, i) => h("th", { class: i && i < 4 ? "num" : "", text: t(k) }))));
+    const tbl = h("table", { class: "cert" }, h("tr", {}, heads.map((k, i) => h("th", { class: i && i < 7 ? "num" : "", text: t(k) }))));
     rows.forEach((c) => {
       const notes = h("input", { value: c.notes, placeholder: t("c_notes_ph"), "aria-label": t("c_notes") + " · " + c.agent });
-      notes.addEventListener("change", () => save(c.agent, "notes", notes.value));
+      notes.addEventListener("change", () => { (certInputs[c.agent] = certInputs[c.agent] || {}).notes = notes.value; store(LS_CERT, certInputs); });
       tbl.append(h("tr", {},
         h("td", { text: c.agent }),
         h("td", { class: "num" + (c.calls < CERT.minCalls ? " short" : ""), dir: "ltr", text: c.calls + " / " + CERT.minCalls }),
         h("td", { class: "num", text: pct(c.avg) }),
         h("td", { class: "num", text: c.crit }),
-        h("td", {}, pctInput(c.agent, "odoo")),
-        h("td", {}, pctInput(c.agent, "rp1"), critBox(c.agent, "rp1c")),
-        h("td", {}, pctInput(c.agent, "rp2"), critBox(c.agent, "rp2c")),
+        h("td", { class: "num", title: t("c_odoo_tip", { n: c.odooN }), text: pct(c.odoo) }),
+        h("td", { class: "num" }, rpCell(c.rps[0])),
+        h("td", { class: "num" }, rpCell(c.rps[1])),
         h("td", {}, h("span", { class: "pill " + cls[c.decision], text: t("d_" + c.decision) })),
         h("td", {}, notes)));
     });
@@ -815,8 +819,9 @@
     out.append(h("h2", { text: t("cert_results") }), h("div", { class: "tiles" }, tiles), h("div", { class: "table-wrap" }, tbl),
       h("p", { class: "hint", text: t("cert_local") }),
       h("p", {}, h("button", { text: t("download"), onclick: () => {
+        const yn = (r) => (r ? (r.critical > 0 ? "Yes" : "No") : "");
         const csv = [["Agent", "Calls scored", "Live QA average (before critical)", "Evaluations with critical error", "Odoo accuracy", "Role-play 1", "RP1 critical", "Role-play 2", "RP2 critical", "Decision", "Notes"]];
-        rows.forEach((c) => csv.push([c.agent, c.calls, pct(c.avg), c.crit, pct(c.odoo), pct(c.rp1), c.rp1c ? "Yes" : "No", pct(c.rp2), c.rp2c ? "Yes" : "No", c.decision, c.notes]));
+        rows.forEach((c) => csv.push([c.agent, c.calls, pct(c.avg), c.crit, pct(c.odoo), c.rps[0] ? pct(c.rps[0].ncScore) : "", yn(c.rps[0]), c.rps[1] ? pct(c.rps[1].ncScore) : "", yn(c.rps[1]), c.decision, c.notes]));
         download("Certification_" + formName(sel.value).replace(/\W+/g, "_") + "_" + today() + ".csv", toCsv(csv), "text/csv");
       } })));
   }

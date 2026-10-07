@@ -130,6 +130,6 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 .table-wrap { overflow-x: auto; margin: 12px 0; }
 table.cert td { vertical-align: top; }
 table.cert td.short { color: var(--muted); }
-.cert-num { width: 72px; }
 .cert-crit { margin: 4px 0 0; font-size: 12px; }
 #view-certification .rules { margin-top: 12px; font-size: 13px; }
+.hd-check { align-self: end; margin: 0 0 8px; }
