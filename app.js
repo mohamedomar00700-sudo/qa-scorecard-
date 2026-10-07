@@ -747,7 +747,12 @@
   // Everything comes from saved evaluations in the chosen window: live calls (calibration samples and
   // role-plays left out), Odoo accuracy from the Odoo items of those calls, and role-plays scored on
   // the same form with "Certification role-play" ticked. Only coaching notes are typed here.
-  const CERT = { qa: PASS, odoo: 0.9, minCalls: 5, rolePlays: 2, failCrit: 2 };
+  const CERT_DEFAULT = Object.assign({ calls: 5, rolePlays: 2, qa: 85, odoo: 90, failCrit: 2 }, (window.QA_CONFIG || {}).cert || {});
+  const LS_CERT_RULES = "qa_cert_rules";
+  let certRules = Object.assign({}, CERT_DEFAULT, store(LS_CERT_RULES) || {});
+  const CERT_FIELDS = [["calls", "s_calls", 1, 50], ["rolePlays", "s_rp", 0, 10], ["qa", "s_qa", 0, 100], ["odoo", "s_odoo", 0, 100], ["failCrit", "s_crit", 1, 50]];
+  const certCfg = () => ({ minCalls: certRules.calls, rolePlays: certRules.rolePlays, qa: certRules.qa / 100, odoo: certRules.odoo / 100, failCrit: certRules.failCrit });
+  let CERT = certCfg();
   const LS_CERT = "qa_cert";
   const certInputs = store(LS_CERT) || {};
   const isOdoo = (def, it) => /odoo/i.test(((def && (def.item + " " + (def.section || ""))) || it.text || ""));
@@ -755,7 +760,7 @@
   function certDecision(c) {
     if (c.calls < CERT.minCalls || c.rps.length < CERT.rolePlays) return "Pending";
     if (c.avg < CERT.qa || c.crit >= CERT.failCrit) return "Not certified";
-    if (c.crit >= 1 || (c.odoo !== null && c.odoo < CERT.odoo) || c.rps.some((r) => r.critical > 0)) return "Conditional";
+    if (c.crit >= 1 || (CERT.odoo > 0 && c.odoo !== null && c.odoo < CERT.odoo) || c.rps.some((r) => r.critical > 0)) return "Conditional";
     return "Certified";
   }
 
@@ -767,8 +772,16 @@
       sel.append(...Object.keys(F.forms).map((k) => h("option", { value: k, text: formName(k) })));
       sel.value = prev; sel.dataset.lang = lang;
     }
-    $("#ctRules").innerHTML = "";
-    $("#ctRules").append(...["cert_r1", "cert_r2", "cert_r3", "cert_r4", "cert_r5"].map((k) => h("li", { text: t(k, { q: pct(CERT.qa), o: pct(CERT.odoo), n: CERT.minCalls, r: CERT.rolePlays, c: CERT.failCrit }) })));
+    const box = $("#ctSettings"); box.innerHTML = "";
+    CERT_FIELDS.forEach(([k, label, min, max]) => {
+      const i = h("input", { type: "number", min: String(min), max: String(max), step: "1", value: certRules[k] });
+      i.addEventListener("change", () => {
+        const v = Math.round(Number(i.value));
+        certRules[k] = i.value === "" || isNaN(v) ? CERT_DEFAULT[k] : Math.min(max, Math.max(min, v));
+        store(LS_CERT_RULES, certRules); CERT = certCfg(); renderCertification();
+      });
+      box.append(h("label", {}, t(label), i));
+    });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
     const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
@@ -787,7 +800,7 @@
         if (!it.result || it.result === "N/A" || !isOdoo(itemDef(r.form, it), it)) return;
         n++; if (it.result === "Met" || it.result === "No error") ok++;
       }));
-      const rps = rpAll.filter((r) => r.agent === agent).sort((a, b) => (a.savedAt || "").localeCompare(b.savedAt || "")).slice(-CERT.rolePlays);
+      const rps = CERT.rolePlays ? rpAll.filter((r) => r.agent === agent).sort((a, b) => (a.savedAt || "").localeCompare(b.savedAt || "")).slice(-CERT.rolePlays) : [];
       const c = { agent, calls: list.length, avg: avg(fin), crit: list.filter((r) => r.critical > 0).length,
         odoo: n ? ok / n : null, odooN: n, rps, notes: (certInputs[agent] || {}).notes || "" };
       c.decision = certDecision(c);
@@ -796,8 +809,11 @@
 
     const cls = { Certified: "good", Conditional: "warn", "Not certified": "bad", Pending: "na" };
     const rpCell = (r) => r ? h("div", {}, pct(r.ncScore), r.critical > 0 ? h("span", { class: "pill bad cert-crit", text: t("c_crit_rp") }) : null) : "–";
-    const heads = ["c_agent", "c_calls", "c_live", "c_crit_live", "c_odoo", "c_rp1", "c_rp2", "c_decision", "c_notes"];
-    const tbl = h("table", { class: "cert" }, h("tr", {}, heads.map((k, i) => h("th", { class: i && i < 7 ? "num" : "", text: t(k) }))));
+    const rpIdx = Array.from({ length: CERT.rolePlays }, (_, i) => i);
+    const useOdoo = CERT.odoo > 0;
+    const th = (text, num) => h("th", { class: num ? "num" : "", text });
+    const tbl = h("table", { class: "cert" }, h("tr", {}, th(t("c_agent")), th(t("c_calls"), 1), th(t("c_live"), 1), th(t("c_crit_live"), 1),
+      useOdoo ? th(t("c_odoo"), 1) : null, rpIdx.map((i) => th(t("c_rp", { n: i + 1 }), 1)), th(t("c_decision")), th(t("c_notes"))));
     rows.forEach((c) => {
       const notes = h("input", { value: c.notes, placeholder: t("c_notes_ph"), "aria-label": t("c_notes") + " · " + c.agent });
       notes.addEventListener("change", () => { (certInputs[c.agent] = certInputs[c.agent] || {}).notes = notes.value; store(LS_CERT, certInputs); });
@@ -806,9 +822,8 @@
         h("td", { class: "num" + (c.calls < CERT.minCalls ? " short" : ""), dir: "ltr", text: c.calls + " / " + CERT.minCalls }),
         h("td", { class: "num", text: pct(c.avg) }),
         h("td", { class: "num", text: c.crit }),
-        h("td", { class: "num", title: t("c_odoo_tip", { n: c.odooN }), text: pct(c.odoo) }),
-        h("td", { class: "num" }, rpCell(c.rps[0])),
-        h("td", { class: "num" }, rpCell(c.rps[1])),
+        useOdoo ? h("td", { class: "num", title: t("c_odoo_tip", { n: c.odooN }), text: pct(c.odoo) }) : null,
+        rpIdx.map((i) => h("td", { class: "num" }, rpCell(c.rps[i]))),
         h("td", {}, h("span", { class: "pill " + cls[c.decision], text: t("d_" + c.decision) })),
         h("td", {}, notes)));
     });
@@ -820,8 +835,11 @@
       h("p", { class: "hint", text: t("cert_local") }),
       h("p", {}, h("button", { text: t("download"), onclick: () => {
         const yn = (r) => (r ? (r.critical > 0 ? "Yes" : "No") : "");
-        const csv = [["Agent", "Calls scored", "Live QA average (before critical)", "Evaluations with critical error", "Odoo accuracy", "Role-play 1", "RP1 critical", "Role-play 2", "RP2 critical", "Decision", "Notes"]];
-        rows.forEach((c) => csv.push([c.agent, c.calls, pct(c.avg), c.crit, pct(c.odoo), c.rps[0] ? pct(c.rps[0].ncScore) : "", yn(c.rps[0]), c.rps[1] ? pct(c.rps[1].ncScore) : "", yn(c.rps[1]), c.decision, c.notes]));
+        const csv = [["Agent", "Calls scored", "Live QA average (before critical)", "Evaluations with critical error", ...(useOdoo ? ["Odoo accuracy"] : []),
+          ...rpIdx.flatMap((i) => ["Role-play " + (i + 1), "RP" + (i + 1) + " critical"]), "Decision", "Notes"]];
+        rows.forEach((c) => csv.push([c.agent, c.calls, pct(c.avg), c.crit, ...(useOdoo ? [pct(c.odoo)] : []),
+          ...rpIdx.flatMap((i) => [c.rps[i] ? pct(c.rps[i].ncScore) : "", yn(c.rps[i])]), c.decision, c.notes]));
+        csv.push([], ["Rules", "Calls " + CERT.minCalls, "Role-plays " + CERT.rolePlays, "QA " + pct(CERT.qa), "Odoo " + (useOdoo ? pct(CERT.odoo) : "not used"), "Not certified at " + CERT.failCrit + " critical"]);
         download("Certification_" + formName(sel.value).replace(/\W+/g, "_") + "_" + today() + ".csv", toCsv(csv), "text/csv");
       } })));
   }
@@ -895,6 +913,7 @@
     $("#calSample").addEventListener("input", renderCalibration);
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
+    $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
     $("#btnPrintGuide").onclick = () => window.print();
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#btnSave").onclick = onSave;
