@@ -127,7 +127,19 @@
         <label><span data-i18n="f_from"></span><input type="date" id="ctFrom"></label>
         <label><span data-i18n="f_to"></span><input type="date" id="ctTo"></label>
       </div>
-      <ul class="rules" id="ctRules"></ul>
+      <details class="cert-rules">
+        <summary data-i18n="cert_rules"></summary>
+        <p class="hint" data-i18n="cert_rules_hint"></p>
+        <div class="grid" id="ctSettings"></div>
+        <button id="ctReset" data-i18n="cert_reset"></button>
+        <ul class="rules">
+          <li data-i18n="cert_r1"></li>
+          <li data-i18n="cert_r2"></li>
+          <li data-i18n="cert_r3"></li>
+          <li data-i18n="cert_r4"></li>
+          <li data-i18n="cert_r5"></li>
+        </ul>
+      </details>
     </div>
     <div class="card" id="ctOut"></div>
   </section>
