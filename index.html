@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=202610111353">
+<link rel="stylesheet" href="style.css?v=202610111359">
 </head>
 <body>
 <header class="top">
@@ -15,6 +15,7 @@
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
     <button data-view="certification" data-i18n="nav_cert"></button>
+    <button data-view="kb" data-i18n="nav_kb"></button>
     <button data-view="guide" data-i18n="nav_guide"></button>
     <button data-view="settings" data-i18n="nav_settings"></button>
     <button id="btnLang" class="lang" data-i18n="lang_switch"></button>
@@ -166,6 +167,26 @@
     <div class="card" id="recOut"></div>
   </section>
 
+  <!-- KB / offers updates log -->
+  <section id="view-kb" class="view">
+    <div class="card">
+      <h2 data-i18n="kb_title"></h2>
+      <p class="hint" data-i18n="kb_hint"></p>
+      <div class="grid">
+        <label><span data-i18n="kb_effective"></span><input id="kbWhen" type="datetime-local"></label>
+        <label><span data-i18n="kb_cat"></span><select id="kbCat">
+          <option value="offers" data-i18n="kbc_offers"></option><option value="services" data-i18n="kbc_services"></option>
+          <option value="branches" data-i18n="kbc_branches"></option><option value="process" data-i18n="kbc_process"></option>
+          <option value="other" data-i18n="kbc_other"></option></select></label>
+        <label><span data-i18n="kb_by"></span><select id="kbBy"></select></label>
+      </div>
+      <div class="grid one"><label><span data-i18n="kb_text"></span><textarea id="kbText" rows="3" data-i18n-ph="kb_text_ph"></textarea></label></div>
+      <button class="primary" id="kbAdd" data-i18n="kb_add"></button>
+      <span class="msg" id="kbMsg"></span>
+    </div>
+    <div class="card" id="kbOut"></div>
+  </section>
+
   <!-- Item guide -->
   <section id="view-guide" class="view">
     <div class="card">
@@ -214,9 +235,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=202610111353"></script>
-<script src="i18n.js?v=202610111353"></script>
-<script src="forms.js?v=202610111353"></script>
-<script src="app.js?v=202610111353"></script>
+<script src="config.js?v=202610111359"></script>
+<script src="i18n.js?v=202610111359"></script>
+<script src="forms.js?v=202610111359"></script>
+<script src="app.js?v=202610111359"></script>
 </body>
 </html>

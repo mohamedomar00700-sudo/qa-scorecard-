@@ -15,6 +15,8 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by'];
 const DELETED_NAME = 'Deleted';
+const KB_NAME = 'KB Log';
+const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
 const JSON_COL = 25; // 'Record (JSON)'; newer columns are added after it so older sheets keep working
 
 function sheet_() {
@@ -204,6 +206,44 @@ function deletedIds_() {
   return del.getRange(2, 4, del.getLastRow() - 1, 1).getValues().flat().filter(String);
 }
 
+// KB / offers updates: each one keeps the exact time it takes effect and the time it was logged.
+function kbSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(KB_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(KB_NAME);
+    sh.appendRow(KB_COLUMNS);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, KB_COLUMNS.length).setFontWeight('bold');
+  }
+  return sh;
+}
+
+function addKb_(u) {
+  if (!u || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(u.effective || '')) || !String(u.text || '').trim()) return { ok: false, error: 'Bad update' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = kbSheet_();
+    const no = sh.getLastRow(); // header is row 1, so the first update is No 1
+    sh.appendRow([no, new Date(), "'" + String(u.effective).slice(0, 16), String(u.category || 'other'), String(u.text).slice(0, 2000), String(u.by || '')]);
+    sh.getRange(sh.getLastRow(), 2).setNumberFormat('yyyy-mm-dd hh:mm:ss');
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+function readKb_() {
+  const sh = kbSheet_();
+  if (sh.getLastRow() < 2) return [];
+  const tz = Session.getScriptTimeZone();
+  return sh.getRange(2, 1, sh.getLastRow() - 1, KB_COLUMNS.length).getValues().map(function (r) {
+    const logged = r[1] instanceof Date ? Utilities.formatDate(r[1], tz, "yyyy-MM-dd'T'HH:mm:ss") : String(r[1]);
+    return { no: r[0], recordedAt: logged, effective: String(r[2]), category: String(r[3]), text: String(r[4]), by: String(r[5]) };
+  }).filter(function (u) { return u.effective && u.text; });
+}
+
 function reply_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -216,6 +256,7 @@ function doPost(e) {
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
+    if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
@@ -241,6 +282,7 @@ function doPost(e) {
 function doGet(e) {
   const p = e.parameter || {};
   if (p.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+  if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
     return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators });

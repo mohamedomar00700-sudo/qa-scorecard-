@@ -499,8 +499,54 @@
 
   function saveDraft() { store(LS_DRAFT, current); }
 
-  // Offers / KB in force at the exact call time (date and minute), e.g. "2026-09-28 14:05".
-  const kbFor = (when) => (when && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(when) ? when.slice(0, 16).replace("T", " ") : "");
+  // ---------- KB / offers updates log ----------
+  // Every change to the KB or offers is logged with the exact time it takes effect. An evaluation
+  // records which update was in force at the call time, so the agent is judged on what was valid then.
+  const LS_KB = "qa_kb_log";
+  let kbLog = store(LS_KB) || [];
+  const isWhen = (w) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(w || "");
+  const fmtWhen = (w) => String(w || "").slice(0, 16).replace("T", " ");
+  const nowLocal = () => { const d = new Date(); return today() + "T" + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+  function kbInForce(when) {
+    if (!isWhen(when)) return null;
+    const w = when.slice(0, 16);
+    return kbLog.filter((u) => isWhen(u.effective) && u.effective.slice(0, 16) <= w).sort((a, b) => b.effective.localeCompare(a.effective) || String(b.recordedAt).localeCompare(String(a.recordedAt)))[0] || null;
+  }
+  const kbLabel = (u) => "#" + u.no + " · " + fmtWhen(u.effective) + " · " + String(u.text || "").slice(0, 60);
+  // Text stored with the evaluation: the update in force, or the call time when nothing is logged yet.
+  const kbFor = (when) => { if (!isWhen(when)) return ""; const u = kbInForce(when); return u ? kbLabel(u) : t("kb_none_at", { w: fmtWhen(when) }); };
+  async function loadKb() {
+    if (!connected()) return;
+    try { const j = await apiGet({ action: "kb" }); if (Array.isArray(j.updates)) { kbLog = j.updates; store(LS_KB, kbLog); } } catch (e) { /* keep cached log */ }
+  }
+  function renderKb() {
+    const out = $("#kbOut"); if (!out) return;
+    if (!$("#kbWhen").value) $("#kbWhen").value = nowLocal();
+    const by = $("#kbBy"), prevBy = by.value || settings.evaluator || "";
+    by.innerHTML = ""; by.append(h("option", { value: "", text: t("select") }), ...roster.evaluators.map((n) => h("option", { value: n, text: n })));
+    by.value = roster.evaluators.includes(prevBy) ? prevBy : "";
+    out.innerHTML = "";
+    if (!kbLog.length) { out.append(h("div", { class: "empty", text: t("kb_empty") })); return; }
+    const tbl = h("table", {}, h("tr", {}, ["#", "kb_effective", "kb_cat", "kb_text", "kb_by", "kb_recorded"].map((k) => h("th", { text: k === "#" ? k : t(k) }))));
+    kbLog.slice().sort((a, b) => b.effective.localeCompare(a.effective)).forEach((u) => tbl.append(h("tr", {},
+      h("td", { text: "#" + u.no }), h("td", { dir: "ltr", text: fmtWhen(u.effective) }), h("td", { text: t("kbc_" + u.category) || u.category }),
+      h("td", { class: "wrap", text: u.text }), h("td", { text: u.by || "–" }), h("td", { dir: "ltr", class: "meta", text: fmtWhen(u.recordedAt) }))));
+    out.append(tbl);
+  }
+  async function addKbUpdate() {
+    const m = $("#kbMsg"); m.className = "msg";
+    const u = { effective: $("#kbWhen").value, category: $("#kbCat").value, text: $("#kbText").value.trim(), by: $("#kbBy").value };
+    if (!isWhen(u.effective) || !u.text || !u.by) { m.className = "msg err"; m.textContent = t("kb_missing"); return; }
+    if (!connected()) { m.className = "msg err"; m.textContent = t("kb_need_conn"); return; }
+    m.textContent = t("saving");
+    try {
+      await apiPost({ action: "addKb", update: u });
+      await loadKb();
+      $("#kbText").value = ""; $("#kbWhen").value = nowLocal();
+      m.className = "msg ok"; m.textContent = t("kb_saved");
+      renderKb(); renderHeader();
+    } catch (e) { m.className = "msg err"; m.textContent = t("save_failed_plain", { e: e.message }); }
+  }
   const normPhone = (p) => String(p || "").replace(/[^\d+]/g, "");
 
   function buildRecord() {
@@ -512,6 +558,7 @@
       ...a.header,
       evalDate: current.edit ? a.header.evalDate || today() : today(),
       kbVersion: kbFor(a.header.interactionDate) || a.header.kbVersion || "",
+      kbUpdate: (kbInForce(a.header.interactionDate) || {}).no || "",
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),
@@ -659,7 +706,7 @@
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
 
-  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); }
+  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -1164,6 +1211,7 @@
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
+    $("#kbAdd").onclick = addKbUpdate;
     ["#recEvaluator", "#recAgent", "#recPurpose", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
@@ -1183,7 +1231,8 @@
     }
     renderConnBanner();
     window.addEventListener("hashchange", () => { if (readSetupLink()) location.reload(); });
-    loadRoster().then(() => { renderHeader(); renderSettings(); });
+    loadRoster().then(() => { renderHeader(); renderSettings(); renderKb(); });
+    loadKb().then(() => { renderHeader(); renderKb(); });
     syncLocal().then((n) => { if (n) { const m = $("#saveMsg"); m.className = "msg ok"; m.textContent = t("synced_n", { n }); sheetLoaded = false; } });
   }
   boot();
