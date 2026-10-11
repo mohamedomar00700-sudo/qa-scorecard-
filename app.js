@@ -499,7 +499,8 @@
 
   function saveDraft() { store(LS_DRAFT, current); }
 
-  const kbFor = (when) => (when && /^\d{4}-\d{2}/.test(when) ? when.slice(0, 7) : "");
+  // Offers / KB in force at the exact call time (date and minute), e.g. "2026-09-28 14:05".
+  const kbFor = (when) => (when && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(when) ? when.slice(0, 16).replace("T", " ") : "");
   const normPhone = (p) => String(p || "").replace(/[^\d+]/g, "");
 
   function buildRecord() {
