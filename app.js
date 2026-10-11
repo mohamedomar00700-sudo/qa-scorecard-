@@ -88,7 +88,10 @@
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
   const settings = Object.assign({ url: "", key: "", evaluator: "" }, store(LS_SETTINGS) || {});
-  if (!settings.url && CFG.sheetUrl) settings.url = CFG.sheetUrl;
+  if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
+    settings.url = CFG.sheetUrl;
+    if (settings.key) store(LS_SETTINGS, settings);
+  }
   const connected = () => !!(settings.url && settings.key);
 
   async function apiGet(params) {
@@ -183,7 +186,7 @@
   function blankAnswers(form) {
     const d = F.forms[form];
     return {
-      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "" },
+      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: store("qa_kb") || "" },
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
@@ -305,7 +308,8 @@
       const groups = [...sampleRefs().values()].filter((g) => g.form === current.form && /^TEST-/.test(g.ref) === !!hd.test)
         .sort((x, y) => y.ref.localeCompare(x.ref));
       const rs = h("select", { id: "hd_sampleRef" }, h("option", { value: "", text: t("select") }),
-        groups.map((g) => h("option", { value: g.ref, text: g.ref + " · " + (g.agent || "–") + " · " + t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size }) })),
+        groups.map((g) => h("option", { value: g.ref, text: [g.ref, g.agent || "–", whenText(g.list[0]), g.list[0].phone ? "\u2066" + g.list[0].phone + "\u2069" : g.list[0].odooRef || "",
+          t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].filter(Boolean).join(" · ") })),
         h("option", { value: "__new", text: t("new_sample") }));
       if (hd.sampleRef && !groups.some((g) => g.ref === hd.sampleRef)) rs.append(h("option", { value: hd.sampleRef, text: hd.sampleRef }));
       rs.value = hd.sampleRef || "";
@@ -562,6 +566,7 @@
     const problems = validate();
     if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") }); return; }
     const rec = buildRecord();
+    if (rec.kbVersion) store("qa_kb", rec.kbVersion);
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
     else {
