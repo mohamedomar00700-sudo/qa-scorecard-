@@ -175,8 +175,7 @@
     ["duration", "", "duration"],
     ["outcome", "h_outcome", "select"],
     ["kbVersion", "h_kbVersion", "text"],
-    ["sampleRef", "h_sampleRef", "text"],
-    ["rolePlay", "h_rolePlay", "check"],
+    ["purpose", "h_purpose", "purpose"],
   ];
 
   function blankAnswers(form) {
@@ -218,6 +217,7 @@
     for (const [key, label, kind, req] of HEADER) {
       let input;
       if (kind === "duration") { box.append(durationField(d, a)); continue; }
+      if (kind === "purpose") { box.append(...purposeFields(a)); continue; }
       if (kind === "check") {
         const cb = h("input", { type: "checkbox", id: "hd_" + key });
         cb.checked = !!a.header[key];
@@ -254,6 +254,72 @@
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
     }
+  }
+
+  // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
+  // plus a "test" switch. Tests are kept apart from the dashboard and certification.
+  const purposeOf = (hd) => hd.purpose || (hd.rolePlay ? "roleplay" : hd.sampleRef ? "calibration" : "live");
+  const ymd = (d) => d.replace(/-/g, "");
+  function sampleRefs() {
+    const map = new Map();
+    for (const r of allRecords()) {
+      if (!r.sampleRef) continue;
+      const g = map.get(r.sampleRef) || { ref: r.sampleRef, form: r.form, agent: r.agent, list: [] };
+      g.list.push(r); map.set(r.sampleRef, g);
+    }
+    return map;
+  }
+  async function refreshRecordsQuietly() {
+    if (!connected()) return;
+    try { const j = await apiGet({}); addRecords(j.records); sheetLoaded = true; } catch (e) { /* use what we have */ }
+  }
+  // Next free code for today, e.g. CAL-20261011-2 (TEST-CAL-… for a test).
+  function newSampleRef(test) {
+    const prefix = (test ? "TEST-CAL-" : "CAL-") + ymd(today()) + "-";
+    let n = 1;
+    for (const ref of sampleRefs().keys()) if (ref.startsWith(prefix)) n = Math.max(n, (+ref.slice(prefix.length) || 0) + 1);
+    return prefix + n;
+  }
+  function purposeFields(a) {
+    const hd = a.header;
+    hd.purpose = purposeOf(hd);
+    const set = (p) => {
+      hd.purpose = p; hd.rolePlay = p === "roleplay";
+      if (p !== "calibration") hd.sampleRef = "";
+      saveDraft(); renderHeader();
+    };
+    const sel = h("select", { id: "hd_purpose" }, ["live", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    sel.value = hd.purpose;
+    sel.addEventListener("input", async () => {
+      if (sel.value === "calibration") await refreshRecordsQuietly();
+      set(sel.value);
+    });
+    const cb = h("input", { type: "checkbox", id: "hd_test" });
+    cb.checked = !!hd.test;
+    cb.addEventListener("change", () => { hd.test = cb.checked; hd.sampleRef = ""; saveDraft(); renderHeader(); });
+    const out = [h("label", {}, t("h_purpose"), sel), h("label", { class: "check hd-check" }, cb, t("h_test"))];
+    if (hd.purpose === "calibration") {
+      const groups = [...sampleRefs().values()].filter((g) => g.form === current.form && /^TEST-/.test(g.ref) === !!hd.test)
+        .sort((x, y) => y.ref.localeCompare(x.ref));
+      const rs = h("select", { id: "hd_sampleRef" }, h("option", { value: "", text: t("select") }),
+        groups.map((g) => h("option", { value: g.ref, text: g.ref + " · " + (g.agent || "–") + " · " + t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size }) })),
+        h("option", { value: "__new", text: t("new_sample") }));
+      if (hd.sampleRef && !groups.some((g) => g.ref === hd.sampleRef)) rs.append(h("option", { value: hd.sampleRef, text: hd.sampleRef }));
+      rs.value = hd.sampleRef || "";
+      rs.addEventListener("input", async () => {
+        if (rs.value === "__new") { await refreshRecordsQuietly(); hd.sampleRef = newSampleRef(hd.test); }
+        else {
+          hd.sampleRef = rs.value;
+          // Same sample = same interaction: copy its details so every evaluator scores the same thing.
+          const g = sampleRefs().get(rs.value), first = g && g.list[0];
+          if (first) for (const k of ["agent", "interactionDate", "odooRef", "type", "duration", "outcome", "kbVersion"]) if (!hd[k] && first[k]) hd[k] = first[k];
+          applyType(); renderItems(); updateScore();
+        }
+        saveDraft(); renderHeader();
+      });
+      out.push(h("label", {}, t("h_sampleRef") + " *", rs));
+    }
+    return out;
   }
 
   // Duration is picked, not typed: minutes + seconds for calls, ranges for WhatsApp.
@@ -427,6 +493,8 @@
       savedAt: new Date().toISOString(),
       formsVersion: F.version, form: current.form,
       ...a.header,
+      purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
+      sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       ncScore: s.nc, cc: s.cc, eu: s.eu, bc: s.bc, critical: s.critical, final: s.final, result: s.result,
       items: [
         ...d.nc.map((it, i) => ({ id: String(i + 1), kind: "NC", text: it.item, weight: it.weight, result: a.nc[i].result, evidence: a.nc[i].evidence, comment: a.nc[i].comment })),
@@ -439,6 +507,7 @@
   function validate() {
     const a = current.answers, problems = [];
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
+    if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
     $$(".item").forEach((el) => {
       const ans = a[el.dataset.kind][+el.dataset.i];
       el.classList.toggle("missing", !ans.result);
@@ -588,7 +657,7 @@
     const samples = [...new Set(recs.map((r) => r.sampleRef))].sort();
     sel.innerHTML = "";
     if (!samples.length) sel.append(h("option", { value: "", text: t("cal_none") }));
-    samples.forEach((s) => sel.append(h("option", { value: s, text: s })));
+    samples.forEach((s) => sel.append(h("option", { value: s, text: s + (/^TEST-/.test(s) ? " (" + t("test_tag") + ")" : "") })));
     if (samples.includes(prev)) sel.value = prev;
     const out = $("#calOut"); out.innerHTML = "";
     const group = recs.filter((r) => r.sampleRef === sel.value).sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
@@ -674,7 +743,7 @@
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, cal: $("#dbCal").value === "yes" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && (f.cal || (!r.sampleRef && !r.rolePlay)));
+      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test && (f.cal || (!r.sampleRef && !r.rolePlay)));
 
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
@@ -814,7 +883,7 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
@@ -921,8 +990,45 @@
     };
     const rl = $("#rosterList"); rl.innerHTML = "";
     for (const [role, label] of [["agents", "agents"], ["evaluators", "evaluators"]]) {
-      rl.append(h("div", {}, h("b", { text: t(label) + " (" + roster[role].length + "): " }), roster[role].join("، ".slice(lang === "ar" ? 0 : 1) + " ") || t("none_yet")));
+      rl.append(h("h3", { text: t(label) + " (" + roster[role].length + ")" }));
+      if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
+      rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
+        h("span", { text: name }),
+        h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }),
+        h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) })))));
     }
+  }
+
+  // Fix a name everywhere: the shared list, past evaluations in the sheet and on this device.
+  async function renamePerson(role, from) {
+    const to = normName(prompt(t("rename_prompt", { n: from }), from) || "");
+    if (!to || to === from) return;
+    const other = roster[role].find((x) => x !== from && nameKey(x) === nameKey(to));
+    if (other && !confirm(t("rename_merge", { a: from, b: other }))) return;
+    if (connected()) {
+      try { await apiPost({ action: "renamePerson", role, from, to: other || to }); }
+      catch (e) { alert(t("name_failed", { e: e.message })); return; }
+    }
+    const target = other || to, field = role === "agents" ? "agent" : "evaluator";
+    roster[role] = [...new Set(roster[role].map((x) => (x === from ? target : x)))].sort((a, b) => a.localeCompare(b));
+    store(LS_ROSTER, roster);
+    const local = (store(LS_EVALS) || []).map((r) => (r[field] === from ? Object.assign(r, { [field]: target }) : r));
+    store(LS_EVALS, local);
+    for (const r of loaded.values()) if (r[field] === from) r[field] = target;
+    if (current.answers.header[field] === from) current.answers.header[field] = target;
+    if (role === "evaluators" && settings.evaluator === from) { settings.evaluator = target; store(LS_SETTINGS, settings); }
+    renderSettings(); renderHeader(); refreshViews();
+  }
+
+  // Remove from the list only; past evaluations keep the name.
+  async function removePerson(role, name) {
+    if (!confirm(t("remove_confirm", { n: name }))) return;
+    if (connected()) {
+      try { await apiPost({ action: "removePerson", role, name }); }
+      catch (e) { alert(t("name_failed", { e: e.message })); return; }
+    }
+    roster[role] = roster[role].filter((x) => x !== name); store(LS_ROSTER, roster);
+    renderSettings(); renderHeader();
   }
 
   // ---------- boot ----------

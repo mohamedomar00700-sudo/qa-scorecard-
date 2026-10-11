@@ -138,3 +138,10 @@ table.cert td.short { color: var(--muted); }
 .cert-rules .grid { margin: 8px 0; }
 .banner { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-weight: 600; line-height: 1.6; }
 .banner[hidden] { display: none; }
+
+/* names list */
+.roster h3 { margin: 12px 0 6px; font-size: 14px; }
+.names { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
+.names li { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.names li span { flex: 1; }
+.names li button { padding: 3px 8px; font-size: 12px; }

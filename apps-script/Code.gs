@@ -13,7 +13,8 @@ const ROSTER_NAME = 'Roster';
 const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation date', 'Interaction date',
   'Odoo ref', 'Interaction type', 'Outcome', 'Duration', 'KB version', 'Calibration sample',
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
-  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)'];
+  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test'];
+const JSON_COL = 25; // 'Record (JSON)'; newer columns are added after it so older sheets keep working
 
 function sheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -75,6 +76,61 @@ function addPerson_(role, name) {
   return { ok: true };
 }
 
+// Rename a person in the list and in every saved evaluation, so reports stay grouped under one name.
+function renamePerson_(role, from, to) {
+  to = String(to || '').trim().replace(/\s+/g, ' ');
+  if (!from || !to || to.length > 80) return { ok: false, error: 'Bad name' };
+  const field = role === 'evaluators' ? 'evaluator' : 'agent';
+  const col = role === 'evaluators' ? 5 : 4;
+  const first = role === 'evaluators' ? 'e' : 'a';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const ro = roster_();
+    let kept = false;
+    if (ro.getLastRow() > 1) {
+      const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
+      rows.forEach(function (r) {
+        if (String(r[1]).charAt(0).toLowerCase() !== first) return;
+        if (nameKey_(r[0]) === nameKey_(from) || nameKey_(r[0]) === nameKey_(to)) {
+          if (!kept) { r[0] = to; r[2] = 'Yes'; kept = true; } else { r[2] = 'No'; }
+        }
+      });
+      rng.setValues(rows);
+    }
+    if (!kept) ro.appendRow([to, role === 'evaluators' ? 'Evaluator' : 'Agent', 'Yes']);
+    const sh = sheet_();
+    const n = sh.getLastRow() - 1;
+    if (n > 0) {
+      const names = sh.getRange(2, col, n, 1).getValues();
+      const json = sh.getRange(2, JSON_COL, n, 1).getValues();
+      names.forEach(function (v, i) {
+        if (String(v[0]) !== from) return;
+        v[0] = to;
+        try { const r = JSON.parse(json[i][0]); r[field] = to; json[i][0] = JSON.stringify(r); } catch (err) {}
+      });
+      sh.getRange(2, col, n, 1).setValues(names);
+      sh.getRange(2, JSON_COL, n, 1).setValues(json);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+// Take a person off the list (Active = No). Past evaluations keep the name.
+function removePerson_(role, name) {
+  const first = role === 'evaluators' ? 'e' : 'a';
+  const ro = roster_();
+  if (ro.getLastRow() < 2) return { ok: true };
+  const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
+  rows.forEach(function (r) {
+    if (String(r[1]).charAt(0).toLowerCase() === first && nameKey_(r[0]) === nameKey_(name)) r[2] = 'No';
+  });
+  rng.setValues(rows);
+  return { ok: true };
+}
+
 function reply_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -84,12 +140,15 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (body.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
+    if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
+    if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     try {
       const sh = sheet_();
+      if (sh.getLastColumn() < COLUMNS.length) sh.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold');
       const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
       if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
       const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
@@ -97,7 +156,8 @@ function doPost(e) {
       const fb = r.feedback || {};
       sh.appendRow([new Date(), r.id, r.form, r.agent, r.evaluator, r.evalDate, r.interactionDate, r.odooRef,
         r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
-        r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r)]);
+        r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r),
+        r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'), r.test ? 'Yes' : 'No']);
       const row = sh.getLastRow();
       sh.getRange(row, 14, 1, 4).setNumberFormat('0%');
       sh.getRange(row, 19).setNumberFormat('0%');
@@ -120,7 +180,7 @@ function doGet(e) {
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
   if (n < 1) return reply_({ ok: true, records: [] });
-  const json = sh.getRange(2, COLUMNS.length, n, 1).getValues().flat();
+  const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
   const records = [];
   json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
   return reply_({ ok: true, records: records });
