@@ -6,6 +6,7 @@
   const LS_SETTINGS = "qa_settings";
   const LS_EVALS = "qa_evals";
   const LS_DRAFT = "qa_draft";
+  const LS_DELETED = "qa_deleted";
 
   // ---------- small helpers ----------
   const $ = (s, el = document) => el.querySelector(s);
@@ -169,8 +170,9 @@
     ["agent", "h_agent", "person", true],
     ["evaluator", "h_evaluator", "person", true],
     ["evalDate", "h_evalDate", "date", true],
-    ["interactionDate", "h_interactionDate", "datetime-local"],
+    ["interactionDate", "h_interactionDate", "datetime-local", true],
     ["odooRef", "h_odooRef", "text"],
+    ["phone", "h_phone", "tel"],
     ["type", "h_type", "select", true],
     ["duration", "", "duration"],
     ["outcome", "h_outcome", "select"],
@@ -237,6 +239,7 @@
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: o })),
           h("option", { value: "__new", text: t("add_name") }));
       } else input = h("input", { type: kind });
+      if (kind === "tel") { input.dir = "ltr"; input.placeholder = "+9715XXXXXXXX"; input.inputMode = "tel"; }
       input.value = a.header[key] || "";
       input.id = "hd_" + key;
       input.addEventListener("input", async () => {
@@ -271,7 +274,7 @@
   }
   async function refreshRecordsQuietly() {
     if (!connected()) return;
-    try { const j = await apiGet({}); addRecords(j.records); sheetLoaded = true; } catch (e) { /* use what we have */ }
+    try { const j = await apiGet({}); forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; } catch (e) { /* use what we have */ }
   }
   // Next free code for today, e.g. CAL-20261011-2 (TEST-CAL-… for a test).
   function newSampleRef(test) {
@@ -312,7 +315,7 @@
           hd.sampleRef = rs.value;
           // Same sample = same interaction: copy its details so every evaluator scores the same thing.
           const g = sampleRefs().get(rs.value), first = g && g.list[0];
-          if (first) for (const k of ["agent", "interactionDate", "odooRef", "type", "duration", "outcome", "kbVersion"]) if (!hd[k] && first[k]) hd[k] = first[k];
+          if (first) for (const k of ["agent", "interactionDate", "odooRef", "phone", "type", "duration", "outcome", "kbVersion"]) if (!hd[k] && first[k]) hd[k] = first[k];
           applyType(); renderItems(); updateScore();
         }
         saveDraft(); renderHeader();
@@ -480,11 +483,13 @@
 
   function renderEvaluate() {
     if (!current.answers) current.answers = blankAnswers(current.form);
-    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore();
+    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore(); renderEditBanner();
     $("#saveMsg").textContent = "";
   }
 
   function saveDraft() { store(LS_DRAFT, current); }
+
+  const normPhone = (p) => String(p || "").replace(/[^\d+]/g, "");
 
   function buildRecord() {
     const a = current.answers, d = F.forms[current.form], s = score(current.form, a);
@@ -495,6 +500,7 @@
       ...a.header,
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
+      phone: normPhone(a.header.phone),
       ncScore: s.nc, cc: s.cc, eu: s.eu, bc: s.bc, critical: s.critical, final: s.final, result: s.result,
       items: [
         ...d.nc.map((it, i) => ({ id: String(i + 1), kind: "NC", text: it.item, weight: it.weight, result: a.nc[i].result, evidence: a.nc[i].evidence, comment: a.nc[i].comment })),
@@ -508,6 +514,7 @@
     const a = current.answers, problems = [];
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
     if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
+    if (!a.header.odooRef && !a.header.phone) problems.push(t("ref_needed"));
     $$(".item").forEach((el) => {
       const ans = a[el.dataset.kind][+el.dataset.i];
       el.classList.toggle("missing", !ans.result);
@@ -553,15 +560,22 @@
   async function onSave() {
     const msg = $("#saveMsg"); msg.className = "msg";
     const problems = validate();
-    if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join("، ".slice(lang === "ar" ? 0 : 1) + " ") + (problems.length > 8 ? " …" : "") }); return; }
+    if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") }); return; }
     const rec = buildRecord();
-    const local = store(LS_EVALS) || []; local.push(rec); store(LS_EVALS, local);
+    const edit = current.edit;
+    if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
+    else {
+      const dup = findDuplicate(rec);
+      if (dup && !confirm(t("dup_confirm", { e: dup.evaluator || "–", d: (dup.evalDate || "") }))) return;
+    }
+    const local = (store(LS_EVALS) || []).filter((r) => r.id !== rec.id); local.push(rec); store(LS_EVALS, local);
+    loaded.set(rec.id, rec);
     if (connected()) {
       msg.textContent = t("saving");
       try {
-        const how = await postRecord(rec);
+        const how = edit ? await apiPost({ action: "updateRecord", record: rec }) : await postRecord(rec);
         markSynced(rec.id);
-        msg.className = "msg ok"; msg.textContent = how === "saved" ? t("saved_sheet") : t("sent_sheet");
+        msg.className = "msg ok"; msg.textContent = edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet");
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
@@ -576,12 +590,30 @@
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
   }
 
+  // Same interaction already evaluated for real (same agent, time and customer)?
+  function findDuplicate(rec) {
+    if (rec.sampleRef || rec.test) return null;
+    return allRecords().find((r) => r.id !== rec.id && !r.sampleRef && !r.test && r.form === rec.form && r.agent === rec.agent &&
+      r.interactionDate === rec.interactionDate && ((rec.phone && normPhone(r.phone) === rec.phone) || (rec.odooRef && r.odooRef === rec.odooRef)));
+  }
+
   const fileName = (rec, ext) => ["QA", F.forms[rec.form].name, (rec.agent || "agent").replace(/[^\w؀-ۿ-]+/g, "_"), rec.evalDate, rec.id.slice(0, 6)].join("_") + "." + ext;
 
   // ---------- data for calibration & dashboard ----------
   let loaded = new Map();
+  const stamp = (r) => r.editedAt || r.savedAt || "";
+  let deleted = new Set(store(LS_DELETED) || []);
   function addRecords(list) {
-    for (const r of list) if (r && r.id && r.form && F.forms[r.form] && Array.isArray(r.items)) loaded.set(r.id, r);
+    for (const r of list || []) {
+      if (!r || !r.id || !r.form || !F.forms[r.form] || !Array.isArray(r.items) || deleted.has(r.id)) continue;
+      const had = loaded.get(r.id);
+      if (!had || stamp(r) >= stamp(had)) loaded.set(r.id, r);
+    }
+  }
+  function forgetDeleted(ids) {
+    for (const id of ids || []) { deleted.add(id); loaded.delete(id); }
+    store(LS_DELETED, [...deleted]);
+    store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => !deleted.has(r.id)));
   }
   function allRecords() { addRecords(store(LS_EVALS) || []); return Array.from(loaded.values()); }
 
@@ -607,13 +639,79 @@
     say(t("loading"));
     try {
       const j = await apiGet({});
-      addRecords(j.records); sheetLoaded = true;
+      forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true;
       say(t("loaded_n", { n: j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
 
-  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); }
+  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); }
+
+  // ---------- saved evaluations: find, open to correct, delete ----------
+  // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
+  const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
+  const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
+  const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
+  function renderRecords() {
+    const out = $("#recOut"); if (!out) return;
+    const all = allRecords();
+    fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
+    fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const qd = f.q.replace(/[^\d]/g, "");
+    const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) &&
+      (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
+      .sort((a, b) => whenText(b).localeCompare(whenText(a)));
+    out.innerHTML = "";
+    if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
+    const tbl = h("table", {}, h("tr", {}, ["c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final", ""].map((k) => h("th", { text: k ? t(k) : "" }))));
+    recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
+      h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
+      h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", { dir: "ltr", text: refText(r) || "–" }),
+      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
+      h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
+        h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) })))));
+    out.append(tbl);
+    if (recs.length > 300) out.append(h("p", { class: "hint", text: t("rec_more", { n: recs.length }) }));
+  }
+
+  function openRecord(r) {
+    const d = F.forms[r.form];
+    const nc = r.items.filter((x) => x.kind === "NC"), cr = r.items.filter((x) => x.kind !== "NC");
+    if (nc.length !== d.nc.length || cr.length !== d.crit.length) { alert(t("edit_mismatch")); return; }
+    if (dirty() && !current.edit && !confirm(t("switch_confirm"))) return;
+    const header = {};
+    for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
+    Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
+    const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
+    current = { form: r.form, edit: { id: r.id, savedAt: r.savedAt },
+      answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
+    saveDraft(); renderEvaluate();
+    $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
+  }
+
+  async function deleteRecord(r) {
+    if (!confirm(t("del_confirm", { a: r.agent || "–", d: whenText(r) }))) return;
+    if (connected()) {
+      try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.evaluator || "" }); }
+      catch (e) { alert(t("name_failed", { e: e.message })); return; }
+    }
+    forgetDeleted([r.id]);
+    if (current.edit && current.edit.id === r.id) { current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); }
+    refreshViews();
+  }
+
+  function renderEditBanner() {
+    const b = $("#editBanner"); if (!b) return;
+    b.hidden = !current.edit; b.innerHTML = "";
+    if (!current.edit) return;
+    b.append(h("span", { text: t("editing_banner", { a: current.answers.header.agent || "–", d: whenText(current.answers.header) }) }),
+      h("button", { type: "button", class: "ghost", text: t("cancel_edit"), onclick: () => {
+        current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } }));
+  }
 
   // ---------- item guide: every item with its meaning and how it differs from similar items ----------
   function renderGuide() {
@@ -678,7 +776,10 @@
         h("td", {}, gap === null ? "–" : h("span", { class: "pill " + (gap <= 0.05 ? "good" : "bad"), text: gap <= 0.05 ? t("yes") : t("no") })),
         h("td", { class: "num", text: r.critical }), h("td", { class: "num", text: pct(r.final) })));
     });
-    out.append(h("h2", { text: t("sample_head", { s: sel.value, f: formName(g[0].form), p: pct(agreed) }) + (agreedIn === "" ? t("median") : "") }), sum);
+    const refs = [...new Set(g.map((r) => [whenText(r), refText(r)].filter(Boolean).join(" · ")).filter(Boolean))];
+    out.append(h("h2", { text: t("sample_head", { s: sel.value, f: formName(g[0].form), p: pct(agreed) }) + (agreedIn === "" ? t("median") : "") }),
+      h("p", { class: "cal-ref" }, h("b", { text: t("cal_ref") + ": " }), h("span", { dir: "ltr", text: (g[0].agent ? g[0].agent + " · " : "") + (refs.join("  |  ") || "–") })),
+      ...(refs.length > 1 ? [h("p", { class: "msg err", text: t("cal_ref_differ") })] : []), sum);
 
     const itemsTbl = h("table", {}, h("tr", {}, h("th", { text: "#" }), h("th", { text: t("item") }), g.map((r) => h("th", { text: r.evaluator || "–" }))));
     let diffs = 0;
@@ -1049,6 +1150,7 @@
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
@@ -1058,7 +1160,7 @@
     $("#btnCsv").onclick = () => { const r = buildRecord(); download(fileName(r, "csv"), recordCsv(r), "text/csv"); };
     $("#btnReset").onclick = () => { if (!dirty() || confirm(t("clear_confirm"))) { current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } };
     const draft = store(LS_DRAFT);
-    if (draft && F.forms[draft.form] && draft.answers && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
+    if (draft && F.forms[draft.form] && draft.answers && draft.answers.header && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
     const fromLink = readSetupLink();
     setupLoaders(); applyStatic(); renderSettings(); renderEvaluate();
     if (fromLink) {

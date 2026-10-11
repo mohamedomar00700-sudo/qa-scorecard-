@@ -11,6 +11,7 @@
   <div class="brand">QA Scorecard <span class="ver" id="ver"></span></div>
   <nav>
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
+    <button data-view="records" data-i18n="nav_records"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
     <button data-view="certification" data-i18n="nav_cert"></button>
@@ -24,6 +25,7 @@
   <!-- Evaluate -->
   <section id="view-evaluate" class="view active">
     <div id="connBanner" class="banner" hidden></div>
+    <div id="editBanner" class="banner edit" hidden></div>
     <div class="layout">
       <div class="main-col">
         <div class="card">
@@ -143,6 +145,25 @@
       </details>
     </div>
     <div class="card" id="ctOut"></div>
+  </section>
+
+  <!-- Saved evaluations -->
+  <section id="view-records" class="view">
+    <div class="card">
+      <h2 data-i18n="rec_title"></h2>
+      <p class="hint" data-i18n="rec_hint"></p>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label><span data-i18n="f_search"></span><input id="recSearch" type="search" data-i18n-ph="rec_search_ph"></label>
+        <label><span data-i18n="f_evaluator"></span><select id="recEvaluator"></select></label>
+        <label><span data-i18n="f_agent"></span><select id="recAgent"></select></label>
+        <label><span data-i18n="c_purpose"></span><select id="recPurpose">
+          <option value="" data-i18n="f_all"></option><option value="live" data-i18n="p_live"></option>
+          <option value="calibration" data-i18n="p_calibration"></option><option value="roleplay" data-i18n="p_roleplay"></option>
+          <option value="test" data-i18n="test_tag"></option></select></label>
+      </div>
+    </div>
+    <div class="card" id="recOut"></div>
   </section>
 
   <!-- Item guide -->

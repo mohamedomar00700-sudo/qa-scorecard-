@@ -145,3 +145,11 @@ table.cert td.short { color: var(--muted); }
 .names li { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .names li span { flex: 1; }
 .names li button { padding: 3px 8px; font-size: 12px; }
+
+/* saved evaluations, edit mode, call reference */
+.banner.edit { background: var(--brand-soft); color: var(--brand); border-color: var(--brand); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.banner.edit[hidden] { display: none; }
+td.actions { white-space: nowrap; }
+td.actions button { padding: 4px 8px; font-size: 12px; margin-inline-end: 4px; }
+.pill.info { background: var(--brand-soft); color: var(--brand); }
+.cal-ref { margin: 0 0 10px; }

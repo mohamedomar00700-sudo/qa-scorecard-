@@ -13,7 +13,8 @@ const ROSTER_NAME = 'Roster';
 const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation date', 'Interaction date',
   'Odoo ref', 'Interaction type', 'Outcome', 'Duration', 'KB version', 'Calibration sample',
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
-  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test'];
+  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by'];
+const DELETED_NAME = 'Deleted';
 const JSON_COL = 25; // 'Record (JSON)'; newer columns are added after it so older sheets keep working
 
 function sheet_() {
@@ -131,6 +132,78 @@ function removePerson_(role, name) {
   return { ok: true };
 }
 
+function row_(r, savedAt) {
+  const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
+    .map(function (i) { return i.id + ' ' + i.text; }).join(' | ');
+  const fb = r.feedback || {};
+  // Phone numbers are stored as text so Sheets keeps the leading + and zeros.
+  return [savedAt, r.id, r.form, r.agent, r.evaluator, r.evalDate, r.interactionDate, r.odooRef,
+    r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
+    r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r),
+    r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'), r.test ? 'Yes' : 'No',
+    r.phone ? "'" + r.phone : '', r.editedAt || '', r.editedBy || ''];
+}
+
+function format_(sh, row) {
+  sh.getRange(row, 14, 1, 4).setNumberFormat('0%');
+  sh.getRange(row, 19).setNumberFormat('0%');
+}
+
+function findRow_(sh, id) {
+  if (sh.getLastRow() < 2) return -1;
+  const ids = sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat();
+  const i = ids.indexOf(id);
+  return i === -1 ? -1 : i + 2;
+}
+
+// Correct a saved evaluation in place (same ID), keeping its original save time.
+function updateRecord_(r) {
+  if (!r || !r.id || !Array.isArray(r.items)) return { ok: false, error: 'Bad record' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_();
+    const row = findRow_(sh, r.id);
+    if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); return { ok: true, added: true }; }
+    const savedAt = sh.getRange(row, 1).getValue();
+    sh.getRange(row, 1, 1, COLUMNS.length).setValues([row_(r, savedAt)]);
+    format_(sh, row);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+// Delete an evaluation: the row moves to the 'Deleted' tab (with who and when), so nothing is lost.
+function deleteRecord_(id, by) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_();
+    const row = findRow_(sh, id);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let del = ss.getSheetByName(DELETED_NAME);
+    if (!del) {
+      del = ss.insertSheet(DELETED_NAME);
+      del.appendRow(['Deleted at', 'Deleted by'].concat(COLUMNS));
+      del.setFrozenRows(1);
+      del.getRange(1, 1, 1, COLUMNS.length + 2).setFontWeight('bold');
+    }
+    const values = row === -1 ? [id] : sh.getRange(row, 1, 1, COLUMNS.length).getValues()[0];
+    del.appendRow([new Date(), by || ''].concat(row === -1 ? ['', id] : values));
+    if (row !== -1) sh.deleteRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+function deletedIds_() {
+  const del = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DELETED_NAME);
+  if (!del || del.getLastRow() < 2) return [];
+  return del.getRange(2, 4, del.getLastRow() - 1, 1).getValues().flat().filter(String);
+}
+
 function reply_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -142,6 +215,8 @@ function doPost(e) {
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
+    if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
+    if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     const lock = LockService.getScriptLock();
@@ -151,16 +226,9 @@ function doPost(e) {
       if (sh.getLastColumn() < COLUMNS.length) sh.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold');
       const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
       if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
-      const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
-        .map(function (i) { return i.id + ' ' + i.text; }).join(' | ');
-      const fb = r.feedback || {};
-      sh.appendRow([new Date(), r.id, r.form, r.agent, r.evaluator, r.evalDate, r.interactionDate, r.odooRef,
-        r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
-        r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r),
-        r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'), r.test ? 'Yes' : 'No']);
-      const row = sh.getLastRow();
-      sh.getRange(row, 14, 1, 4).setNumberFormat('0%');
-      sh.getRange(row, 19).setNumberFormat('0%');
+      if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
+      sh.appendRow(row_(r, new Date()));
+      format_(sh, sh.getLastRow());
     } finally {
       lock.releaseLock();
     }
@@ -179,9 +247,9 @@ function doGet(e) {
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
-  if (n < 1) return reply_({ ok: true, records: [] });
+  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_() });
   const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
   const records = [];
   json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
-  return reply_({ ok: true, records: records });
+  return reply_({ ok: true, records: records, deleted: deletedIds_() });
 }
