@@ -187,7 +187,7 @@
   function blankAnswers(form) {
     const d = F.forms[form];
     return {
-      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: store("qa_kb") || "" },
+      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "" },
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
@@ -245,6 +245,8 @@
       } else input = h("input", { type: kind });
       // Evaluation date is always the day it is saved (kept as is when correcting an old one).
       if (key === "evalDate") { if (!current.edit) a.header.evalDate = today(); input.readOnly = true; input.tabIndex = -1; input.className = "auto"; }
+      // Offers / KB version follows the call date: the offers in force that month are the ones that count.
+      if (key === "kbVersion") { a.header.kbVersion = kbFor(a.header.interactionDate) || a.header.kbVersion || ""; input.readOnly = true; input.tabIndex = -1; input.className = "auto"; input.placeholder = t("kb_auto_ph"); }
       if (kind === "tel") { input.dir = "ltr"; input.placeholder = "+9715XXXXXXXX"; input.inputMode = "tel"; }
       input.value = a.header[key] || "";
       input.id = "hd_" + key;
@@ -259,6 +261,7 @@
         if (key === "evaluator" && input.value) { settings.evaluator = input.value; store(LS_SETTINGS, settings); }
         a.header[key] = input.value;
         if (key === "type") { applyType(); renderItems(); }
+        if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
@@ -496,6 +499,7 @@
 
   function saveDraft() { store(LS_DRAFT, current); }
 
+  const kbFor = (when) => (when && /^\d{4}-\d{2}/.test(when) ? when.slice(0, 7) : "");
   const normPhone = (p) => String(p || "").replace(/[^\d+]/g, "");
 
   function buildRecord() {
@@ -506,6 +510,7 @@
       formsVersion: F.version, form: current.form,
       ...a.header,
       evalDate: current.edit ? a.header.evalDate || today() : today(),
+      kbVersion: kbFor(a.header.interactionDate) || a.header.kbVersion || "",
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),
@@ -570,7 +575,6 @@
     const problems = validate();
     if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") }); return; }
     const rec = buildRecord();
-    if (rec.kbVersion) store("qa_kb", rec.kbVersion);
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
     else {
