@@ -136,3 +136,5 @@ table.cert td.short { color: var(--muted); }
 .cert-rules { margin-top: 12px; }
 .cert-rules summary { cursor: pointer; font-weight: 700; color: var(--brand); }
 .cert-rules .grid { margin: 8px 0; }
+.banner { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-weight: 600; line-height: 1.6; }
+.banner[hidden] { display: none; }

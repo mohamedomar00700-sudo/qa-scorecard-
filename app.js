@@ -136,7 +136,16 @@
     try {
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
-      roster = { agents: j.agents, evaluators: j.evaluators || [] };
+      const server = { agents: j.agents, evaluators: j.evaluators || [] };
+      // Names added on this device while it was not connected go up to the shared list.
+      for (const role of ["agents", "evaluators"]) {
+        for (const name of roster[role] || []) {
+          if (server[role].some((x) => nameKey(x) === nameKey(name))) continue;
+          try { await apiPost({ action: "addPerson", role, name }); server[role].push(name); } catch (e) { /* try again next time */ }
+        }
+        server[role].sort((a, b) => a.localeCompare(b));
+      }
+      roster = server;
       store(LS_ROSTER, roster);
     } catch (e) { /* keep the cached list */ }
   }
@@ -450,6 +459,27 @@
   }
 
   const postRecord = (rec) => apiPost({ record: rec });
+  const LS_SYNCED = "qa_synced";
+  const markSynced = (id) => { const s = store(LS_SYNCED) || []; if (!s.includes(id)) { s.push(id); store(LS_SYNCED, s); } };
+
+  // Evaluations saved on this device while it was not connected (or when saving failed) are sent
+  // to the sheet once it is connected. The sheet ignores an id it already has, so resending is safe.
+  async function syncLocal() {
+    if (!connected()) return 0;
+    const done = new Set(store(LS_SYNCED) || []);
+    let n = 0;
+    for (const rec of store(LS_EVALS) || []) {
+      if (!rec || !rec.id || done.has(rec.id)) continue;
+      try { await postRecord(rec); markSynced(rec.id); n++; } catch (e) { break; }
+    }
+    return n;
+  }
+
+  function renderConnBanner() {
+    const b = $("#connBanner"); if (!b) return;
+    b.hidden = connected();
+    b.textContent = t("conn_banner");
+  }
 
   async function onSave() {
     const msg = $("#saveMsg"); msg.className = "msg";
@@ -461,6 +491,7 @@
       msg.textContent = t("saving");
       try {
         const how = await postRecord(rec);
+        markSynced(rec.id);
         msg.className = "msg ok"; msg.textContent = how === "saved" ? t("saved_sheet") : t("sent_sheet");
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
@@ -870,8 +901,9 @@
     $("#btnSaveSettings").onclick = async () => {
       settings.url = $("#setUrl").value.trim(); settings.key = $("#setKey").value;
       store(LS_SETTINGS, settings);
-      await loadRoster(); renderSettings(); renderHeader();
+      await loadRoster(); renderSettings(); renderHeader(); renderConnBanner();
       const m = $("#setMsg"); m.className = "msg ok"; m.textContent = t("set_saved");
+      const n = await syncLocal(); if (n) { m.textContent += " " + t("synced_n", { n }); sheetLoaded = false; }
     };
     $("#btnTest").onclick = async () => {
       const m = $("#setMsg"); m.className = "msg"; m.textContent = t("testing");
@@ -905,7 +937,7 @@
     fillForms();
     $("#btnLang").onclick = () => {
       lang = lang === "ar" ? "en" : "ar"; store("qa_lang", lang);
-      applyStatic(); fillForms(); renderEvaluate(); renderSettings(); refreshViews();
+      applyStatic(); renderConnBanner(); fillForms(); renderEvaluate(); renderSettings(); refreshViews();
     };
     $("#showExplain").checked = showExplain;
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
@@ -927,7 +959,10 @@
       const m = $("#saveMsg"); m.className = "msg ok";
       m.textContent = connected() ? t("linked_ok") : t("linked_bad");
     }
+    renderConnBanner();
+    window.addEventListener("hashchange", () => { if (readSetupLink()) location.reload(); });
     loadRoster().then(() => { renderHeader(); renderSettings(); });
+    syncLocal().then((n) => { if (n) { const m = $("#saveMsg"); m.className = "msg ok"; m.textContent = t("synced_n", { n }); sheetLoaded = false; } });
   }
   boot();
 })();
