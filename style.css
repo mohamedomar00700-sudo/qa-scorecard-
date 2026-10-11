@@ -144,6 +144,7 @@ table.cert td.short { color: var(--muted); }
 .names { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
 .names li { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .names li span { flex: 1; }
+.names li small.email { display: block; font-size: 11px; }
 .names li button { padding: 3px 8px; font-size: 12px; }
 
 /* saved evaluations, edit mode, call reference */

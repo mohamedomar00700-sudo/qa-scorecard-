@@ -104,10 +104,12 @@
   }
   async function apiPost(obj) {
     const body = JSON.stringify(Object.assign({ key: settings.key }, obj));
+    apiPost.last = null;
     try {
       const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Rejected");
+      apiPost.last = j;
       return "saved";
     } catch (e) {
       if (String(e.message).match(/key|Rejected|Bad/i)) throw e;
@@ -119,7 +121,7 @@
 
   // ---------- names (one shared list so reports group correctly) ----------
   const LS_ROSTER = "qa_roster";
-  let roster = Object.assign({ agents: [], evaluators: [] }, store(LS_ROSTER) || {});
+  let roster = Object.assign({ agents: [], evaluators: [], emails: {} }, store(LS_ROSTER) || {});
   const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)([a-z])/g, (m, a, b) => a + b.toUpperCase());
   const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
   function lev(a, b) {
@@ -141,7 +143,7 @@
     try {
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
-      const server = { agents: j.agents, evaluators: j.evaluators || [] };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {} };
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
         for (const name of roster[role] || []) {
@@ -281,6 +283,17 @@
     }
     return map;
   }
+  const CAL_RECENT_DAYS = 14;
+  // The day a sample started: from its code (CAL-20261011-2), else its first save.
+  function sampleStart(g) {
+    const m = /(\d{4})(\d{2})(\d{2})-\d+$/.exec(g.ref);
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    return g.list.map((r) => (r.savedAt || "").slice(0, 10)).filter(Boolean).sort()[0] || "";
+  }
+  function addDays(ymdStr, n) {
+    const d = new Date(ymdStr + "T12:00:00"); d.setDate(d.getDate() + n);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
   async function refreshRecordsQuietly() {
     if (!connected()) return;
     try { const j = await apiGet({}); forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; } catch (e) { /* use what we have */ }
@@ -312,11 +325,21 @@
     const out = [h("label", {}, t("h_purpose"), sel), h("label", { class: "check hd-check" }, cb, t("h_test"))];
     if (hd.purpose === "calibration") {
       const groups = [...sampleRefs().values()].filter((g) => g.form === current.form && /^TEST-/.test(g.ref) === !!hd.test)
-        .sort((x, y) => y.ref.localeCompare(x.ref));
+        .sort((x, y) => sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref));
+      // Newest first, split so the current session is easy to find: samples you still have to score,
+      // ones you already scored, and older ones (more than CAL_RECENT_DAYS old).
+      const me = hd.evaluator || settings.evaluator || "";
+      const cutoff = addDays(today(), -CAL_RECENT_DAYS);
+      const optFor = (g) => h("option", { value: g.ref, text: [g.ref, g.agent || "–", whenText(g.list[0]), g.list[0].phone ? "\u2066" + g.list[0].phone + "\u2069" : g.list[0].odooRef || "",
+        t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].filter(Boolean).join(" · ") });
+      const recent = groups.filter((g) => sampleStart(g) >= cutoff), older = groups.filter((g) => sampleStart(g) < cutoff);
+      const mine = (g) => me && g.list.some((r) => r.evaluator === me);
+      const bucket = (label, list) => list.length ? [h("optgroup", { label: label + " (" + list.length + ")" }, list.map(optFor))] : [];
       const rs = h("select", { id: "hd_sampleRef" }, h("option", { value: "", text: t("select") }),
-        groups.map((g) => h("option", { value: g.ref, text: [g.ref, g.agent || "–", whenText(g.list[0]), g.list[0].phone ? "\u2066" + g.list[0].phone + "\u2069" : g.list[0].odooRef || "",
-          t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].filter(Boolean).join(" · ") })),
-        h("option", { value: "__new", text: t("new_sample") }));
+        h("option", { value: "__new", text: t("new_sample") }),
+        ...bucket(t("cal_todo"), recent.filter((g) => !mine(g))),
+        ...bucket(t("cal_mine"), recent.filter(mine)),
+        ...bucket(t("cal_older", { n: CAL_RECENT_DAYS }), older));
       if (hd.sampleRef && !groups.some((g) => g.ref === hd.sampleRef)) rs.append(h("option", { value: hd.sampleRef, text: hd.sampleRef }));
       rs.value = hd.sampleRef || "";
       rs.addEventListener("input", async () => {
@@ -637,6 +660,10 @@
         const how = edit ? await apiPost({ action: "updateRecord", record: rec }) : await postRecord(rec);
         markSynced(rec.id);
         msg.className = "msg ok"; msg.textContent = edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet");
+        const rep = apiPost.last || {};
+        if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
+        else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
+        else if (!edit && how === "saved" && purposeOf(rec) === "live" && !rec.test && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
@@ -813,10 +840,13 @@
   function renderCalibration() {
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
-    const samples = [...new Set(recs.map((r) => r.sampleRef))].sort();
+    const sg = sampleRefs();
+    const samples = [...sg.values()].sort((x, y) => sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref)).map((g) => g.ref);
     sel.innerHTML = "";
     if (!samples.length) sel.append(h("option", { value: "", text: t("cal_none") }));
-    samples.forEach((s) => sel.append(h("option", { value: s, text: s + (/^TEST-/.test(s) ? " (" + t("test_tag") + ")" : "") })));
+    samples.forEach((s) => { const g = sg.get(s);
+      sel.append(h("option", { value: s, text: [s + (/^TEST-/.test(s) ? " (" + t("test_tag") + ")" : ""), g.agent || "–", formName(g.form),
+        t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].join(" · ") })); });
     if (samples.includes(prev)) sel.value = prev;
     const out = $("#calOut"); out.innerHTML = "";
     const group = recs.filter((r) => r.sampleRef === sel.value).sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
@@ -1155,7 +1185,8 @@
       rl.append(h("h3", { text: t(label) + " (" + roster[role].length + ")" }));
       if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
-        h("span", { text: name }),
+        h("span", {}, name, role === "agents" ? h("small", { class: "meta email", dir: "ltr", text: (roster.emails || {})[name] || t("no_email") }) : null),
+        role === "agents" ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(name) }) : null,
         h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }),
         h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) })))));
     }
@@ -1180,6 +1211,21 @@
     if (current.answers.header[field] === from) current.answers.header[field] = target;
     if (role === "evaluators" && settings.evaluator === from) { settings.evaluator = target; store(LS_SETTINGS, settings); }
     renderSettings(); renderHeader(); refreshViews();
+  }
+
+  // Agent's email for the automatic result email (stored in the Roster tab, column D).
+  async function setEmail(name) {
+    const cur = (roster.emails || {})[name] || "";
+    const v = prompt(t("email_prompt", { n: name }), cur);
+    if (v === null) return;
+    const email = v.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert(t("bad_email")); return; }
+    if (!connected()) { alert(t("email_needs_sheet")); return; }
+    try { await apiPost({ action: "setEmail", name, email }); }
+    catch (e) { alert(t("name_failed", { e: e.message })); return; }
+    roster.emails = Object.assign({}, roster.emails);
+    if (email) roster.emails[name] = email; else delete roster.emails[name];
+    store(LS_ROSTER, roster); renderSettings();
   }
 
   // Remove from the list only; past evaluations keep the name.

@@ -8,12 +8,15 @@
  * > Version: New version > Deploy. The link stays the same.
  */
 const ACCESS_KEY = 'CHANGE-ME';
+// Email each agent their result right after a real evaluation is saved (not tests, calibration or role-plays).
+// Only agents with an email in the Roster tab (column D) get one. Set to false to stop all emails.
+const EMAIL_AGENTS = true;
 const SHEET_NAME = 'Evaluations';
 const ROSTER_NAME = 'Roster';
 const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation date', 'Interaction date',
   'Odoo ref', 'Interaction type', 'Outcome', 'Duration', 'KB version', 'Calibration sample',
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
-  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by'];
+  'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -36,10 +39,11 @@ function roster_() {
   let sh = ss.getSheetByName(ROSTER_NAME);
   if (!sh) {
     sh = ss.insertSheet(ROSTER_NAME);
-    sh.appendRow(['Name', 'Role (Agent / Evaluator)', 'Active (Yes / No)']);
+    sh.appendRow(['Name', 'Role (Agent / Evaluator)', 'Active (Yes / No)', 'Email']);
     sh.setFrozenRows(1);
-    sh.getRange(1, 1, 1, 3).setFontWeight('bold');
+    sh.getRange(1, 1, 1, 4).setFontWeight('bold');
   }
+  if (!sh.getRange(1, 4).getValue()) sh.getRange(1, 4).setValue('Email').setFontWeight('bold');
   return sh;
 }
 
@@ -49,12 +53,13 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [] };
+  const out = { agents: [], evaluators: [], emails: {} };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
-    if (String(r[1]).toLowerCase().indexOf('eval') === 0) out.evaluators.push(name); else out.agents.push(name);
+    if (String(r[1]).toLowerCase().indexOf('eval') === 0) out.evaluators.push(name);
+    else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
   });
   out.agents.sort(); out.evaluators.sort();
   return out;
@@ -134,6 +139,67 @@ function removePerson_(role, name) {
   return { ok: true };
 }
 
+// Save (or clear) an agent's email in the Roster tab.
+function setEmail_(name, email) {
+  email = String(email || '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Bad email' };
+  const ro = roster_();
+  if (ro.getLastRow() > 1) {
+    const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][1]).charAt(0).toLowerCase() === 'a' && nameKey_(rows[i][0]) === nameKey_(name)) {
+        ro.getRange(i + 2, 4).setValue(email);
+        return { ok: true };
+      }
+    }
+  }
+  ro.appendRow([String(name || '').trim(), 'Agent', 'Yes', email]);
+  return { ok: true };
+}
+
+function esc_(s) {
+  return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+function pct_(x) {
+  return x === null || x === undefined || x === '' ? '–' : Math.round(Number(x) * 1000) / 10 + '%';
+}
+
+// Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
+function emailAgent_(r) {
+  const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
+  if (!EMAIL_AGENTS || r.test || purpose !== 'live') return '';
+  const to = readRoster_().emails[r.agent];
+  if (!to) return '';
+  try {
+    const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
+    const when = String(r.interactionDate || '').replace('T', ' ');
+    const phone = String(r.phone || '').replace(/\D/g, '');
+    const ref = [r.odooRef ? 'Odoo: ' + r.odooRef : '', phone ? 'رقم العميل بينتهي بـ ' + phone.slice(-4) : ''].filter(String).join(' · ');
+    const pass = r.result === 'Pass';
+    const missed = (r.items || []).filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; });
+    const fb = r.feedback || {};
+    const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
+    let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>ده تقييم الجودة لـ' + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
+      row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
+      row('درجة البنود العادية', pct_(r.ncScore)) +
+      row('أخطاء حرجة', esc_(r.critical || 0)) +
+      row('المقيّم', esc_(r.evaluator)) + '</table>';
+    if (missed.length) html += '<p><b>البنود اللي محتاجة تتظبط:</b></p><ul>' + missed.map(function (i) {
+      return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
+    if (fb.strengths) html += '<p><b>نقاط القوة:</b><br><span dir="auto">' + esc_(fb.strengths) + '</span></p>';
+    if (fb.improve) html += '<p><b>محتاج تحسين:</b><br><span dir="auto">' + esc_(fb.improve) + '</span></p>';
+    if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
+    html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
+    MailApp.sendEmail({ to: to, subject: 'تقييم الجودة – ' + form + ' – ' + when.slice(0, 10) + ' – ' + pct_(r.final), htmlBody: html, name: 'Quality' });
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + to;
+  } catch (err) {
+    return 'Not sent: ' + String(err).slice(0, 200);
+  }
+}
+
 function row_(r, savedAt) {
   const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
     .map(function (i) { return i.id + ' ' + i.text; }).join(' | ');
@@ -143,7 +209,7 @@ function row_(r, savedAt) {
     r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
     r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r),
     r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'), r.test ? 'Yes' : 'No',
-    r.phone ? "'" + r.phone : '', r.editedAt || '', r.editedBy || ''];
+    r.phone ? "'" + r.phone : '', r.editedAt || '', r.editedBy || '', ''];
 }
 
 function format_(sh, row) {
@@ -168,7 +234,9 @@ function updateRecord_(r) {
     const row = findRow_(sh, r.id);
     if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); return { ok: true, added: true }; }
     const savedAt = sh.getRange(row, 1).getValue();
-    sh.getRange(row, 1, 1, COLUMNS.length).setValues([row_(r, savedAt)]);
+    const vals = row_(r, savedAt);
+    vals[COLUMNS.length - 1] = sh.getRange(row, COLUMNS.length).getValue(); // keep the email note
+    sh.getRange(row, 1, 1, COLUMNS.length).setValues([vals]);
     format_(sh, row);
   } finally {
     lock.releaseLock();
@@ -256,14 +324,15 @@ function doPost(e) {
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
+    if (body.action === 'setEmail') return reply_(setEmail_(body.name, body.email));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
+    const sh = sheet_();
     try {
-      const sh = sheet_();
       if (sh.getLastColumn() < COLUMNS.length) sh.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]).setFontWeight('bold');
       const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
       if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
@@ -273,7 +342,9 @@ function doPost(e) {
     } finally {
       lock.releaseLock();
     }
-    return reply_({ ok: true });
+    const note = emailAgent_(r);
+    if (note) { const at = findRow_(sh, r.id); if (at !== -1) sh.getRange(at, COLUMNS.length).setValue(note); }
+    return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note });
   } catch (err) {
     return reply_({ ok: false, error: String(err) });
   }
@@ -285,7 +356,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators });
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, emails: ro.emails });
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
