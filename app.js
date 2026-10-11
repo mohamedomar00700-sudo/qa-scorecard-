@@ -23,7 +23,8 @@
     return el;
   }
   const pct = (x) => (x === null || x === undefined || x === "" || isNaN(x) ? "–" : Math.round(x * 1000) / 10 + "%");
-  const today = () => new Date().toISOString().slice(0, 10);
+  // Local date (not UTC), so an evaluation done just after midnight in the UAE gets the right day.
+  const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
   function store(key, val) {
     try {
       if (val === undefined) return JSON.parse(localStorage.getItem(key) || "null");
@@ -242,6 +243,8 @@
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: o })),
           h("option", { value: "__new", text: t("add_name") }));
       } else input = h("input", { type: kind });
+      // Evaluation date is always the day it is saved (kept as is when correcting an old one).
+      if (key === "evalDate") { if (!current.edit) a.header.evalDate = today(); input.readOnly = true; input.tabIndex = -1; input.className = "auto"; }
       if (kind === "tel") { input.dir = "ltr"; input.placeholder = "+9715XXXXXXXX"; input.inputMode = "tel"; }
       input.value = a.header[key] || "";
       input.id = "hd_" + key;
@@ -502,6 +505,7 @@
       savedAt: new Date().toISOString(),
       formsVersion: F.version, form: current.form,
       ...a.header,
+      evalDate: current.edit ? a.header.evalDate || today() : today(),
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),

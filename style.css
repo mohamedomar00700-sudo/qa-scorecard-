@@ -153,3 +153,4 @@ td.actions { white-space: nowrap; }
 td.actions button { padding: 4px 8px; font-size: 12px; margin-inline-end: 4px; }
 .pill.info { background: var(--brand-soft); color: var(--brand); }
 .cal-ref { margin: 0 0 10px; }
+input.auto { background: var(--na-soft); color: var(--muted); pointer-events: none; }
