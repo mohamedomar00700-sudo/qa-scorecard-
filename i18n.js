@@ -1,7 +1,7 @@
 // Interface text in English and Arabic. Item text lives in forms.js.
 window.I18N = {
   en: {
-    nav_cert: "Certification", cert_title: "Certification", cert_hint: "Nothing to type except notes. Score the live calls in the Evaluate page as usual. Score each role-play on the same form and tick \"Certification role-play\". Odoo accuracy comes from the Odoo items of the live calls. Pick the certification window with the dates.",
+    nav_cert: "Certification", cert_title: "Certification", cert_hint: "Nothing to type except notes. Score each live certification call in the Evaluate page with the type \"Certification call\" (it stays out of the dashboard). Score each role-play on the same form with the type \"Certification role-play\". Odoo accuracy comes from the Odoo items of the live calls. Pick the certification window with the dates.",
     cert_r1: "Pending: fewer live calls or role-plays than the numbers above, in the chosen dates.",
     cert_r2: "Not certified: live average below the QA bar, or as many evaluations with a critical error as the limit above, or more.",
     cert_r3: "Conditional: some critical errors but fewer than the limit, Odoo accuracy below its bar, or a critical error in a role-play.",
@@ -51,7 +51,7 @@ window.I18N = {
     updated_sheet: "Evaluation updated in the Google Sheet.",
     dup_confirm: "This interaction (same agent, time and customer) was already evaluated by {e} on {d}. Save another evaluation anyway?",
     cal_ref: "Call reference", cal_ref_differ: "Evaluators entered different times or numbers for this sample. Check they scored the same interaction.",
-    h_purpose: "Evaluation purpose", p_live: "Agent level (counted for the agent)", p_program: "Program level (account quality, not on the agent)", p_coaching: "Feedback only (not counted)", p_calibration: "Calibration", p_roleplay: "Certification role-play",
+    h_purpose: "Evaluation purpose", p_live: "Agent level (counted for the agent)", p_certcall: "Certification call (counts for certification only)", p_program: "Program level (account quality, not on the agent)", p_coaching: "Feedback only (not counted)", p_calibration: "Calibration", p_roleplay: "Certification role-play",
     h_test: "Test only (not counted anywhere)", mail_head: "Result emails to agents", mail_hint: "This choice is saved on this device for whoever uses it. With Outlook, the tool opens a ready email after saving; you check it and press Send, so it goes from your work email.",
     mail_mode: "Send result emails", mail_auto: "Automatically from the tool (Gmail, under my name)", mail_outlook: "From my Outlook app (I press Send)", mail_outlookweb: "From Outlook on the web (I press Send)",
     mail_btn: "✉ Open the email in Outlook", mail_btn_short: "✉ Email", cal_todo: "Recent – you haven't scored yet", cal_mine: "Recent – you already scored", cal_older: "Older than {n} days",
@@ -86,7 +86,7 @@ window.I18N = {
     sample_head: "Sample {s} · {f} · agreed NC {p}", median: " (median)", diffs: "Items where evaluators differ: {n}",
     diffs_hint: "Highlighted rows need a ruling. Record the agreed ruling in the Calibration Log.", item: "Item", download_cmp: "Download comparison (CSV)",
     db_title: "Dashboard", f_form: "Form", f_all_forms: "All forms", f_agent: "Agent", f_all_agents: "All agents", f_evaluator: "Evaluator", f_all_evaluators: "All evaluators",
-    f_type: "Interaction type", f_all_types: "All types", f_from: "From", f_to: "To", f_cal: "Calibration, role-plays & feedback-only", f_level: "Level", lv_agent: "Agent level", lv_program: "Program level (agent + program samples)", lv_all: "Everything (incl. calibration, role-play, feedback)", f_exclude: "Exclude", f_include: "Include",
+    f_type: "Interaction type", f_all_types: "All types", f_from: "From", f_to: "To", f_cal: "Calibration, certification & feedback-only", f_level: "Level", lv_agent: "Agent level", lv_program: "Program level (agent + program samples)", lv_all: "Everything (incl. calibration, certification, feedback)", f_exclude: "Exclude", f_include: "Include",
     db_nomatch: "No evaluations match these filters.", db_empty: "No evaluations yet. They appear here once evaluations are saved to the Google Sheet (or imported as files).",
     overview: "Overview", k_evals: "Evaluations", k_agents: "{n} agents", k_avg: "Average final score", k_target: "target 85%", k_pass: "Pass rate", k_passed: "{a} of {b} passed",
     k_nc: "Average NC score", k_before: "before critical errors", k_crit: "With a critical error", k_of_evals: "{p} of evaluations",
@@ -114,7 +114,7 @@ window.I18N = {
     agents: "Agents", none_yet: "none yet",
   },
   ar: {
-    nav_cert: "السرتيفيكيشن", cert_title: "السرتيفيكيشن", cert_hint: "مفيش حاجة تكتبها غير الملاحظات. قيّم المكالمات من صفحة التقييم عادي. قيّم كل رول بلاي على نفس الفورم وعلّم على \"رول بلاي للسرتيفيكيشن\". دقة Odoo بتتحسب من بنود Odoo في المكالمات. حدد فترة السرتيفيكيشن بالتواريخ.",
+    nav_cert: "السرتيفيكيشن", cert_title: "السرتيفيكيشن", cert_hint: "مفيش حاجة تكتبها غير الملاحظات. قيّم كل كول سرتيفيكيشن من صفحة التقييم واختار نوع \"كول سرتيفيكيشن\" (مش بيدخل في الداشبورد). قيّم كل رول بلاي على نفس الفورم واختار \"رول بلاي سرتيفيكيشن\". دقة Odoo بتتحسب من بنود Odoo في المكالمات. حدد فترة السرتيفيكيشن بالتواريخ.",
     cert_r1: "Pending: عدد المكالمات أو الرول بلاي أقل من الأرقام اللي فوق في الفترة المختارة.",
     cert_r2: "Not certified: المتوسط أقل من نسبة النجاح، أو عدد التقييمات اللي فيها كريتيكال وصل للحد اللي فوق أو أكتر.",
     cert_r3: "Conditional: فيه كريتيكال بس أقل من الحد، أو دقة Odoo أقل من نسبتها، أو كريتيكال في رول بلاي.",
@@ -164,7 +164,7 @@ window.I18N = {
     updated_sheet: "التقييم اتعدّل في الـ Google Sheet.",
     dup_confirm: "التعامل ده (نفس الإيجنت والوقت والعميل) اتقيّم قبل كده من {e} يوم {d}. تحفظ تقييم تاني برضه؟",
     cal_ref: "مرجع المكالمة", cal_ref_differ: "المقيّمين كتبوا أوقات أو أرقام مختلفة للعينة دي. اتأكد إنهم قيّموا نفس المكالمة.",
-    h_purpose: "نوع التقييم", p_live: "Agent level (محسوب على الإيجنت)", p_program: "Program level (جودة الأكاونت، مش محسوب على الإيجنت)", p_coaching: "فيدباك بس (مش محسوب)", p_calibration: "كاليبريشن", p_roleplay: "رول بلاي سرتيفيكيشن",
+    h_purpose: "نوع التقييم", p_live: "Agent level (محسوب على الإيجنت)", p_certcall: "كول سرتيفيكيشن (محسوب في السرتيفيكيشن بس)", p_program: "Program level (جودة الأكاونت، مش محسوب على الإيجنت)", p_coaching: "فيدباك بس (مش محسوب)", p_calibration: "كاليبريشن", p_roleplay: "رول بلاي سرتيفيكيشن",
     h_test: "تجربة بس (مش هيتحسب في أي حاجة)", mail_head: "إيميلات النتيجة للإيجنتس", mail_hint: "الاختيار ده بيتحفظ على الجهاز ده للي بيستخدمه. مع الأوتلوك، التوول بيفتحلك إيميل جاهز بعد الحفظ، تراجعه وتدوس Send، فيطلع من إيميل شغلك.",
     mail_mode: "إبعت إيميل النتيجة", mail_auto: "أوتوماتيك من التوول (جيميل، باسمي)", mail_outlook: "من برنامج الأوتلوك عندي (أنا اللي أدوس Send)", mail_outlookweb: "من الأوتلوك على الويب (أنا اللي أدوس Send)",
     mail_btn: "✉ افتح الإيميل في الأوتلوك", mail_btn_short: "✉ إيميل", cal_todo: "الأحدث – لسه مقيّمتهاش", cal_mine: "الأحدث – قيّمتها قبل كده", cal_older: "أقدم من {n} يوم",
@@ -199,7 +199,7 @@ window.I18N = {
     sample_head: "عينة {s} · {f} · NC المتفق عليه {p}", median: " (الوسيط)", diffs: "بنود المقيّمين اختلفوا فيها: {n}",
     diffs_hint: "الصفوف الملوّنة محتاجة حكم. سجّل الحكم المتفق عليه في الـ Calibration Log.", item: "البند", download_cmp: "نزّل المقارنة (CSV)",
     db_title: "الداشبورد", f_form: "الفورم", f_all_forms: "كل الفورمات", f_agent: "الإيجنت", f_all_agents: "كل الإيجنتس", f_evaluator: "المقيّم", f_all_evaluators: "كل المقيّمين",
-    f_type: "نوع التعامل", f_all_types: "كل الأنواع", f_from: "من", f_to: "إلى", f_cal: "الكاليبريشن والرول بلاي والفيدباك", f_level: "المستوى", lv_agent: "Agent level", lv_program: "Program level (الإيجنت + عينات البروجرام)", lv_all: "كله (مع الكاليبريشن والرول بلاي والفيدباك)", f_exclude: "استبعد", f_include: "ضمّن",
+    f_type: "نوع التعامل", f_all_types: "كل الأنواع", f_from: "من", f_to: "إلى", f_cal: "الكاليبريشن والسرتيفيكيشن والفيدباك", f_level: "المستوى", lv_agent: "Agent level", lv_program: "Program level (الإيجنت + عينات البروجرام)", lv_all: "كله (مع الكاليبريشن والسرتيفيكيشن والفيدباك)", f_exclude: "استبعد", f_include: "ضمّن",
     db_nomatch: "مفيش تقييمات مطابقة للفلاتر دي.", db_empty: "لسه مفيش تقييمات. هتظهر هنا أول ما التقييمات تتحفظ في الـ Google Sheet (أو تتستورد كملفات).",
     overview: "نظرة عامة", k_evals: "التقييمات", k_agents: "{n} إيجنت", k_avg: "متوسط السكور النهائي", k_target: "الهدف 85%", k_pass: "نسبة النجاح", k_passed: "{a} من {b} نجحوا",
     k_nc: "متوسط سكور NC", k_before: "قبل الأخطاء الحرجة", k_crit: "فيها غلط حرج", k_of_evals: "{p} من التقييمات",

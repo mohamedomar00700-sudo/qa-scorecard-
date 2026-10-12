@@ -313,7 +313,7 @@
       if (p !== "calibration") hd.sampleRef = "";
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -749,7 +749,7 @@
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
-  const mailable = (r) => ["live", "coaching"].includes(purposeOf(r)) && !r.test;
+  const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
   function mailText(r) {
     const coaching = purposeOf(r) === "coaching";
     const form = r.form === "whatsapp" ? "واتساب" : "مكالمة";
@@ -758,9 +758,10 @@
     const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? "رقم العميل بينتهي بـ " + phone.slice(-4) : ""].filter(Boolean).join(" · ");
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
-    const subject = (coaching ? "فيدباك – " : "تقييم الجودة – ") + form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
+    const cert = purposeOf(r) === "certcall";
+    const subject = (coaching ? "فيدباك – " : cert ? "تقييم السرتيفيكيشن – " : "تقييم الجودة – ") + form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
     const lines = ["أهلاً " + (r.agent || "") + "،", "",
-      (coaching ? "ده فيدباك (مش محسوب في تقييمك) على " : "ده تقييم الجودة لـ") + form + " بتاريخ " + when + (ref ? " (" + ref + ")" : "") + ".", "",
+      (coaching ? "ده فيدباك (مش محسوب في تقييمك) على " : cert ? "ده تقييم السرتيفيكيشن لـ" : "ده تقييم الجودة لـ") + form + " بتاريخ " + when + (ref ? " (" + ref + ")" : "") + ".", "",
       "النتيجة النهائية: " + pct(r.final) + " – " + (r.result === "Pass" ? "ناجح" : "محتاج تحسين"),
       "درجة البنود العادية: " + pct(r.ncScore), "أخطاء حرجة: " + (r.critical || 0)];
     if (missed.length) lines.push("", "البنود اللي محتاجة تتظبط:", ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
@@ -1117,7 +1118,7 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "roleplay"].includes(purposeOf(r)) && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
@@ -1125,7 +1126,10 @@
     if (!names.length) { out.append(h("div", { class: "empty", text: t("cert_empty") })); return; }
 
     const rows = names.map((agent) => {
-      const list = recs.filter((r) => r.agent === agent);
+      // Certification calls when the agent has any in the window; otherwise Agent level calls
+      // (evaluations saved before the certification-call type existed).
+      const mine = recs.filter((r) => r.agent === agent), certCalls = mine.filter((r) => purposeOf(r) === "certcall");
+      const list = certCalls.length ? certCalls : mine;
       // Average the score before critical zeroing: critical errors are counted on their own below,
       // so one error is not charged twice (a single 0% would otherwise sink the average by itself).
       const fin = list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined);
