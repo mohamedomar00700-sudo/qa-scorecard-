@@ -88,7 +88,7 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", evaluator: "" }, store(LS_SETTINGS) || {});
+  const settings = Object.assign({ url: "", key: "", evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
     if (settings.key) store(LS_SETTINGS, settings);
@@ -582,6 +582,7 @@
       evalDate: current.edit ? a.header.evalDate || today() : today(),
       kbVersion: kbFor(a.header.interactionDate) || a.header.kbVersion || "",
       kbUpdate: (kbInForce(a.header.interactionDate) || {}).no || "",
+      mailMode: settings.mail || "auto",
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),
@@ -663,7 +664,7 @@
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
-        else if (!edit && how === "saved" && ["live", "coaching"].includes(purposeOf(rec)) && !rec.test && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
+        else if (!edit && how === "saved" && settings.mail === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
@@ -676,6 +677,7 @@
     store(LS_DRAFT, null);
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
+    if (!edit && settings.mail !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
   }
 
   // Same interaction already evaluated for real (same agent, time and customer)?
@@ -745,6 +747,37 @@
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
+  // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
+  // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
+  const mailable = (r) => ["live", "coaching"].includes(purposeOf(r)) && !r.test;
+  function mailText(r) {
+    const coaching = purposeOf(r) === "coaching";
+    const form = r.form === "whatsapp" ? "واتساب" : "مكالمة";
+    const when = whenText(r);
+    const phone = String(r.phone || "").replace(/\D/g, "");
+    const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? "رقم العميل بينتهي بـ " + phone.slice(-4) : ""].filter(Boolean).join(" · ");
+    const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
+    const fb = r.feedback || {};
+    const subject = (coaching ? "فيدباك – " : "تقييم الجودة – ") + form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
+    const lines = ["أهلاً " + (r.agent || "") + "،", "",
+      (coaching ? "ده فيدباك (مش محسوب في تقييمك) على " : "ده تقييم الجودة لـ") + form + " بتاريخ " + when + (ref ? " (" + ref + ")" : "") + ".", "",
+      "النتيجة النهائية: " + pct(r.final) + " – " + (r.result === "Pass" ? "ناجح" : "محتاج تحسين"),
+      "درجة البنود العادية: " + pct(r.ncScore), "أخطاء حرجة: " + (r.critical || 0)];
+    if (missed.length) lines.push("", "البنود اللي محتاجة تتظبط:", ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
+    if (fb.strengths) lines.push("", "نقاط القوة:", fb.strengths);
+    if (fb.improve) lines.push("", "محتاج تحسين:", fb.improve);
+    if (fb.coaching) lines.push("", "نصيحة للمرة الجاية:", fb.coaching);
+    lines.push("", "لو عندك أي سؤال على التقييم كلّمني.", "", r.evaluator || "");
+    return { subject, body: lines.join("\n") };
+  }
+  function openOutlook(r) {
+    const to = (roster.emails || {})[r.agent] || "";
+    const { subject, body } = mailText(r);
+    const q = (o) => Object.entries(o).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+    if (settings.mail === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, subject, body }), "_blank");
+    else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@") + "?" + q({ subject, body });
+  }
+  const outlookButton = (r, small) => h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) });
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
   function renderRecords() {
@@ -768,6 +801,7 @@
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
+        mailable(r) ? outlookButton(r, true) : null,
         h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) })))));
     out.append(tbl);
     if (recs.length > 300) out.append(h("p", { class: "hint", text: t("rec_more", { n: recs.length }) }));
@@ -1164,6 +1198,8 @@
 
   function renderSettings() {
     $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
+    const mm = $("#setMail"); mm.value = settings.mail || "auto";
+    mm.onchange = () => { settings.mail = mm.value; store(LS_SETTINGS, settings); };
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
     status.className = "msg " + (connected() ? "ok" : "err");

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1791791415">
+<link rel="stylesheet" href="style.css?v=1791791675">
 </head>
 <body>
 <header class="top">
@@ -222,6 +222,14 @@
       <div class="msg" id="setMsg"></div>
     </div>
     <div class="card">
+      <h2 data-i18n="mail_head"></h2>
+      <p class="hint" data-i18n="mail_hint"></p>
+      <label><span data-i18n="mail_mode"></span><select id="setMail">
+        <option value="auto" data-i18n="mail_auto"></option>
+        <option value="outlook" data-i18n="mail_outlook"></option>
+        <option value="outlookweb" data-i18n="mail_outlookweb"></option></select></label>
+    </div>
+    <div class="card">
       <h2 data-i18n="names"></h2>
       <p class="hint" data-i18n="names_hint"></p>
       <div id="rosterList" class="roster"></div>
@@ -235,9 +243,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1791791415"></script>
-<script src="i18n.js?v=1791791415"></script>
-<script src="forms.js?v=1791791415"></script>
-<script src="app.js?v=1791791415"></script>
+<script src="config.js?v=1791791675"></script>
+<script src="i18n.js?v=1791791675"></script>
+<script src="forms.js?v=1791791675"></script>
+<script src="app.js?v=1791791675"></script>
 </body>
 </html>

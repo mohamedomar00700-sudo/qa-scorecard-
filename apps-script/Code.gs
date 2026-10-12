@@ -171,7 +171,8 @@ function pct_(x) {
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
-  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'coaching')) return '';
+  // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb') get no automatic email.
+  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'coaching') || (r.mailMode && r.mailMode !== 'auto')) return '';
   const ro = readRoster_();
   const to = ro.emails[r.agent];
   if (!to) return '';
