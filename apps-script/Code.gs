@@ -8,8 +8,10 @@
  * > Version: New version > Deploy. The link stays the same.
  */
 const ACCESS_KEY = 'CHANGE-ME';
-// Email each agent their result right after a real evaluation is saved (not tests, calibration or role-plays).
-// Only agents with an email in the Roster tab (column D) get one. Set to false to stop all emails.
+// Email each agent their result right after a real or feedback-only evaluation is saved (not tests,
+// calibration or role-plays). Only agents with an email in the Roster tab (column D) get one.
+// The email carries the evaluator's name; replies go to the evaluator's email (Roster column D), who also gets a copy.
+// Set to false to stop all emails.
 const EMAIL_AGENTS = true;
 const SHEET_NAME = 'Evaluations';
 const ROSTER_NAME = 'Roster';
@@ -53,12 +55,12 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], emails: {} };
+  const out = { agents: [], evaluators: [], emails: {}, evalEmails: {} };
   if (sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
-    if (String(r[1]).toLowerCase().indexOf('eval') === 0) out.evaluators.push(name);
+    if (String(r[1]).toLowerCase().indexOf('eval') === 0) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -139,21 +141,22 @@ function removePerson_(role, name) {
   return { ok: true };
 }
 
-// Save (or clear) an agent's email in the Roster tab.
-function setEmail_(name, email) {
+// Save (or clear) an agent's or evaluator's email in the Roster tab.
+function setEmail_(role, name, email) {
+  const first = role === 'evaluators' ? 'e' : 'a';
   email = String(email || '').trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Bad email' };
   const ro = roster_();
   if (ro.getLastRow() > 1) {
     const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
     for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][1]).charAt(0).toLowerCase() === 'a' && nameKey_(rows[i][0]) === nameKey_(name)) {
+      if (String(rows[i][1]).charAt(0).toLowerCase() === first && nameKey_(rows[i][0]) === nameKey_(name)) {
         ro.getRange(i + 2, 4).setValue(email);
         return { ok: true };
       }
     }
   }
-  ro.appendRow([String(name || '').trim(), 'Agent', 'Yes', email]);
+  ro.appendRow([String(name || '').trim(), first === 'e' ? 'Evaluator' : 'Agent', 'Yes', email]);
   return { ok: true };
 }
 
@@ -168,9 +171,12 @@ function pct_(x) {
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
-  if (!EMAIL_AGENTS || r.test || purpose !== 'live') return '';
-  const to = readRoster_().emails[r.agent];
+  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'coaching')) return '';
+  const ro = readRoster_();
+  const to = ro.emails[r.agent];
   if (!to) return '';
+  const evEmail = ro.evalEmails[r.evaluator] || '';
+  const coaching = purpose === 'coaching';
   try {
     const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
     const when = String(r.interactionDate || '').replace('T', ' ');
@@ -181,7 +187,7 @@ function emailAgent_(r) {
     const fb = r.feedback || {};
     const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>ده تقييم الجودة لـ' + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
       row('درجة البنود العادية', pct_(r.ncScore)) +
@@ -193,7 +199,10 @@ function emailAgent_(r) {
     if (fb.improve) html += '<p><b>محتاج تحسين:</b><br><span dir="auto">' + esc_(fb.improve) + '</span></p>';
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
-    MailApp.sendEmail({ to: to, subject: 'تقييم الجودة – ' + form + ' – ' + when.slice(0, 10) + ' – ' + pct_(r.final), htmlBody: html, name: 'Quality' });
+    const mail = { to: to, subject: (coaching ? 'فيدباك – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + (coaching ? '' : ' – ' + pct_(r.final)),
+      htmlBody: html, name: (r.evaluator ? r.evaluator + ' – ' : '') + 'Quality' };
+    if (evEmail) { mail.replyTo = evEmail; mail.cc = evEmail; }
+    MailApp.sendEmail(mail);
     return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + to;
   } catch (err) {
     return 'Not sent: ' + String(err).slice(0, 200);
@@ -324,7 +333,7 @@ function doPost(e) {
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
-    if (body.action === 'setEmail') return reply_(setEmail_(body.name, body.email));
+    if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
     const r = body.record;

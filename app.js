@@ -143,7 +143,7 @@
     try {
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
-      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || {} };
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
         for (const name of roster[role] || []) {
@@ -313,7 +313,7 @@
       if (p !== "calibration") hd.sampleRef = "";
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -663,7 +663,7 @@
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
-        else if (!edit && how === "saved" && purposeOf(rec) === "live" && !rec.test && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
+        else if (!edit && how === "saved" && ["live", "coaching"].includes(purposeOf(rec)) && !rec.test && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
@@ -681,7 +681,7 @@
   // Same interaction already evaluated for real (same agent, time and customer)?
   function findDuplicate(rec) {
     if (rec.sampleRef || rec.test) return null;
-    return allRecords().find((r) => r.id !== rec.id && !r.sampleRef && !r.test && r.form === rec.form && r.agent === rec.agent &&
+    return allRecords().find((r) => r.id !== rec.id && !r.sampleRef && !r.test && purposeOf(r) === purposeOf(rec) && r.form === rec.form && r.agent === rec.agent &&
       r.interactionDate === rec.interactionDate && ((rec.phone && normPhone(r.phone) === rec.phone) || (rec.odooRef && r.odooRef === rec.odooRef)));
   }
 
@@ -896,7 +896,7 @@
   function fillSelect(sel, values, allLabel, show) {
     const prev = sel.value;
     sel.innerHTML = "";
-    sel.append(h("option", { value: "", text: allLabel }), values.map((v) => h("option", { value: v, text: show ? show(v) : v })));
+    sel.append(h("option", { value: "", text: allLabel }), ...values.map((v) => h("option", { value: v, text: show ? show(v) : v })));
     if (values.includes(prev)) sel.value = prev;
   }
 
@@ -935,7 +935,7 @@
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, cal: $("#dbCal").value === "yes" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test && (f.cal || (!r.sampleRef && !r.rolePlay)));
+      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test && (f.cal || purposeOf(r) === "live"));
 
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
@@ -1075,7 +1075,7 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && purposeOf(r) !== "coaching" && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
@@ -1185,8 +1185,8 @@
       rl.append(h("h3", { text: t(label) + " (" + roster[role].length + ")" }));
       if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
-        h("span", {}, name, role === "agents" ? h("small", { class: "meta email", dir: "ltr", text: (roster.emails || {})[name] || t("no_email") }) : null),
-        role === "agents" ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(name) }) : null,
+        h("span", {}, name, h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") })),
+        h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }),
         h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }),
         h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) })))));
     }
@@ -1214,17 +1214,19 @@
   }
 
   // Agent's email for the automatic result email (stored in the Roster tab, column D).
-  async function setEmail(name) {
-    const cur = (roster.emails || {})[name] || "";
-    const v = prompt(t("email_prompt", { n: name }), cur);
+  const emailsFor = (role) => (role === "agents" ? roster.emails : roster.evalEmails) || {};
+  async function setEmail(role, name) {
+    const cur = emailsFor(role)[name] || "";
+    const v = prompt(t(role === "agents" ? "email_prompt" : "email_prompt_ev", { n: name }), cur);
     if (v === null) return;
     const email = v.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert(t("bad_email")); return; }
     if (!connected()) { alert(t("email_needs_sheet")); return; }
-    try { await apiPost({ action: "setEmail", name, email }); }
+    try { await apiPost({ action: "setEmail", role, name, email }); }
     catch (e) { alert(t("name_failed", { e: e.message })); return; }
-    roster.emails = Object.assign({}, roster.emails);
-    if (email) roster.emails[name] = email; else delete roster.emails[name];
+    const k = role === "agents" ? "emails" : "evalEmails";
+    roster[k] = Object.assign({}, roster[k]);
+    if (email) roster[k][name] = email; else delete roster[k][name];
     store(LS_ROSTER, roster); renderSettings();
   }
 
