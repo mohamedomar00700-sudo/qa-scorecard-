@@ -313,7 +313,7 @@
       if (p !== "calibration") hd.sampleRef = "";
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -733,6 +733,13 @@
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
 
+  // Keep what's on screen up to date: other evaluators' saves show up within a minute
+  // (calibration differences, dashboard, evaluations list) without reloading the page.
+  setInterval(() => {
+    const view = ($("nav button.active") || {}).dataset;
+    if (!connected() || document.visibilityState !== "visible" || !view || view.view === "evaluate" || view.view === "settings") return;
+    loadFromSheet();
+  }, 60000);
   function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
@@ -933,9 +940,10 @@
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
-    const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, cal: $("#dbCal").value === "yes" };
+    const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, level: $("#dbCal").value || "agent" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test && (f.cal || purposeOf(r) === "live"));
+      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test &&
+      (f.level === "all" || purposeOf(r) === "live" || (f.level === "program" && purposeOf(r) === "program")));
 
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
@@ -1075,7 +1083,7 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && purposeOf(r) !== "coaching" && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "roleplay"].includes(purposeOf(r)) && r.agent &&
       (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
