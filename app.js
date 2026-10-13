@@ -1026,6 +1026,62 @@
     return { subject, body: lines.join("\n") };
   }
 
+  // Everyone who scored one calibration sample. Evaluators who scored the same call under another sample code,
+  // or saved it as a normal evaluation, are found by the call details and compared too (newest save per evaluator).
+  function calGroup(recs, sample) {
+    const group = recs.filter((r) => r.sampleRef === sample);
+    if (!group.length) return null;
+    const matched = sameInteraction(group);
+    group.push(...matched);
+    group.sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
+    return { g: group.filter((r) => r.form === group[0].form), matched, mixed: new Set(group.map((r) => r.form)).size > 1 };
+  }
+  // Samples of one calibration round share the date part of the code (CAL-20261012-1, -2, -3).
+  const calRound = (sample) => (/\d{8}-\d+$/.test(sample) ? sample.replace(/-\d+$/, "") : "");
+  // One email per evaluator for the whole round: every sample's result and differences, then one coaching plan
+  // set by the worst sample.
+  function calRoundMail(name, ref0, round, items) {
+    const p = (x) => (Math.round(x * 1000) / 10);
+    const W = RESULT_WORD(), ses = calSession();
+    const rank = { ok: 0, watch: 1, fail: 2 }, worst = items.reduce((w, x) => (rank[x.s.level] > rank[w] ? x.s.level : w), "ok");
+    const levelWord = { ok: tx("معاير ✔", "Calibrated ✔"), watch: tx("قريب من المعيار", "Close"), fail: tx("محتاج إعادة كاليبريشن", "Needs recalibration") };
+    const subject = tx("نتيجة الكاليبريشن – ", "Calibration result – ") + round + " – " + levelWord[worst].replace(" ✔", "");
+    const lines = [tx("أهلاً ", "Hi ") + name + tx("،", ","), "",
+      tx("دي نتيجتك في جولة الكاليبريشن ", "Here is your result in calibration round ") + round + tx("، مقارنةً بتقييم المرجع (", ", compared with the reference evaluation (") + ref0 + ").", "",
+      tx("الملخص:", "Summary:")];
+    items.forEach(({ sample, s }) => lines.push("- " + sample + ": " + levelWord[s.level] + tx(" – فرق السكور ", " – score gap ") + (s.gap === null ? "–" : p(s.gap)) +
+      tx(" نقطة، اتفاق البنود ", " points, items agreed ") + pct(s.agree) + (s.critSame ? "" : tx("، بند حرج مختلف", ", a critical item differs")) +
+      (s.decisionSame ? "" : tx("، قرار ناجح/مش ناجح مختلف", ", different pass/fail decision"))));
+    lines.push("", tx("النتيجة العامة: ", "Overall result: ") + levelWord[worst]);
+    const withDiffs = items.filter((x) => x.s.diffs.length);
+    if (withDiffs.length) {
+      lines.push("", tx("البنود اللي اختلفنا فيها:", "Items we scored differently:"));
+      withDiffs.forEach(({ sample, r, ref, g, s }) => {
+        lines.push("", calSampleLine(g, sample) + ":");
+        s.diffs.forEach((idx) => {
+          const it = ref.items[idx], mine = r.items[idx] || {};
+          lines.push("- " + mailItemName(ref.form, it) + tx(": تقييمك ", ": you scored ") + W[mine.result || ""] + tx("، والمرجع ", ", the reference ") + W[it.result || ""] + "." +
+            (it.comment ? tx(" سبب المرجع: ", " Reference's reason: ") + it.comment : ""));
+        });
+      });
+      lines.push("", tx("تقدر تراجع معنى كل بند وإمتى بيتحسب في تبويب \"دليل البنود\" في التول.", "You can check what each item means and when it applies in the \"Item guide\" tab of the tool."));
+    }
+    const sessionLine = ses ? (ses.kind === "group" ? tx("جلسة كوتشينج جماعية مع الفريق ", "Group coaching session with the team ") : tx("جلسة كوتشينج فردية ", "One-to-one coaching session ")) + ses.when +
+      tx("، نسمع فيها التسجيلات سوا ونتفق على حكم كل بند من اللي فوق.", ": we listen to the recordings together and agree on each item above.")
+      : tx("جلسة كوتشينج فردية 30 دقيقة نسمع فيها التسجيلات سوا ونتفق على حكم كل بند من اللي فوق. هبعتلك ميعادها.", "A 30-minute one-to-one coaching session where we listen to the recordings together and agree on each item above. I will send you the time.");
+    if (worst === "ok") lines.push("", tx("شغل ممتاز، تقييماتك ماشية مع المعيار.", "Great work, your scoring matches the standard."));
+    else if (worst === "watch") lines.push("", tx("المطلوب:", "Next steps:"),
+      tx("1. راجع البنود اللي فوق في \"دليل البنود\" وطبّق الحكم ده من النهارده.", "1. Review the items above in the \"Item guide\" and apply this ruling from today."),
+      ses && ses.kind === "group" ? tx("2. الجلسة الجماعية " + ses.when + " هنراجع فيها الأحكام دي، حضورك مهم.", "2. We will go over these rulings in the group session " + ses.when + "; please attend.")
+        : tx("2. مش محتاج جلسة إعادة. هنتابع البنود دي في الكاليبريشن الجاي، ولو الفرق اتكرر هنعمل جلسة كوتشينج.", "2. No recalibration needed. We will follow these items in the next calibration; if the gap repeats we will hold a coaching session."));
+    else lines.push("", tx("خطة الكوتشينج:", "Coaching plan:"), "1. " + sessionLine,
+      tx("2. قبل الجلسة، راجع البنود دي في \"دليل البنود\" واكتب سبب تقييمك لكل بند.", "2. Before the session, review these items in the \"Item guide\" and note why you scored each one."),
+      tx("3. بعد الجلسة، هتقيّم عينة كاليبريشن جديدة خلال أسبوع.", "3. After the session, you will score a new calibration sample within a week."),
+      tx("4. لحد ما تعدّي الإعادة، هراجع معاك تقييماتك على البنود دي قبل ما توصل للإيجنتس.", "4. Until you pass it, I will review your scores on these items before they reach the agents."));
+    lines.push("", tx("لو عندك أي سؤال على النتيجة كلّمني.", "If you have any question about the result, let me know."), "", ref0);
+    return { subject, body: lines.join("\n") };
+  }
+
   function renderCalibration() {
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
@@ -1040,16 +1096,10 @@
         t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].join(" · ") })); });
     if (samples.includes(prev)) sel.value = prev;
     const out = $("#calOut"); out.innerHTML = "";
-    const group = recs.filter((r) => r.sampleRef === sel.value);
-    if (!group.length) { out.append(h("div", { class: "empty", text: t("cal_empty") })); return; }
-    // Evaluators who scored the same call under another sample code, or saved it as a normal evaluation,
-    // are found by the call details and compared too (newest save per evaluator).
-    const matched = sameInteraction(group);
-    group.push(...matched);
-    group.sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
-    const forms = new Set(group.map((r) => r.form));
-    if (forms.size > 1) out.append(h("p", { class: "msg err", text: t("cal_mixed") }));
-    const g = group.filter((r) => r.form === group[0].form);
+    const cg = calGroup(recs, sel.value);
+    if (!cg) { out.append(h("div", { class: "empty", text: t("cal_empty") })); return; }
+    const { g, matched } = cg;
+    if (cg.mixed) out.append(h("p", { class: "msg err", text: t("cal_mixed") }));
 
     const ncs = g.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined).sort((a, b) => a - b);
     const median = ncs.length ? (ncs.length % 2 ? ncs[(ncs.length - 1) / 2] : (ncs[ncs.length / 2 - 1] + ncs[ncs.length / 2]) / 2) : null;
@@ -1089,6 +1139,24 @@
       h("p", { class: "hint", text: ref ? t("cal_rules", { gap: CAL.gap * 100, watch: CAL.watch * 100, agree: CAL.agree * 100 }) : t("cal_pick_ref") }),
       ...(ref && g.length > 1 ? [h("p", { class: "actions" }, ...mailButtons(() => calRulingsMail(ref, g, sel.value),
         () => g.filter((r) => r !== ref).map((r) => (roster.evalEmails || {})[r.evaluator]).filter(Boolean).join(","), "cal_rulings_btn"))] : []));
+
+    // Whole round in one email per evaluator, measured against the same reference on every sample.
+    const round = calRound(sel.value);
+    const roundSamples = round ? samples.filter((x) => calRound(x) === round) : [];
+    if (ref && roundSamples.length > 1) {
+      const per = {};
+      roundSamples.forEach((sample) => {
+        const c = calGroup(recs, sample), rf = c && c.g.find((r) => r.evaluator === ref.evaluator);
+        if (!rf) return;
+        c.g.filter((r) => r !== rf).forEach((r) => (per[r.evaluator || "–"] = per[r.evaluator || "–"] || []).push({ sample, r, ref: rf, g: c.g, s: calStats(r, rf, rf.ncScore) }));
+      });
+      const names = Object.keys(per).sort();
+      names.forEach((n) => per[n].sort((a, b) => a.sample.localeCompare(b.sample, undefined, { numeric: true })));
+      if (names.length) out.append(h("h2", { text: t("cal_round_head", { r: round, n: roundSamples.length }) }), h("p", { class: "hint", text: t("cal_round_hint") }),
+        h("table", {}, ...names.map((n) => h("tr", {}, h("td", { text: n }), h("td", { text: per[n].map((x) => x.sample.replace(round + "-", "#") + " " + t({ ok: "cal_ok", watch: "cal_watch", fail: "cal_not_ok" }[x.s.level])).join(" · ") }),
+          h("td", { class: "actions" }, ...mailButtons(() => calRoundMail(n, ref.evaluator, round, per[n]),
+            () => (roster.evalEmails || {})[n] || "", "cal_round_btn"))))));
+    }
 
     const itemsTbl = h("table", {}, h("tr", {}, h("th", { text: "#" }), h("th", { text: t("item") }), g.map((r) => h("th", { text: r.evaluator || "–" }))));
     let diffs = 0;
