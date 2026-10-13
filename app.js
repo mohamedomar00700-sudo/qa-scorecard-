@@ -885,6 +885,20 @@
   // NC score within ±5 points, at least 90% of items scored the same, every critical item the same,
   // and the same pass / fail decision.
   const CAL = { gap: 0.05, agree: 0.9 };
+  // Other evaluators' scores of the same call: same customer number, same Odoo ref, or same agent and call time.
+  function sameInteraction(group) {
+    const first = group[0], have = new Set(group.map((r) => r.evaluator));
+    const ph = normPhone(first.phone), odoo = String(first.odooRef || "").trim(), when = whenText(first);
+    const same = (r) => (ph.length >= 6 && normPhone(r.phone) === ph) || (odoo && String(r.odooRef || "").trim() === odoo) ||
+      (first.agent && when && r.agent === first.agent && whenText(r) === when);
+    const best = new Map();
+    for (const r of allRecords()) {
+      if (r.form !== first.form || !!r.test !== !!first.test || !r.evaluator || have.has(r.evaluator) || !same(r)) continue;
+      const b = best.get(r.evaluator);
+      if (!b || stamp(r) > stamp(b)) best.set(r.evaluator, r);
+    }
+    return [...best.values()];
+  }
   function calStats(r, ref, agreed) {
     const gap = r.ncScore === null || r.ncScore === undefined || agreed === null || agreed === undefined ? null : Math.abs(r.ncScore - agreed);
     if (!ref || r === ref) return { gap, ok: gap !== null && gap <= CAL.gap, diffs: [] };
@@ -962,8 +976,13 @@
         t("n_evaluators", { n: new Set(g.list.map((r) => r.evaluator)).size })].join(" · ") })); });
     if (samples.includes(prev)) sel.value = prev;
     const out = $("#calOut"); out.innerHTML = "";
-    const group = recs.filter((r) => r.sampleRef === sel.value).sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
+    const group = recs.filter((r) => r.sampleRef === sel.value);
     if (!group.length) { out.append(h("div", { class: "empty", text: t("cal_empty") })); return; }
+    // Evaluators who scored the same call under another sample code, or saved it as a normal evaluation,
+    // are found by the call details and compared too (newest save per evaluator).
+    const matched = sameInteraction(group);
+    group.push(...matched);
+    group.sort((a, b) => (a.evaluator || "").localeCompare(b.evaluator || ""));
     const forms = new Set(group.map((r) => r.form));
     if (forms.size > 1) out.append(h("p", { class: "msg err", text: t("cal_mixed") }));
     const g = group.filter((r) => r.form === group[0].form);
@@ -999,6 +1018,8 @@
           const m = calMail(r, ref, g, s, sel.value); composeMail((roster.evalEmails || {})[r.evaluator] || "", m.subject, m.body); } }))] : [])));
     });
     const refs = [...new Set(g.map((r) => [whenText(r), refText(r)].filter(Boolean).join(" · ")).filter(Boolean))];
+    if (matched.length) out.append(h("p", { class: "msg" }, h("b", { text: t("cal_matched") + " " }),
+      matched.map((r) => (r.evaluator || "–") + " (" + (r.sampleRef ? t("cal_matched_code", { c: r.sampleRef }) : t("cal_matched_as", { p: t("p_" + purposeOf(r)) })) + ")").join("، ")));
     out.append(h("h2", { text: t("sample_head", { s: sel.value, f: formName(g[0].form), p: pct(agreed) }) + (agreedIn !== "" ? "" : ref ? t("cal_by_ref") : t("median")) }),
       h("p", { class: "cal-ref" }, h("b", { text: t("cal_ref") + ": " }), h("span", { dir: "ltr", text: (g[0].agent ? g[0].agent + " · " : "") + (refs.join("  |  ") || "–") })),
       ...(refs.length > 1 ? [h("p", { class: "msg err", text: t("cal_ref_differ") })] : []), sum,
