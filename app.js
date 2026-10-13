@@ -751,25 +751,29 @@
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
   const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
+  // Result emails follow the screen language (Arabic or English).
+  const tx = (ar, en) => (lang === "en" ? en : ar);
   function mailText(r) {
     const coaching = purposeOf(r) === "coaching";
-    const form = r.form === "whatsapp" ? "واتساب" : "مكالمة";
+    const form = r.form === "whatsapp" ? tx("واتساب", "WhatsApp chat") : tx("مكالمة", "call");
     const when = whenText(r);
     const phone = String(r.phone || "").replace(/\D/g, "");
-    const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? "رقم العميل بينتهي بـ " + phone.slice(-4) : ""].filter(Boolean).join(" · ");
+    const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? tx("رقم العميل بينتهي بـ ", "customer number ending ") + phone.slice(-4) : ""].filter(Boolean).join(" · ");
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
-    const subject = (coaching ? "فيدباك – " : cert ? "تقييم السرتيفيكيشن – " : "تقييم الجودة – ") + form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
-    const lines = ["أهلاً " + (r.agent || "") + "،", "",
-      (coaching ? "ده فيدباك (مش محسوب في تقييمك) على " : cert ? "ده تقييم السرتيفيكيشن لـ" : "ده تقييم الجودة لـ") + form + " بتاريخ " + when + (ref ? " (" + ref + ")" : "") + ".", "",
-      "النتيجة النهائية: " + pct(r.final) + " – " + (r.result === "Pass" ? "ناجح" : "محتاج تحسين"),
-      "درجة البنود العادية: " + pct(r.ncScore), "أخطاء حرجة: " + (r.critical || 0)];
-    if (missed.length) lines.push("", "البنود اللي محتاجة تتظبط:", ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
-    if (fb.strengths) lines.push("", "نقاط القوة:", fb.strengths);
-    if (fb.improve) lines.push("", "محتاج تحسين:", fb.improve);
-    if (fb.coaching) lines.push("", "نصيحة للمرة الجاية:", fb.coaching);
-    lines.push("", "لو عندك أي سؤال على التقييم كلّمني.", "", r.evaluator || "");
+    const subject = (coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
+      form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
+    const lines = [tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
+      (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+        form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
+      tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
+      tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];
+    if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
+    if (fb.strengths) lines.push("", tx("نقاط القوة:", "Strengths:"), fb.strengths);
+    if (fb.improve) lines.push("", tx("محتاج تحسين:", "Areas to improve:"), fb.improve);
+    if (fb.coaching) lines.push("", tx("نصيحة للمرة الجاية:", "Tip for next time:"), fb.coaching);
+    lines.push("", tx("لو عندك أي سؤال على التقييم كلّمني.", "If you have any question about this evaluation, let me know."), "", r.evaluator || "");
     return { subject, body: lines.join("\n") };
   }
   function composeMail(to, subject, body) {
@@ -779,7 +783,7 @@
   }
   // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
   async function copyMail(m, btn) {
-    const text = "الموضوع: " + m.subject + "\n\n" + m.body;
+    const text = tx("الموضوع: ", "Subject: ") + m.subject + "\n\n" + m.body;
     let ok = false;
     try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
       const ta = h("textarea", { style: "position:fixed;opacity:0" }); ta.value = text; document.body.append(ta); ta.select();
@@ -945,62 +949,80 @@
     });
     return { gap, agree, critSame, decisionSame, diffs, buckets, level, ok: level === "ok" };
   }
-  // Emails are written in Arabic whatever the screen language, like the agent result emails.
-  const AR_RESULT = { Met: "اتعمل", "Not met": "ماتعملش", "N/A": "لا ينطبق", "No error": "مفيش غلط", Error: "غلط حرج", "": "مش متقيّم" };
-  function arItemName(form, it) {
-    const d = itemDef(form, it), a = (d && d.ar) || {};
-    return (it.kind === "NC" ? "N" + it.id + " " + (a.label || (d && d.label) || it.text) : it.id + " " + (a.item || (d && d.item) || it.text));
+  const RESULT_WORD = () => tx({ Met: "اتعمل", "Not met": "ماتعملش", "N/A": "لا ينطبق", "No error": "مفيش غلط", Error: "غلط حرج", "": "مش متقيّم" },
+    { Met: "Met", "Not met": "Not met", "N/A": "N/A", "No error": "No error", Error: "Error", "": "not scored" });
+  function mailItemName(form, it) {
+    const d = itemDef(form, it), a = lang === "en" ? {} : (d && d.ar) || {};
+    return it.kind === "NC" ? "N" + it.id + " " + (a.label || (d && d.label) || it.text) : it.id + " " + (a.item || (d && d.item) || it.text);
   }
   function calSampleLine(g, sample) {
-    const r = g[0], form = r.form === "whatsapp" ? "واتساب" : "مكالمة";
-    return "عينة " + sample + " (" + form + (r.agent ? " للإيجنت " + r.agent : "") + (whenText(r) ? " بتاريخ " + whenText(r) : "") + ")";
+    const r = g[0], form = r.form === "whatsapp" ? tx("واتساب", "WhatsApp chat") : tx("مكالمة", "call");
+    return tx("عينة ", "sample ") + sample + " (" + form + (r.agent ? tx(" للإيجنت ", " by ") + r.agent : "") + (whenText(r) ? tx(" بتاريخ ", " on ") + whenText(r) : "") + ")";
   }
-  const AR_BUCKET = { EU: "أخطاء العميل (EU)", BC: "أخطاء البزنس (BC)", CC: "أخطاء الكومبلاينس (CC)" };
-  const AR_LEVEL = { ok: "معاير ✔", watch: "قريب من المعيار (ملاحظات بس، من غير إعادة)", fail: "محتاج إعادة كاليبريشن" };
+  // Coaching session details typed on the Calibration page, written into the emails so the plan is documented.
+  function calSession() {
+    const v = ($("#calSession") || {}).value || "", kind = ($("#calSessionKind") || {}).value || "one";
+    if (!v) return null;
+    const d = new Date(v);
+    const when = isNaN(d) ? v.replace("T", " ") : d.toLocaleDateString(lang === "en" ? "en-GB" : "ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long" }) +
+      tx(" الساعة ", " at ") + v.slice(11, 16);
+    return { when, kind };
+  }
   function calMail(r, ref, g, s, sample) {
     const p = (x) => (Math.round(x * 1000) / 10);
     const mark = (ok) => (ok ? "✔" : "✘");
-    const subject = "نتيجة الكاليبريشن – عينة " + sample + " – " + { ok: "معاير", watch: "قريب من المعيار", fail: "محتاج إعادة كاليبريشن" }[s.level];
-    const lines = ["أهلاً " + (r.evaluator || "") + "،", "",
-      "دي نتيجتك في الكاليبريشن على " + calSampleLine(g, sample) + "، مقارنةً بتقييم المرجع (" + ref.evaluator + ").", "",
-      "- سكور البنود العادية (NC): " + pct(r.ncScore) + " مقابل " + pct(ref.ncScore) + " عند المرجع، يعني فرق " + (s.gap === null ? "–" : p(s.gap)) + " نقطة " +
-        (s.gap !== null && s.gap <= CAL.gap ? "✔" : s.gap !== null && s.gap <= CAL.watch ? "(بين " + p(CAL.gap) + " و" + p(CAL.watch) + "، قريب)" : "✘"),
-      "- الاتفاق مع المرجع على البنود: " + pct(s.agree) + " (المطلوب " + p(CAL.agree) + "% أو أكتر) " + mark(s.agree >= CAL.agree),
-      "- دقة الأخطاء الحرجة: " + ["EU", "BC", "CC"].filter((b) => s.buckets[b]).map((b) => AR_BUCKET[b] + " " + mark(s.buckets[b].ref === s.buckets[b].mine)).join("، ") +
-        (s.critSame ? "" : " – فيه بند حرج متقيّم مختلف عن المرجع"),
-      "- قرار ناجح / مش ناجح: " + (s.decisionSame ? "نفس قرار المرجع ✔" : "مختلف عن قرار المرجع ✘"), "",
-      "النتيجة: " + AR_LEVEL[s.level]];
+    const W = RESULT_WORD(), ses = calSession();
+    const bucket = { EU: tx("أخطاء العميل (EU)", "customer (EU)"), BC: tx("أخطاء البزنس (BC)", "business (BC)"), CC: tx("أخطاء الكومبلاينس (CC)", "compliance (CC)") };
+    const levelWord = { ok: tx("معاير ✔", "Calibrated ✔"), watch: tx("قريب من المعيار (ملاحظات بس، من غير إعادة)", "Close (written feedback only, no recalibration)"), fail: tx("محتاج إعادة كاليبريشن", "Needs recalibration") };
+    const subject = tx("نتيجة الكاليبريشن – عينة ", "Calibration result – sample ") + sample + " – " +
+      { ok: tx("معاير", "Calibrated"), watch: tx("قريب من المعيار", "Close"), fail: tx("محتاج إعادة كاليبريشن", "Needs recalibration") }[s.level];
+    const lines = [tx("أهلاً ", "Hi ") + (r.evaluator || "") + tx("،", ","), "",
+      tx("دي نتيجتك في الكاليبريشن على ", "Here is your calibration result on ") + calSampleLine(g, sample) + tx("، مقارنةً بتقييم المرجع (", ", compared with the reference evaluation (") + ref.evaluator + ").", "",
+      tx("- سكور البنود العادية (NC): ", "- Non-critical (NC) score: ") + pct(r.ncScore) + tx(" مقابل ", " vs ") + pct(ref.ncScore) + tx(" عند المرجع، يعني فرق ", " for the reference, a gap of ") + (s.gap === null ? "–" : p(s.gap)) + tx(" نقطة ", " points ") +
+        (s.gap !== null && s.gap <= CAL.gap ? "✔" : s.gap !== null && s.gap <= CAL.watch ? tx("(بين " + p(CAL.gap) + " و" + p(CAL.watch) + "، قريب)", "(between " + p(CAL.gap) + " and " + p(CAL.watch) + ", close)") : "✘"),
+      tx("- الاتفاق مع المرجع على البنود: ", "- Items scored the same as the reference: ") + pct(s.agree) + tx(" (المطلوب " + p(CAL.agree) + "% أو أكتر) ", " (target " + p(CAL.agree) + "% or more) ") + mark(s.agree >= CAL.agree),
+      tx("- دقة الأخطاء الحرجة: ", "- Critical error accuracy: ") + ["EU", "BC", "CC"].filter((b) => s.buckets[b]).map((b) => bucket[b] + " " + mark(s.buckets[b].ref === s.buckets[b].mine)).join(tx("، ", ", ")) +
+        (s.critSame ? "" : tx(" – فيه بند حرج متقيّم مختلف عن المرجع", " – a critical item was scored differently from the reference")),
+      tx("- قرار ناجح / مش ناجح: ", "- Pass / fail decision: ") + (s.decisionSame ? tx("نفس قرار المرجع ✔", "same as the reference ✔") : tx("مختلف عن قرار المرجع ✘", "different from the reference ✘")), "",
+      tx("النتيجة: ", "Result: ") + levelWord[s.level]];
     if (s.diffs.length) {
-      lines.push("", "البنود اللي اختلفنا فيها:");
+      lines.push("", tx("البنود اللي اختلفنا فيها:", "Items we scored differently:"));
       s.diffs.forEach((idx) => {
         const it = ref.items[idx], mine = r.items[idx] || {};
-        lines.push("- " + arItemName(ref.form, it) + ": تقييمك " + AR_RESULT[mine.result || ""] + "، والمرجع " + AR_RESULT[it.result || ""] + "." + (it.comment ? " سبب المرجع: " + it.comment : ""));
+        lines.push("- " + mailItemName(ref.form, it) + tx(": تقييمك ", ": you scored ") + W[mine.result || ""] + tx("، والمرجع ", ", the reference ") + W[it.result || ""] + "." +
+          (it.comment ? tx(" سبب المرجع: ", " Reference's reason: ") + it.comment : ""));
       });
-      lines.push("تقدر تراجع معنى كل بند وإمتى بيتحسب في تبويب \"دليل البنود\" في التول.");
+      lines.push(tx("تقدر تراجع معنى كل بند وإمتى بيتحسب في تبويب \"دليل البنود\" في التول.", "You can check what each item means and when it applies in the \"Item guide\" tab of the tool."));
     }
-    if (s.level === "ok") lines.push("", "شغل ممتاز، تقييماتك ماشية مع المعيار." + (s.diffs.length ? " خلّي بالك بس من البنود اللي فوق." : ""));
-    else if (s.level === "watch") lines.push("", "المطلوب:",
-      "1. راجع البنود اللي فوق في \"دليل البنود\" وطبّق الحكم ده من النهارده.",
-      "2. مش محتاج جلسة إعادة. هنتابع البنود دي في الكاليبريشن الجاي، ولو الفرق اتكرر هنعمل جلسة كوتشينج.");
-    else lines.push("", "خطة الكوتشينج:",
-      "1. جلسة كوتشينج فردية 30 دقيقة نسمع فيها التسجيل سوا ونتفق على حكم كل بند من اللي فوق. هبعتلك ميعادها.",
-      "2. قبل الجلسة، راجع البنود دي في \"دليل البنود\" واكتب سبب تقييمك لكل بند.",
-      "3. بعد الجلسة، هتقيّم عينة كاليبريشن جديدة خلال أسبوع.",
-      "4. لحد ما تعدّي الإعادة، هراجع معاك تقييماتك على البنود دي قبل ما توصل للإيجنتس.");
-    lines.push("", "لو عندك أي سؤال على النتيجة كلّمني.", "", ref.evaluator || "");
+    const sessionLine = ses ? (ses.kind === "group" ? tx("جلسة كوتشينج جماعية مع الفريق ", "Group coaching session with the team ") : tx("جلسة كوتشينج فردية ", "One-to-one coaching session ")) + ses.when +
+      tx("، نسمع فيها التسجيل سوا ونتفق على حكم كل بند من اللي فوق.", ": we listen to the recording together and agree on each item above.")
+      : tx("جلسة كوتشينج فردية 30 دقيقة نسمع فيها التسجيل سوا ونتفق على حكم كل بند من اللي فوق. هبعتلك ميعادها.", "A 30-minute one-to-one coaching session where we listen to the recording together and agree on each item above. I will send you the time.");
+    if (s.level === "ok") lines.push("", tx("شغل ممتاز، تقييماتك ماشية مع المعيار.", "Great work, your scoring matches the standard.") + (s.diffs.length ? tx(" خلّي بالك بس من البنود اللي فوق.", " Just keep an eye on the items above.") : ""));
+    else if (s.level === "watch") lines.push("", tx("المطلوب:", "Next steps:"),
+      tx("1. راجع البنود اللي فوق في \"دليل البنود\" وطبّق الحكم ده من النهارده.", "1. Review the items above in the \"Item guide\" and apply this ruling from today."),
+      ses && ses.kind === "group" ? tx("2. الجلسة الجماعية " + ses.when + " هنراجع فيها الأحكام دي، حضورك مهم.", "2. We will go over these rulings in the group session " + ses.when + "; please attend.")
+        : tx("2. مش محتاج جلسة إعادة. هنتابع البنود دي في الكاليبريشن الجاي، ولو الفرق اتكرر هنعمل جلسة كوتشينج.", "2. No recalibration needed. We will follow these items in the next calibration; if the gap repeats we will hold a coaching session."));
+    else lines.push("", tx("خطة الكوتشينج:", "Coaching plan:"), "1. " + sessionLine,
+      tx("2. قبل الجلسة، راجع البنود دي في \"دليل البنود\" واكتب سبب تقييمك لكل بند.", "2. Before the session, review these items in the \"Item guide\" and note why you scored each one."),
+      tx("3. بعد الجلسة، هتقيّم عينة كاليبريشن جديدة خلال أسبوع.", "3. After the session, you will score a new calibration sample within a week."),
+      tx("4. لحد ما تعدّي الإعادة، هراجع معاك تقييماتك على البنود دي قبل ما توصل للإيجنتس.", "4. Until you pass it, I will review your scores on these items before they reach the agents."));
+    lines.push("", tx("لو عندك أي سؤال على النتيجة كلّمني.", "If you have any question about the result, let me know."), "", ref.evaluator || "");
     return { subject, body: lines.join("\n") };
   }
   // One email to every evaluator on the sample: the agreed ruling on each item someone scored differently. No individual scores.
   function calRulingsMail(ref, g, sample) {
+    const W = RESULT_WORD(), ses = calSession();
     const idxs = ref.items.map((_, idx) => idx).filter((idx) => g.some((r) => ((r.items[idx] || {}).result || "") !== (ref.items[idx].result || "")));
-    const subject = "أحكام الكاليبريشن المتفق عليها – عينة " + sample;
-    const lines = ["أهلاً يا جماعة،", "", "دي الأحكام المتفق عليها في " + calSampleLine(g, sample) + ". من النهارده بنقيّم البنود دي بالشكل ده:", ""];
-    if (!idxs.length) lines.push("كلنا اتفقنا على كل البنود، برافو.");
+    const subject = tx("أحكام الكاليبريشن المتفق عليها – عينة ", "Agreed calibration rulings – sample ") + sample;
+    const lines = [tx("أهلاً يا جماعة،", "Hi all,"), "", tx("دي الأحكام المتفق عليها في ", "These are the agreed rulings on ") + calSampleLine(g, sample) + tx(". من النهارده بنقيّم البنود دي بالشكل ده:", ". From today we score these items this way:"), ""];
+    if (!idxs.length) lines.push(tx("كلنا اتفقنا على كل البنود، برافو.", "We all agreed on every item, well done."));
     idxs.forEach((idx) => {
       const it = ref.items[idx];
-      lines.push("- " + arItemName(ref.form, it) + ": " + AR_RESULT[it.result || ""] + (it.comment ? "، لأن " + it.comment : "") + ".");
+      lines.push("- " + mailItemName(ref.form, it) + ": " + W[it.result || ""] + (it.comment ? tx("، لأن ", ", because ") + it.comment : "") + ".");
     });
-    lines.push("", "الأحكام دي هتتسجل في الـ Calibration Log. لو حد عنده اعتراض على حكم، يبعتلي قبل الكاليبريشن الجاي.", "", ref.evaluator || "");
+    if (ses) lines.push("", (ses.kind === "group" ? tx("جلسة الكوتشينج الجماعية: ", "Group coaching session: ") : tx("ميعاد الكوتشينج: ", "Coaching session: ")) + ses.when +
+      tx("، هنسمع فيها التسجيل سوا ونتكلم على الأحكام دي.", ". We will listen to the recording together and go over these rulings."));
+    lines.push("", tx("الأحكام دي هتتسجل في الـ Calibration Log. لو حد عنده اعتراض على حكم، يبعتلي قبل الكاليبريشن الجاي.", "These rulings go into the Calibration Log. If you disagree with one, send it to me before the next calibration."), "", ref.evaluator || "");
     return { subject, body: lines.join("\n") };
   }
 
