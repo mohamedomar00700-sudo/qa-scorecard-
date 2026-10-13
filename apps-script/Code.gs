@@ -366,7 +366,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, emails: ro.emails });
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, emails: ro.emails, evalEmails: ro.evalEmails });
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;

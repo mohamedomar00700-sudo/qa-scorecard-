@@ -143,7 +143,8 @@
     try {
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
-      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || {} };
+      // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
+      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
         for (const name of roster[role] || []) {
@@ -968,7 +969,9 @@
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
     const sg = sampleRefs();
-    const samples = [...sg.values()].sort((x, y) => sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref)).map((g) => g.ref);
+    // Real samples first (newest first), test samples after them, so the page opens on a real one.
+    const isTest = (g) => (/^TEST/i.test(g.ref) || g.list.every((r) => r.test) ? 1 : 0);
+    const samples = [...sg.values()].sort((x, y) => isTest(x) - isTest(y) || sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref)).map((g) => g.ref);
     sel.innerHTML = "";
     if (!samples.length) sel.append(h("option", { value: "", text: t("cal_none") }));
     samples.forEach((s) => { const g = sg.get(s);
