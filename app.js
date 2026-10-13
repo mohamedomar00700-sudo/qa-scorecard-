@@ -913,12 +913,17 @@
   // Other evaluators' scores of the same call: same customer number, same Odoo ref, or same agent and call time.
   function sameInteraction(group) {
     const first = group[0], have = new Set(group.map((r) => r.evaluator));
-    const ph = normPhone(first.phone), odoo = String(first.odooRef || "").trim(), when = whenText(first);
-    const same = (r) => (ph.length >= 6 && normPhone(r.phone) === ph) || (odoo && String(r.odooRef || "").trim() === odoo) ||
-      (first.agent && when && r.agent === first.agent && whenText(r) === when);
+    // Any record in the sample can identify the call: one evaluator may have typed the Odoo link or phone, another not.
+    const phones = new Set(group.map((r) => normPhone(r.phone)).filter((x) => x.length >= 6));
+    const odoos = new Set(group.map((r) => String(r.odooRef || "").trim()).filter(Boolean));
+    const whens = new Set(group.filter((r) => r.agent && whenText(r)).map((r) => r.agent + "|" + whenText(r)));
+    const strong = (r) => phones.has(normPhone(r.phone)) || odoos.has(String(r.odooRef || "").trim());
     const best = new Map();
     for (const r of allRecords()) {
-      if (r.form !== first.form || !!r.test !== !!first.test || !r.evaluator || have.has(r.evaluator) || !same(r)) continue;
+      if (r.form !== first.form || !r.evaluator || have.has(r.evaluator)) continue;
+      // A copy saved with the test switch on still counts when the Odoo link or phone proves it is the same call.
+      const ok = strong(r) || (!!r.test === !!first.test && whens.has(r.agent + "|" + whenText(r)));
+      if (!ok) continue;
       const b = best.get(r.evaluator);
       if (!b || stamp(r) > stamp(b)) best.set(r.evaluator, r);
     }
