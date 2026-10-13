@@ -143,7 +143,8 @@
     try {
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
-      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || {} };
+      // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
+      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
         for (const name of roster[role] || []) {
@@ -776,11 +777,28 @@
     if (settings.mail === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, subject, body }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ subject, body });
   }
+  // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
+  async function copyMail(m, btn) {
+    const text = "الموضوع: " + m.subject + "\n\n" + m.body;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      const ta = h("textarea", { style: "position:fixed;opacity:0" }); ta.value = text; document.body.append(ta); ta.select();
+      try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+      ta.remove();
+    }
+    if (!ok) { prompt(t("copy_manual"), text); return; }
+    const was = btn.textContent; btn.textContent = t("copied"); setTimeout(() => (btn.textContent = was), 1500);
+  }
+  const mailButtons = (make, to, label) => [
+    h("button", { type: "button", class: "ghost", text: t(label), onclick: () => { const m = make(); composeMail(to(), m.subject, m.body); } }),
+    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(make(), e.currentTarget) })];
   function openOutlook(r) {
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body);
   }
-  const outlookButton = (r, small) => h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) });
+  const outlookButton = (r, small) => h("span", { class: "mail-btns" },
+    h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
+    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(mailText(r), e.currentTarget) }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
   function renderRecords() {
@@ -881,10 +899,13 @@
   }
 
   // ---------- calibration ----------
-  // An evaluator is calibrated when, against the reference evaluator on the same sample:
-  // NC score within ±5 points, at least 90% of items scored the same, every critical item the same,
-  // and the same pass / fail decision.
-  const CAL = { gap: 0.05, agree: 0.9 };
+  // Calibration against the reference (expert) evaluator, following the COPC CX Standard approach
+  // (monitors calibrated against a standard, critical-error accuracy checked per category: customer / business / compliance)
+  // and the usual industry variance bands (no official COPC number is published):
+  //   calibrated  = NC gap ≤ 5 points, ≥ 90% of items the same, every critical item the same, same pass/fail;
+  //   close       = the same except an NC gap of 5–10 points: written feedback, no recalibration;
+  //   recalibrate = NC gap over 10 points, under 90% of items, any critical item different, or a different pass/fail.
+  const CAL = { gap: 0.05, watch: 0.10, agree: 0.9 };
   // Other evaluators' scores of the same call: same customer number, same Odoo ref, or same agent and call time.
   function sameInteraction(group) {
     const first = group[0], have = new Set(group.map((r) => r.evaluator));
@@ -901,7 +922,7 @@
   }
   function calStats(r, ref, agreed) {
     const gap = r.ncScore === null || r.ncScore === undefined || agreed === null || agreed === undefined ? null : Math.abs(r.ncScore - agreed);
-    if (!ref || r === ref) return { gap, ok: gap !== null && gap <= CAL.gap, diffs: [] };
+    if (!ref || r === ref) return { gap, ok: gap !== null && gap <= CAL.gap, level: gap !== null && gap <= CAL.gap ? "ok" : "fail", diffs: [] };
     const diffs = [];
     let same = 0, critSame = true;
     ref.items.forEach((it, idx) => {
@@ -911,7 +932,18 @@
     });
     const agree = ref.items.length ? same / ref.items.length : null;
     const decisionSame = r.result === ref.result;
-    return { gap, agree, critSame, decisionSame, diffs, ok: gap !== null && gap <= CAL.gap && agree >= CAL.agree && critSame && decisionSame };
+    const basics = gap !== null && agree >= CAL.agree && critSame && decisionSame;
+    const level = basics && gap <= CAL.gap ? "ok" : basics && gap <= CAL.watch ? "watch" : "fail";
+    // Critical-error accuracy per category, the way COPC measures it: same verdict (error / no error) in each bucket.
+    const buckets = {};
+    ref.items.forEach((it, idx) => {
+      if (it.kind === "NC") return;
+      const b = (itemDef(ref.form, it) || {}).bucket || "?";
+      const err = (x) => (x || {}).result === "Error";
+      buckets[b] = buckets[b] || { ref: false, mine: false };
+      buckets[b].ref = buckets[b].ref || err(it); buckets[b].mine = buckets[b].mine || err(r.items[idx]);
+    });
+    return { gap, agree, critSame, decisionSame, diffs, buckets, level, ok: level === "ok" };
   }
   // Emails are written in Arabic whatever the screen language, like the agent result emails.
   const AR_RESULT = { Met: "اتعمل", "Not met": "ماتعملش", "N/A": "لا ينطبق", "No error": "مفيش غلط", Error: "غلط حرج", "": "مش متقيّم" };
@@ -923,16 +955,21 @@
     const r = g[0], form = r.form === "whatsapp" ? "واتساب" : "مكالمة";
     return "عينة " + sample + " (" + form + (r.agent ? " للإيجنت " + r.agent : "") + (whenText(r) ? " بتاريخ " + whenText(r) : "") + ")";
   }
+  const AR_BUCKET = { EU: "أخطاء العميل (EU)", BC: "أخطاء البزنس (BC)", CC: "أخطاء الكومبلاينس (CC)" };
+  const AR_LEVEL = { ok: "معاير ✔", watch: "قريب من المعيار (ملاحظات بس، من غير إعادة)", fail: "محتاج إعادة كاليبريشن" };
   function calMail(r, ref, g, s, sample) {
     const p = (x) => (Math.round(x * 1000) / 10);
-    const subject = "نتيجة الكاليبريشن – عينة " + sample + " – " + (s.ok ? "معاير" : "محتاج إعادة كاليبريشن");
+    const mark = (ok) => (ok ? "✔" : "✘");
+    const subject = "نتيجة الكاليبريشن – عينة " + sample + " – " + { ok: "معاير", watch: "قريب من المعيار", fail: "محتاج إعادة كاليبريشن" }[s.level];
     const lines = ["أهلاً " + (r.evaluator || "") + "،", "",
       "دي نتيجتك في الكاليبريشن على " + calSampleLine(g, sample) + "، مقارنةً بتقييم المرجع (" + ref.evaluator + ").", "",
-      "- سكور البنود العادية (NC): " + pct(r.ncScore) + " مقابل " + pct(ref.ncScore) + " عند المرجع، يعني فرق " + (s.gap === null ? "–" : p(s.gap)) + " نقطة (المسموح ±" + p(CAL.gap) + ") " + (s.gap !== null && s.gap <= CAL.gap ? "✔" : "✘"),
-      "- الاتفاق مع المرجع على البنود: " + pct(s.agree) + " (المطلوب " + p(CAL.agree) + "% أو أكتر) " + (s.agree >= CAL.agree ? "✔" : "✘"),
-      "- الأخطاء الحرجة: " + (s.critSame ? "متفقين في كل البنود ✔" : "فيه اختلاف في بند حرج أو أكتر ✘"),
+      "- سكور البنود العادية (NC): " + pct(r.ncScore) + " مقابل " + pct(ref.ncScore) + " عند المرجع، يعني فرق " + (s.gap === null ? "–" : p(s.gap)) + " نقطة " +
+        (s.gap !== null && s.gap <= CAL.gap ? "✔" : s.gap !== null && s.gap <= CAL.watch ? "(بين " + p(CAL.gap) + " و" + p(CAL.watch) + "، قريب)" : "✘"),
+      "- الاتفاق مع المرجع على البنود: " + pct(s.agree) + " (المطلوب " + p(CAL.agree) + "% أو أكتر) " + mark(s.agree >= CAL.agree),
+      "- دقة الأخطاء الحرجة: " + ["EU", "BC", "CC"].filter((b) => s.buckets[b]).map((b) => AR_BUCKET[b] + " " + mark(s.buckets[b].ref === s.buckets[b].mine)).join("، ") +
+        (s.critSame ? "" : " – فيه بند حرج متقيّم مختلف عن المرجع"),
       "- قرار ناجح / مش ناجح: " + (s.decisionSame ? "نفس قرار المرجع ✔" : "مختلف عن قرار المرجع ✘"), "",
-      "النتيجة: " + (s.ok ? "معاير ✔" : "محتاج إعادة كاليبريشن")];
+      "النتيجة: " + AR_LEVEL[s.level]];
     if (s.diffs.length) {
       lines.push("", "البنود اللي اختلفنا فيها:");
       s.diffs.forEach((idx) => {
@@ -941,7 +978,10 @@
       });
       lines.push("تقدر تراجع معنى كل بند وإمتى بيتحسب في تبويب \"دليل البنود\" في التول.");
     }
-    if (s.ok) lines.push("", "شغل ممتاز، تقييماتك ماشية مع المعيار." + (s.diffs.length ? " خلّي بالك بس من البنود اللي فوق." : ""));
+    if (s.level === "ok") lines.push("", "شغل ممتاز، تقييماتك ماشية مع المعيار." + (s.diffs.length ? " خلّي بالك بس من البنود اللي فوق." : ""));
+    else if (s.level === "watch") lines.push("", "المطلوب:",
+      "1. راجع البنود اللي فوق في \"دليل البنود\" وطبّق الحكم ده من النهارده.",
+      "2. مش محتاج جلسة إعادة. هنتابع البنود دي في الكاليبريشن الجاي، ولو الفرق اتكرر هنعمل جلسة كوتشينج.");
     else lines.push("", "خطة الكوتشينج:",
       "1. جلسة كوتشينج فردية 30 دقيقة نسمع فيها التسجيل سوا ونتفق على حكم كل بند من اللي فوق. هبعتلك ميعادها.",
       "2. قبل الجلسة، راجع البنود دي في \"دليل البنود\" واكتب سبب تقييمك لكل بند.",
@@ -968,7 +1008,9 @@
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
     const sg = sampleRefs();
-    const samples = [...sg.values()].sort((x, y) => sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref)).map((g) => g.ref);
+    // Real samples first (newest first), test samples after them, so the page opens on a real one.
+    const isTest = (g) => (/^TEST/i.test(g.ref) || g.list.every((r) => r.test) ? 1 : 0);
+    const samples = [...sg.values()].sort((x, y) => isTest(x) - isTest(y) || sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref)).map((g) => g.ref);
     sel.innerHTML = "";
     if (!samples.length) sel.append(h("option", { value: "", text: t("cal_none") }));
     samples.forEach((s) => { const g = sg.get(s);
@@ -1009,13 +1051,12 @@
       const s = stats(r), isRef = ref && r === ref;
       sum.append(h("tr", {}, h("td", {}, r.evaluator || "–", isRef ? h("span", { class: "pill info", style: "margin-inline-start:6px", text: t("cal_ref_tag") }) : null),
         h("td", { class: "num", text: pct(r.ncScore) }), h("td", { class: "num", text: s.gap === null ? "–" : (Math.round(s.gap * 1000) / 10) + " " + t("pts") }),
-        h("td", {}, s.gap === null ? "–" : yesNo(s.gap <= CAL.gap)),
+        h("td", {}, s.gap === null ? "–" : s.gap <= CAL.gap ? yesNo(true) : s.gap <= CAL.watch ? h("span", { class: "pill warn", text: t("cal_close_gap", { gap: CAL.gap * 100, watch: CAL.watch * 100 }) }) : yesNo(false)),
         ...(ref ? (isRef ? [h("td", { text: "–" }), h("td", { text: "–" }), h("td", { text: "–" }), h("td", { text: "–" })] :
           [h("td", { class: "num", text: pct(s.agree) }), h("td", {}, yesNo(s.critSame)), h("td", {}, yesNo(s.decisionSame)),
-            h("td", {}, h("span", { class: "pill " + (s.ok ? "good" : "bad"), text: t(s.ok ? "cal_ok" : "cal_not_ok") }))]) : []),
+            h("td", {}, h("span", { class: "pill " + { ok: "good", watch: "warn", fail: "bad" }[s.level], text: t({ ok: "cal_ok", watch: "cal_watch", fail: "cal_not_ok" }[s.level]) }))]) : []),
         h("td", { class: "num", text: r.critical }), h("td", { class: "num", text: pct(r.final) }),
-        ...(ref ? [h("td", { class: "actions" }, isRef ? null : h("button", { type: "button", class: "ghost", text: t("cal_mail_btn"), onclick: () => {
-          const m = calMail(r, ref, g, s, sel.value); composeMail((roster.evalEmails || {})[r.evaluator] || "", m.subject, m.body); } }))] : [])));
+        ...(ref ? [h("td", { class: "actions" }, ...(isRef ? [] : mailButtons(() => calMail(r, ref, g, s, sel.value), () => (roster.evalEmails || {})[r.evaluator] || "", "cal_mail_btn")))] : [])));
     });
     const refs = [...new Set(g.map((r) => [whenText(r), refText(r)].filter(Boolean).join(" · ")).filter(Boolean))];
     if (matched.length) out.append(h("p", { class: "msg" }, h("b", { text: t("cal_matched") + " " }),
@@ -1023,10 +1064,9 @@
     out.append(h("h2", { text: t("sample_head", { s: sel.value, f: formName(g[0].form), p: pct(agreed) }) + (agreedIn !== "" ? "" : ref ? t("cal_by_ref") : t("median")) }),
       h("p", { class: "cal-ref" }, h("b", { text: t("cal_ref") + ": " }), h("span", { dir: "ltr", text: (g[0].agent ? g[0].agent + " · " : "") + (refs.join("  |  ") || "–") })),
       ...(refs.length > 1 ? [h("p", { class: "msg err", text: t("cal_ref_differ") })] : []), sum,
-      h("p", { class: "hint", text: ref ? t("cal_rules", { gap: CAL.gap * 100, agree: CAL.agree * 100 }) : t("cal_pick_ref") }),
-      ...(ref && g.length > 1 ? [h("p", {}, h("button", { type: "button", class: "ghost", text: t("cal_rulings_btn"), onclick: () => {
-        const m = calRulingsMail(ref, g, sel.value);
-        composeMail(g.filter((r) => r !== ref).map((r) => (roster.evalEmails || {})[r.evaluator]).filter(Boolean).join(","), m.subject, m.body); } }))] : []));
+      h("p", { class: "hint", text: ref ? t("cal_rules", { gap: CAL.gap * 100, watch: CAL.watch * 100, agree: CAL.agree * 100 }) : t("cal_pick_ref") }),
+      ...(ref && g.length > 1 ? [h("p", { class: "actions" }, ...mailButtons(() => calRulingsMail(ref, g, sel.value),
+        () => g.filter((r) => r !== ref).map((r) => (roster.evalEmails || {})[r.evaluator]).filter(Boolean).join(","), "cal_rulings_btn"))] : []));
 
     const itemsTbl = h("table", {}, h("tr", {}, h("th", { text: "#" }), h("th", { text: t("item") }), g.map((r) => h("th", { text: r.evaluator || "–" }))));
     let diffs = 0;
