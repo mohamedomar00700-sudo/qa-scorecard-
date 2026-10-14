@@ -50,6 +50,7 @@ button.ghost { border-color: transparent; color: var(--muted); }
 .item .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .item .meta b { color: var(--text); font-weight: 600; }
 .item .tag, .g-item .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); margin-inline-end: 4px; }
+.odoo-tags .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); margin: 2px; }
 .item.locked { opacity: .55; }
 .item.missing .seg { outline: 2px solid var(--bad); outline-offset: 2px; border-radius: 7px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; height: fit-content; }

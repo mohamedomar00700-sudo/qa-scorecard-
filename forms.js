@@ -43,20 +43,20 @@ window.FORMS = {
     },
     {
      "section": "Opening",
-     "item": "Introduces self and the clinic: agent name + 'Handsome & Pretty Medical Center'",
+     "item": "Introduces self and the clinic: agent name + 'H&P Medical Center'",
      "applies": [
       "ALL"
      ],
      "weight": 4,
      "guide": "No name, or clinic name missing / unclear.",
      "label": "Clear introduction",
-     "coach": "Always say your name and 'Handsome & Pretty Medical Center' clearly at the start.",
+     "coach": "Always say your name and 'H&P Medical Center' clearly at the start.",
      "explain": "The customer must know who is calling and from where. This builds trust and avoids confusion with other clinics.",
      "ar": {
       "label": "تعريف واضح",
-      "item": "يعرّف بنفسه وبالمركز: اسم الإيجنت + 'مركز هاندسم آند بريتي الطبي'",
+      "item": "يعرّف بنفسه وبالمركز: اسم الإيجنت + 'مركز H&P الطبي'",
       "guide": "مفيش اسم، أو اسم المركز ناقص / مش واضح.",
-      "coach": "قول اسمك واسم 'مركز هاندسم آند بريتي الطبي' بوضوح في أول المكالمة دايمًا.",
+      "coach": "قول اسمك واسم 'مركز H&P الطبي' بوضوح في أول المكالمة دايمًا.",
       "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان. ده بيبني ثقة ويمنع إنه يتلخبط بين المراكز.",
       "vs": "الاسم أو اسم المركز ماتقالش ← N2. اتقال اسم مركز غلط ← C16 (حرج)."
      },
@@ -670,13 +670,13 @@ window.FORMS = {
      "applies": [
       "ALL"
      ],
-     "example": "Must be 'Handsome & Pretty Medical Center' unless instructed per branch.",
-     "coach": "Introduce the clinic only as 'Handsome & Pretty Medical Center'.",
+     "example": "Must be 'H&P Medical Center' unless instructed per branch.",
+     "coach": "Introduce the clinic only as 'H&P Medical Center'.",
      "explain": "The client asked for this name on calls. A wrong name confuses customers and the brand.",
      "ar": {
       "item": "اسم المركز غلط",
-      "example": "لازم يكون 'مركز هاندسم آند بريتي الطبي' إلا لو فيه تعليمات مختلفة للفرع.",
-      "coach": "عرّف المركز باسم 'مركز هاندسم آند بريتي الطبي' بس.",
+      "example": "لازم يكون 'مركز H&P الطبي' إلا لو فيه تعليمات مختلفة للفرع.",
+      "coach": "عرّف المركز باسم 'مركز H&P الطبي' بس.",
       "explain": "العيادة طلب الاسم ده في المكالمات. الاسم الغلط بيلخبط العملاء والبراند.",
       "vs": "اتقال اسم مركز غلط ← C16. اسم المركز ماتقالش خالص ← N2."
      },
@@ -762,12 +762,12 @@ window.FORMS = {
      "applies": [
       "ALL"
      ],
-     "example": "Lead left in 'New' after the call; reason for not booking missing.",
+     "example": "Lead left in 'New' after the call; stage or tag doesn't match the call (e.g. customer not interested but lead in 'In Progress', or 'Lost' with no tag); reason for not booking missing. Check the Odoo stages and tags table at the end of this guide.",
      "coach": "Update the lead stage, disposition and reason for not booking in Odoo right after every call.",
      "explain": "Reports and follow-ups depend on the lead status. Wrong data means lost leads and wrong numbers.",
      "ar": {
       "item": "أودوو: حالة الليد أو نتيجة المكالمة أو سبب عدم الحجز غلط أو مش موجود",
-      "example": "الليد فاضل 'New' بعد المكالمة؛ سبب عدم الحجز مش مكتوب.",
+      "example": "الليد فاضل 'New' بعد المكالمة؛ المرحلة أو التاج مش ماشيين مع المكالمة (مثلاً العميل مش مهتم والليد في 'In Progress'، أو 'Lost' من غير تاج)؛ سبب عدم الحجز مش مكتوب. راجع جدول مراحل أودوو والتاجز في آخر الدليل.",
       "coach": "حدّث حالة الليد ونتيجة المكالمة وسبب عدم الحجز على أودوو بعد كل مكالمة على طول.",
       "explain": "التقارير والمتابعة معتمدة على حالة الليد. الداتا الغلط معناها ليدز بتضيع وأرقام غلط.",
       "vs": "C21 = حالة الليد ونتيجة المكالمة وسبب عدم الحجز. الملاحظات والـ Next activity ← C22. الحجز ← C10. الشكوى ← C11. أخطاء كتابة بسيطة ← N18."
@@ -915,20 +915,20 @@ window.FORMS = {
     },
     {
      "section": "Opening",
-     "item": "Greets, introduces self and 'Handsome & Pretty Medical Center' using the approved opening",
+     "item": "Greets, introduces self and 'H&P Medical Center' using the approved opening",
      "applies": [
       "ALL"
      ],
      "weight": 5,
      "guide": "No greeting / name / clinic name.",
      "label": "Opening message",
-     "coach": "Use the approved opening with your name and 'Handsome & Pretty Medical Center'.",
+     "coach": "Use the approved opening with your name and 'H&P Medical Center'.",
      "explain": "The customer must know who is writing and from where, the same as on a call.",
      "ar": {
       "label": "رسالة الافتتاح",
-      "item": "يرحّب ويعرّف بنفسه وبـ 'مركز هاندسم آند بريتي الطبي' بالافتتاحية المعتمدة",
+      "item": "يرحّب ويعرّف بنفسه وبـ 'مركز H&P الطبي' بالافتتاحية المعتمدة",
       "guide": "مفيش ترحيب / اسم / اسم المركز.",
-      "coach": "استخدم الافتتاحية المعتمدة باسمك واسم 'مركز هاندسم آند بريتي الطبي'.",
+      "coach": "استخدم الافتتاحية المعتمدة باسمك واسم 'مركز H&P الطبي'.",
       "explain": "العميل لازم يعرف مين بيكلمه ومن أنهي مكان، زي المكالمة بالظبط.",
       "vs": "الاسم أو اسم المركز ماتقالش ← N3. اسم مركز غلط ← C14 (حرج)."
      },
@@ -1420,13 +1420,13 @@ window.FORMS = {
      "applies": [
       "ALL"
      ],
-     "example": "Must be 'Handsome & Pretty Medical Center'.",
-     "coach": "Introduce the clinic only as 'Handsome & Pretty Medical Center'.",
+     "example": "Must be 'H&P Medical Center'.",
+     "coach": "Introduce the clinic only as 'H&P Medical Center'.",
      "explain": "The client asked for this name. A wrong name confuses customers.",
      "ar": {
       "item": "اسم المركز غلط",
-      "example": "لازم يكون 'مركز هاندسم آند بريتي الطبي'.",
-      "coach": "عرّف المركز باسم 'مركز هاندسم آند بريتي الطبي' بس.",
+      "example": "لازم يكون 'مركز H&P الطبي'.",
+      "coach": "عرّف المركز باسم 'مركز H&P الطبي' بس.",
       "explain": "العيادة طلبت الاسم ده. الاسم الغلط بيلخبط العملاء.",
       "vs": "اسم مركز غلط ← C14. اسم المركز ماتقالش خالص ← N3."
      },
@@ -1510,12 +1510,12 @@ window.FORMS = {
      "applies": [
       "ALL"
      ],
-     "example": "Chat not reflected on the lead card.",
+     "example": "Chat not reflected on the lead card; stage or tag doesn't match the chat (see the Odoo stages and tags table at the end of this guide).",
      "coach": "Update stage, disposition, notes and next activity in Odoo after every chat.",
      "explain": "Odoo is the record of every lead; chats must be reflected there for follow-up and reports.",
      "ar": {
       "item": "أودوو: حالة أو نتيجة أو ملاحظات أو Next activity غلط أو مش موجودة",
-      "example": "المحادثة مش ظاهرة على كارت الليد.",
+      "example": "المحادثة مش ظاهرة على كارت الليد؛ المرحلة أو التاج مش ماشيين مع المحادثة (راجع جدول مراحل أودوو والتاجز في آخر الدليل).",
       "coach": "حدّث الحالة والنتيجة والملاحظات والـ Next activity على أودوو بعد كل محادثة.",
       "explain": "أودوو هو سجل كل ليد؛ المحادثات لازم تتسجل عليه عشان المتابعة والتقارير.",
       "vs": "حالة الليد أو النتيجة أو الملاحظات أو الـ Next activity ← C19. الحجز ← C10. الشكوى ← C12. أخطاء كتابة بسيطة ← N15."
@@ -1586,6 +1586,295 @@ window.FORMS = {
     ]
    }
   }
+ },
+ "odoo": {
+  "stages": [
+   {
+    "name": "New Lead",
+    "ar": "ليد جديد",
+    "tags": []
+   },
+   {
+    "name": "Already Registered",
+    "ar": "متسجل قبل كده",
+    "tags": []
+   },
+   {
+    "name": "In Progress",
+    "ar": "شغالين عليه",
+    "tags": [
+     "Prefer WA",
+     "Call Later",
+     "Potential out of area",
+     "Active Client, Other Branch",
+     "Busy",
+     "Will Call Us Later",
+     "Without What's app"
+    ]
+   },
+   {
+    "name": "Error",
+    "ar": "خطأ",
+    "tags": [
+     "No Arb or Eng",
+     "Wrong Number",
+     "Without UAE Number",
+     "By Mistake",
+     "HR JOB",
+     "company or quick reply"
+    ]
+   },
+   {
+    "name": "Lost",
+    "ar": "ضايع",
+    "tags": [
+     "Not Interested",
+     "Too Expensive",
+     "Out of Area",
+     "Subscribe at Another Center",
+     "Not Serious",
+     "Competitos",
+     "Black List",
+     "Asking Only",
+     "Diff Device",
+     "Stop"
+    ]
+   },
+   {
+    "name": "Hold",
+    "ar": "متأجل",
+    "tags": [
+     "pregnant",
+     "Travelling"
+    ]
+   },
+   {
+    "name": "OLD DATA",
+    "ar": "داتا قديمة",
+    "tags": [
+     "Un-Reachable",
+     "Old Customer"
+    ]
+   },
+   {
+    "name": "Problem",
+    "ar": "مشكلة",
+    "tags": [
+     "Bad Experience",
+     "Upset"
+    ]
+   },
+   {
+    "name": "prefer whatsapp",
+    "ar": "بيفضّل واتساب",
+    "tags": [
+     "Prefer WA"
+    ]
+   },
+   {
+    "name": "Booked",
+    "ar": "محجوز",
+    "tags": [
+     "Booked",
+     "Not Arrived",
+     "Didn't Pay",
+     "Arrived",
+     "Invitation"
+    ]
+   },
+   {
+    "name": "Paid",
+    "ar": "دفع",
+    "tags": []
+   },
+   {
+    "name": "Transfer",
+    "ar": "تحويل",
+    "tags": []
+   }
+  ],
+  "tags": [
+   {
+    "name": "No Arb or Eng",
+    "en": "Customer cannot communicate in Arabic or English.",
+    "ar": "العميل لا يستطيع التواصل باللغة العربية أو الإنجليزية."
+   },
+   {
+    "name": "Will Call Us Later",
+    "en": "Customer stated they will contact us at a later time.",
+    "ar": "العميل أفاد بأنه سيتواصل معنا لاحقاً."
+   },
+   {
+    "name": "Not Interested",
+    "en": "Customer clearly expressed no interest in the service.",
+    "ar": "العميل غير مهتم بالخدمة بشكل واضح."
+   },
+   {
+    "name": "Asking Only",
+    "en": "Customer was only requesting information with no intention to proceed currently.",
+    "ar": "العميل كان يستفسر فقط ولا توجد نية حالية للتسجيل أو الشراء."
+   },
+   {
+    "name": "Too Expensive",
+    "en": "Customer considers the price too high.",
+    "ar": "العميل يرى أن السعر مرتفع."
+   },
+   {
+    "name": "Out of Area",
+    "en": "Customer is outside the service coverage area.",
+    "ar": "العميل خارج نطاق الخدمة."
+   },
+   {
+    "name": "Un-Reachable",
+    "en": "Unable to contact the customer after multiple attempts.",
+    "ar": "تعذر الوصول إلى العميل بعد عدة محاولات."
+   },
+   {
+    "name": "Wrong Number",
+    "en": "The phone number provided is incorrect or invalid.",
+    "ar": "رقم الهاتف غير صحيح أو غير صالح."
+   },
+   {
+    "name": "Without What's app",
+    "en": "Customer does not have WhatsApp.",
+    "ar": "العميل لا يستخدم تطبيق واتساب."
+   },
+   {
+    "name": "Booked",
+    "en": "Appointment or visit has been scheduled.",
+    "ar": "تم حجز موعد للعميل."
+   },
+   {
+    "name": "Travelling",
+    "en": "Customer is currently traveling and unavailable.",
+    "ar": "العميل مسافر حالياً وغير متاح."
+   },
+   {
+    "name": "Without UAE Number",
+    "en": "Customer does not have a UAE contact number.",
+    "ar": "العميل لا يملك رقم هاتف إماراتي."
+   },
+   {
+    "name": "Busy",
+    "en": "Customer requested contact at another time due to being busy.",
+    "ar": "العميل مشغول وطلب التواصل في وقت آخر."
+   },
+   {
+    "name": "Prefer WA",
+    "en": "Customer prefers communication through WhatsApp.",
+    "ar": "العميل يفضل التواصل عبر واتساب."
+   },
+   {
+    "name": "Not Arrived",
+    "en": "Customer did not attend the scheduled appointment.",
+    "ar": "العميل لم يحضر الموعد المحدد."
+   },
+   {
+    "name": "Didn't Pay",
+    "en": "Customer agreed but did not complete payment.",
+    "ar": "العميل لم يقم بإتمام عملية الدفع."
+   },
+   {
+    "name": "By Mistake",
+    "en": "Inquiry or registration was submitted by mistake.",
+    "ar": "تم إرسال الطلب أو التسجيل بالخطأ."
+   },
+   {
+    "name": "Upset",
+    "en": "Customer is dissatisfied or upset.",
+    "ar": "العميل غير راضٍ أو منزعج."
+   },
+   {
+    "name": "Old Customer",
+    "en": "Customer has previously interacted with the company.",
+    "ar": "العميل سبق له التعامل مع الشركة."
+   },
+   {
+    "name": "Black List",
+    "en": "Customer is restricted from further communication or service.",
+    "ar": "العميل مدرج في القائمة السوداء أو محظور التعامل معه."
+   },
+   {
+    "name": "Call Later",
+    "en": "Customer requested a callback at a specific later time.",
+    "ar": "العميل طلب معاودة الاتصال في وقت لاحق."
+   },
+   {
+    "name": "Invitation",
+    "en": "Invitation or event invitation has been sent.",
+    "ar": "تم إرسال دعوة أو دعوة لفعالية للعميل."
+   },
+   {
+    "name": "HR JOB",
+    "en": "Customer is inquiring about employment opportunities, not services.",
+    "ar": "العميل يستفسر عن وظيفة وليس عن الخدمة."
+   },
+   {
+    "name": "Arrived",
+    "en": "Customer attended the branch, center, or appointment.",
+    "ar": "العميل حضر إلى الفرع أو الموعد المحدد."
+   },
+   {
+    "name": "pregnant",
+    "en": "Customer indicated pregnancy and may require special handling.",
+    "ar": "العميلة أفادت بأنها حامل وقد تحتاج إلى معاملة خاصة."
+   },
+   {
+    "name": "Diff Device",
+    "en": "Service or registration issue due to a different device being used.",
+    "ar": "توجد مشكلة بسبب استخدام جهاز مختلف."
+   },
+   {
+    "name": "Bad Experience",
+    "en": "Customer reported a previous negative experience.",
+    "ar": "العميل أبلغ عن تجربة سلبية سابقة."
+   },
+   {
+    "name": "Service Not Available",
+    "en": "Requested service is not available for the customer.",
+    "ar": "الخدمة المطلوبة غير متوفرة للعميل."
+   },
+   {
+    "name": "Subscribe at Another Center",
+    "en": "Customer is already subscribed with another center.",
+    "ar": "العميل مشترك لدى مركز آخر."
+   },
+   {
+    "name": "Not Serious",
+    "en": "Customer is not demonstrating genuine intent to proceed.",
+    "ar": "العميل غير جاد في المتابعة أو التسجيل."
+   },
+   {
+    "name": "Competitos",
+    "en": "Customer is associated with or comparing competitor services.",
+    "ar": "العميل يتعامل مع جهة منافسة أو يقارن بخدمة منافسة."
+   },
+   {
+    "name": "Potential out of area",
+    "en": "Customer may be outside the service area but requires verification.",
+    "ar": "قد يكون العميل خارج نطاق الخدمة ويحتاج الأمر إلى تأكيد."
+   },
+   {
+    "name": "Active Client, Other Branch",
+    "en": "Customer is currently active with another branch.",
+    "ar": "العميل نشط حالياً لدى فرع آخر."
+   },
+   {
+    "name": "company or quick reply",
+    "en": "Automated company account or customer only sends brief/non-actionable responses.",
+    "ar": "حساب شركة أو عميل يرسل ردوداً مختصرة وغير كافية للمتابعة."
+   },
+   {
+    "name": "Stop",
+    "en": "Customer requested no further communication.",
+    "ar": "العميل طلب إيقاف التواصل معه."
+   },
+   {
+    "name": "QIU",
+    "en": "Special operational category requiring management review or internal follow-up.",
+    "ar": "تصنيف تشغيلي خاص يتطلب مراجعة أو متابعة داخلية."
+   }
+  ]
  },
  "sectionsAr": {
   "Opening": "الافتتاح",

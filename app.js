@@ -894,6 +894,18 @@
       if (it.bucket !== b) { b = it.bucket; out.append(h("h3", { class: "crit-h", text: t("bucket_" + b) }), h("p", { class: "hint", text: t("bucket_" + b + "_hint") })); }
       out.append(card("C" + (i + 1), L(it, "item"), null, it));
     });
+    // Odoo stages and the tags the client recommends for each, used to judge the Odoo items.
+    const od = F.odoo;
+    if (od) {
+      const tagText = (n) => { const x = od.tags.find((g) => g.name === n); return x ? (lang === "ar" ? x.ar : x.en) : ""; };
+      out.append(h("h3", { text: t("odoo_head") }), h("p", { class: "hint", text: t("odoo_hint") }),
+        h("table", { class: "odoo-tags" }, h("tr", {}, h("th", { text: t("odoo_stage") }), h("th", { text: t("odoo_tags") })),
+          ...od.stages.map((st) => h("tr", {}, h("td", {}, h("b", { dir: "ltr", text: st.name }), lang === "ar" ? h("div", { class: "meta", text: st.ar }) : null),
+            h("td", {}, st.tags.length ? st.tags.map((n) => h("span", { class: "tag", dir: "ltr", title: tagText(n), text: n })) : h("span", { class: "meta", text: t("odoo_no_tags") }))))),
+        h("h3", { text: t("odoo_tags_head") }),
+        h("table", {}, h("tr", {}, h("th", { text: t("odoo_tag") }), h("th", { text: t("odoo_meaning") })),
+          ...od.tags.map((g) => h("tr", {}, h("td", {}, h("b", { dir: "ltr", text: g.name })), h("td", { text: lang === "ar" ? g.ar : g.en })))));
+    }
   }
 
   // Item definition for a stored item ("4" = NC item 4, "C3" = critical item 3).
