@@ -64,21 +64,21 @@ window.FORMS = {
     },
     {
      "section": "Opening",
-     "item": "Outbound: states the reason for the call and checks it is a good time. Inbound: asks how they can help",
+     "item": "Outbound: states the reason for the call and leads with a hook (the free consultation / the offer); if the customer says they are busy, offers a call back at a set time. Inbound: asks how they can help",
      "applies": [
       "ALL"
      ],
      "weight": 4,
-     "guide": "Jumps into the offer without context or permission.",
+     "guide": "Starts talking without saying why they are calling, or asks \"Do you have two minutes?\" instead of giving a reason to listen. Asking for time is not required.",
      "label": "Reason for the call",
-     "coach": "State why you are calling (her enquiry / the offer / the follow-up) and ask if it is a good time before moving on.",
-     "explain": "Explaining why you are calling and checking it is a good time makes the customer willing to listen instead of rushing to end the call.",
+     "coach": "Say why you are calling (her enquiry / the offer / the follow-up) and lead with the free consultation right away. If she says she is busy, set a call back time.",
+     "explain": "A clear reason plus something she gains (a free consultation) makes the customer want to listen. \"Do you have two minutes?\" invites a quick no.",
      "ar": {
       "label": "سبب المكالمة",
-      "item": "في الأوتباوند: يقول سبب المكالمة ويتأكد إن الوقت مناسب. في الإنباوند: يسأل يقدر يساعد في إيه",
-      "guide": "يدخل على العرض على طول من غير ما يوضح أو يستأذن.",
-      "coach": "وضّح بتتصل ليه (استفسارها / العرض / الفولو أب) واسأل لو الوقت مناسب قبل ما تكمل.",
-      "explain": "لما توضح بتتصل ليه وتستأذن في الوقت، العميل بيبقى مستعد يسمع بدل ما يحاول يخلص المكالمة."
+      "item": "في الأوتباوند: يقول سبب المكالمة ويدخل بحاجة تشد العميل (الاستشارة المجانية / العرض)، ولو العميل قال إنه مشغول يحدد ميعاد Call back. في الإنباوند: يسأل يقدر يساعد في إيه",
+      "guide": "يبدأ كلام من غير ما يقول بيتصل ليه، أو يسأل \"معاكي دقيقتين؟\" بدل ما يدي العميل سبب يسمع. السؤال عن الوقت مش مطلوب.",
+      "coach": "وضّح بتتصل ليه (استفسارها / العرض / الفولو أب) وادخل بالاستشارة المجانية على طول. ولو قالت إنها مشغولة، حدد معاها ميعاد Call back.",
+      "explain": "سبب واضح وحاجة العميل هيكسبها (استشارة مجانية) بيخلوه عايز يسمع. أما \"معاكي دقيقتين؟\" فأسهل رد عليها \"لأ\"."
      }
     },
     {
