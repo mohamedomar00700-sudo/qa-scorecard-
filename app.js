@@ -894,6 +894,18 @@
       if (it.bucket !== b) { b = it.bucket; out.append(h("h3", { class: "crit-h", text: t("bucket_" + b) }), h("p", { class: "hint", text: t("bucket_" + b + "_hint") })); }
       out.append(card("C" + (i + 1), L(it, "item"), null, it));
     });
+    // Odoo stages and the tags the client recommends for each, used to judge the Odoo items.
+    const od = F.odoo;
+    if (od) {
+      const tagText = (n) => { const x = od.tags.find((g) => g.name === n); return x ? (lang === "ar" ? x.ar : x.en) : ""; };
+      out.append(h("h3", { text: t("odoo_head") }), h("p", { class: "hint", text: t("odoo_hint") }),
+        h("table", { class: "odoo-tags" }, h("tr", {}, h("th", { text: t("odoo_stage") }), h("th", { text: t("odoo_tags") })),
+          ...od.stages.map((st) => h("tr", {}, h("td", {}, h("b", { dir: "ltr", text: st.name }), lang === "ar" ? h("div", { class: "meta", text: st.ar }) : null),
+            h("td", {}, st.tags.length ? st.tags.map((n) => h("span", { class: "tag", dir: "ltr", title: tagText(n), text: n })) : h("span", { class: "meta", text: t("odoo_no_tags") }))))),
+        h("h3", { text: t("odoo_tags_head") }),
+        h("table", {}, h("tr", {}, h("th", { text: t("odoo_tag") }), h("th", { text: t("odoo_meaning") })),
+          ...od.tags.map((g) => h("tr", {}, h("td", {}, h("b", { dir: "ltr", text: g.name })), h("td", { text: lang === "ar" ? g.ar : g.en })))));
+    }
   }
 
   // Item definition for a stored item ("4" = NC item 4, "C3" = critical item 3).
@@ -917,12 +929,14 @@
     const phones = new Set(group.map((r) => normPhone(r.phone)).filter((x) => x.length >= 6));
     const odoos = new Set(group.map((r) => String(r.odooRef || "").trim()).filter(Boolean));
     const whens = new Set(group.filter((r) => r.agent && whenText(r)).map((r) => r.agent + "|" + whenText(r)));
-    const strong = (r) => phones.has(normPhone(r.phone)) || odoos.has(String(r.odooRef || "").trim());
+    const odooSame = (r) => odoos.has(String(r.odooRef || "").trim());
     const best = new Map();
     for (const r of allRecords()) {
       if (r.form !== first.form || !r.evaluator || have.has(r.evaluator)) continue;
-      // A copy saved with the test switch on still counts when the Odoo link or phone proves it is the same call.
-      const ok = strong(r) || (!!r.test === !!first.test && whens.has(r.agent + "|" + whenText(r)));
+      // A copy saved with the test switch on still counts only when its Odoo link proves it is the same call;
+      // the phone alone can be a practice run on another call with the same customer.
+      const sameTest = !!r.test === !!first.test;
+      const ok = odooSame(r) || (sameTest && (phones.has(normPhone(r.phone)) || whens.has(r.agent + "|" + whenText(r))));
       if (!ok) continue;
       const b = best.get(r.evaluator);
       if (!b || stamp(r) > stamp(b)) best.set(r.evaluator, r);
