@@ -1101,6 +1101,31 @@
     return { subject, body: lines.join("\n") };
   }
 
+  // Calls for a recalibration: already-scored real calls where the items this evaluator got wrong were in play
+  // (scored, not N/A), so the new sample tests the same situations. Calls where the item was actually missed rank first.
+  // Calls the evaluator scored before, and the sample's own call, are left out.
+  function recalCandidates(r, ref, g, s) {
+    const keyOf = (it) => it.kind + ":" + it.id;
+    const want = s.diffs.map((idx) => ref.items[idx]).filter(Boolean);
+    if (!want.length) return [];
+    const callKey = (x) => String(x.odooRef || "").trim() || (normPhone(x.phone).length >= 6 ? normPhone(x.phone) + "|" + whenText(x) : (x.agent || "") + "|" + whenText(x));
+    const used = new Set(g.map(callKey)), heard = new Set();
+    allRecords().forEach((x) => { if (x.evaluator === r.evaluator) heard.add(callKey(x)); });
+    const best = new Map();
+    for (const x of allRecords()) {
+      if (x.form !== ref.form || x.test || x.sampleRef || ["calibration", "roleplay"].includes(purposeOf(x))) continue;
+      const k = callKey(x);
+      if (used.has(k) || heard.has(k)) continue;
+      const byKey = new Map((x.items || []).map((it) => [keyOf(it), it.result || ""]));
+      const hits = want.map((it) => ({ it, v: byKey.get(keyOf(it)) || "" })).filter((h) => h.v && h.v !== "N/A");
+      if (!hits.length) continue;
+      const missed = hits.filter((h) => h.v === "Not met" || h.v === "Error").length;
+      const cand = { x, hits, score: hits.length * 2 + missed };
+      const b = best.get(k);
+      if (!b || cand.score > b.score || (cand.score === b.score && stamp(x) > stamp(b.x))) best.set(k, cand);
+    }
+    return [...best.values()].sort((a, b) => b.score - a.score || stamp(b.x).localeCompare(stamp(a.x))).slice(0, 5);
+  }
   function renderCalibration() {
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
@@ -1158,6 +1183,24 @@
       h("p", { class: "hint", text: ref ? t("cal_rules", { gap: CAL.gap * 100, watch: CAL.watch * 100, agree: CAL.agree * 100 }) : t("cal_pick_ref") }),
       ...(ref && g.length > 1 ? [h("p", { class: "actions" }, ...mailButtons(() => calRulingsMail(ref, g, sel.value),
         () => g.filter((r) => r !== ref).map((r) => (roster.evalEmails || {})[r.evaluator]).filter(Boolean).join(","), "cal_rulings_btn"))] : []));
+
+    // Suggested calls for each evaluator who needs a recalibration.
+    const needRecal = ref ? g.filter((r) => r !== ref && stats(r).level === "fail") : [];
+    if (needRecal.length) {
+      const tbl = h("table", {}, h("tr", {}, [tx("المقيّم", "Evaluator"), tx("مكالمة مقترحة", "Suggested call"), tx("البنود اللي فيها", "Items in play"), tx("اتقيّمت من", "Scored by")].map((x) => h("th", { text: x }))));
+      needRecal.forEach((r) => {
+        const list = recalCandidates(r, ref, g, stats(r));
+        if (!list.length) { tbl.append(h("tr", {}, h("td", { text: r.evaluator || "–" }), h("td", { colspan: "3", class: "meta", text: tx("مفيش مكالمات متقيّمة فيها البنود دي لسه. اختار مكالمة جديدة واسمعها الأول.", "No scored calls with these items yet. Pick a new call and listen to it first.") }))); return; }
+        list.forEach((c, i) => tbl.append(h("tr", {}, h("td", { text: i ? "" : r.evaluator || "–" }),
+          h("td", {}, h("span", { dir: "ltr", text: [c.x.agent, whenText(c.x)].filter(Boolean).join(" · ") }), h("div", { class: "meta", dir: "ltr", text: refText(c.x) || "–" })),
+          h("td", {}, ...c.hits.map((hh) => { const bad = hh.v === "Not met" || hh.v === "Error";
+            return h("span", { class: "pill " + (bad ? "bad" : "good"), style: "margin:1px", title: L(itemDef(ref.form, hh.it), "item") || hh.it.text, text: (hh.it.kind === "NC" ? "N" : "") + hh.it.id + (bad ? " ✘" : " ✔") }); })),
+          h("td", { text: c.x.evaluator || "–" }))));
+      });
+      out.append(h("h2", { text: tx("مكالمات مقترحة لإعادة الكاليبريشن", "Suggested calls for the recalibration") }),
+        h("p", { class: "hint", text: tx("مكالمات اتقيّمت قبل كده وكانت البنود اللي المقيّم اختلف فيها منطبقة عليها، فالموقف موجود فيها أكيد. ✘ يعني الإيجنت غلط في البند ده فعلاً، ودي أقوى اختبار. ✔ يعني البند اتعمل صح. خد مكالمتين يغطوا البنود دي (3 لو الغلط كان حرج أو قرار نجاح مختلف)، واسمعها انت الأول عشان تبقى المرجع. المكالمات اللي المقيّم قيّمها قبل كده مش ظاهرة هنا.",
+          "Calls already scored where the items this evaluator differed on were in play, so the situation is there. ✘ means the agent actually missed the item, the strongest test. ✔ means it was done right. Take two calls that cover these items (3 if a critical item or the pass/fail decision differed), and score them yourself first as the reference. Calls this evaluator scored before are left out.") }), tbl);
+    }
 
     // Whole round in one email per evaluator, measured against the same reference on every sample.
     const round = calRound(sel.value);
