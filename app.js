@@ -1610,6 +1610,15 @@
       applyStatic(); renderConnBanner(); fillForms(); renderEvaluate(); renderSettings(); refreshViews();
     };
     $("#showExplain").checked = showExplain;
+    // Only items left empty get filled; misses already marked and N/A items stay as they are.
+    const fillRest = (kind, value) => {
+      const list = current.answers[kind].filter((x) => !x.result && !x.locked);
+      if (!list.length) return alert(t("fill_none"));
+      list.forEach((x) => { x.result = value; });
+      renderItems(); autoFeedback(); saveDraft(); updateScore();
+    };
+    $("#fillNc").onclick = () => fillRest("nc", "Met");
+    $("#fillCrit").onclick = () => fillRest("crit", "No error");
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
