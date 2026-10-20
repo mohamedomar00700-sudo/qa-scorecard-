@@ -194,6 +194,8 @@ function emailAgent_(r) {
       row('درجة البنود العادية', pct_(r.ncScore)) +
       row('أخطاء حرجة', esc_(r.critical || 0)) +
       row('المقيّم', esc_(r.evaluator)) + '</table>';
+    if (r.callTag === 'wow') html += '<p style="background:#fff4d6;padding:8px 12px;border-radius:6px">🌟 <b>مكالمة Wow!</b> المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.</p>';
+    if (r.callTag === 'good') html += '<p style="background:#e3f4e8;padding:8px 12px;border-radius:6px">👍 <b>مكالمة كويسة جداً</b> واتحطت كمثال في مكتبة التدريب. استمر.</p>';
     if (missed.length) html += '<p><b>البنود اللي محتاجة تتظبط:</b></p><ul>' + missed.map(function (i) {
       return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
     if (fb.strengths) html += '<p><b>نقاط القوة:</b><br><span dir="auto">' + esc_(fb.strengths) + '</span></p>';

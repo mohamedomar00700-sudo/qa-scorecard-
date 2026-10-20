@@ -159,3 +159,6 @@ input.auto { background: var(--na-soft); color: var(--muted); pointer-events: no
 td.wrap { white-space: pre-wrap; min-width: 220px; }
 
 button.fill-rest { margin: 4px 0 10px; font-size: 13px; }
+.pill.tag-wow { background: #fff4d6; color: #8a5a00; margin-inline-start: 4px; }
+.pill.tag-good { background: #e3f4e8; color: #1a7f37; margin-inline-start: 4px; }
+.pill.tag-bad { background: #fde8e8; color: #b42318; margin-inline-start: 4px; }

@@ -173,6 +173,8 @@
 
   // ---------- evaluate view ----------
   let current = { form: "calls", answers: null };
+  // Call library tag: Wow and Good calls are named in the agent's email; Bad is only for the training library.
+  const CALL_TAGS = ["wow", "good", "bad"];
   const HEADER = [
     ["agent", "h_agent", "person", true],
     ["evaluator", "h_evaluator", "person", true],
@@ -183,6 +185,7 @@
     ["type", "h_type", "select", true],
     ["duration", "", "duration"],
     ["outcome", "h_outcome", "select"],
+    ["callTag", "h_callTag", "select"],
     ["kbVersion", "h_kbVersion", "text"],
     ["purpose", "h_purpose", "purpose"],
   ];
@@ -236,8 +239,8 @@
       }
       const lab = t(label);
       if (kind === "select") {
-        const opts = key === "type" ? Object.keys(d.types) : d.outcomes;
-        const show = (o) => (key === "type" ? typeLabel(current.form, o) : outLabel(current.form, o));
+        const opts = key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : d.outcomes;
+        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
@@ -769,6 +772,8 @@
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];
+    if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
+    if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
     if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
     if (fb.strengths) lines.push("", tx("نقاط القوة:", "Strengths:"), fb.strengths);
     if (fb.improve) lines.push("", tx("محتاج تحسين:", "Areas to improve:"), fb.improve);
@@ -810,10 +815,10 @@
     const all = allRecords();
     fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
-    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = "";
@@ -822,7 +827,7 @@
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
@@ -1623,7 +1628,7 @@
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
