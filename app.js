@@ -268,6 +268,7 @@
         a.header[key] = input.value;
         if (key === "type") { applyType(); renderItems(); }
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
+        if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
@@ -520,7 +521,7 @@
 
   function renderEvaluate() {
     if (!current.answers) current.answers = blankAnswers(current.form);
-    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore(); renderEditBanner();
+    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore(); renderEditBanner(); renderDupWarn();
     $("#saveMsg").textContent = "";
   }
 
@@ -684,11 +685,28 @@
     if (!edit && settings.mail !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
   }
 
-  // Same interaction already evaluated for real (same agent, time and customer)?
+  // Same interaction already evaluated (any evaluator, not a calibration sample or test):
+  // same Odoo ref or customer number (last 9 digits), and the same call day when both have one.
+  const phoneTail = (p) => normPhone(p).replace(/\D/g, "").slice(-9);
+  function sameCallMatches(x) {
+    const ref = String(x.odooRef || "").trim().toLowerCase(), tail = phoneTail(x.phone), day = String(x.interactionDate || "").slice(0, 10);
+    if (!ref && tail.length < 7) return [];
+    return allRecords().filter((r) => r.id !== x.id && !r.sampleRef && !r.test && r.form === x.form &&
+      ((ref && String(r.odooRef || "").trim().toLowerCase() === ref) || (tail.length >= 7 && phoneTail(r.phone) === tail)) &&
+      (!day || !r.interactionDate || String(r.interactionDate).slice(0, 10) === day));
+  }
   function findDuplicate(rec) {
     if (rec.sampleRef || rec.test) return null;
-    return allRecords().find((r) => r.id !== rec.id && !r.sampleRef && !r.test && purposeOf(r) === purposeOf(rec) && r.form === rec.form && r.agent === rec.agent &&
-      r.interactionDate === rec.interactionDate && ((rec.phone && normPhone(r.phone) === rec.phone) || (rec.odooRef && r.odooRef === rec.odooRef)));
+    return sameCallMatches(rec)[0] || null;
+  }
+  // Shown while the evaluator fills the call details, before any time goes into scoring.
+  function renderDupWarn() {
+    const box = $("#dupWarn"); if (!box) return;
+    const hd = current.answers.header;
+    const list = current.edit || hd.test || purposeOf(hd) === "calibration" ? [] : sameCallMatches({ ...hd, form: current.form, id: current.edit && current.edit.id });
+    box.hidden = !list.length;
+    if (list.length) box.textContent = t("dup_early") + "\n" + list.slice(0, 3).map((r) =>
+      "• " + (r.evaluator || "–") + " · " + (r.agent || "–") + " · " + whenText(r) + " · " + pct(r.final)).join("\n");
   }
 
   const fileName = (rec, ext) => ["QA", F.forms[rec.form].name, (rec.agent || "agent").replace(/[^\w؀-ۿ-]+/g, "_"), rec.evalDate, rec.id.slice(0, 6)].join("_") + "." + ext;
@@ -726,14 +744,24 @@
     });
   }
 
-  let sheetLoaded = false;
+  let sheetLoaded = false, lastSheetLoad = 0;
+  // Pull the latest saves from the sheet (at most every 30 s) so the same-call warning sees other evaluators' work.
+  let dupTimer = null;
+  function checkSameCall() {
+    renderDupWarn();
+    clearTimeout(dupTimer);
+    dupTimer = setTimeout(async () => {
+      if (connected() && Date.now() - lastSheetLoad > 30000) { await loadFromSheet(); }
+      renderDupWarn();
+    }, 800);
+  }
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
     say(t("loading"));
     try {
       const j = await apiGet({});
-      forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true;
+      forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
       say(t("loaded_n", { n: j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
     } catch (e) { say(t("load_failed", { e: e.message })); }
@@ -1650,6 +1678,7 @@
     window.addEventListener("hashchange", () => { if (readSetupLink()) location.reload(); });
     loadRoster().then(() => { renderHeader(); renderSettings(); renderKb(); });
     loadKb().then(() => { renderHeader(); renderKb(); });
+    if (connected()) loadFromSheet().then(renderDupWarn);
     syncLocal().then((n) => { if (n) { const m = $("#saveMsg"); m.className = "msg ok"; m.textContent = t("synced_n", { n }); sheetLoaded = false; } });
   }
   boot();
