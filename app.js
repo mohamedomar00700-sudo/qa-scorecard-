@@ -176,6 +176,8 @@
   let current = { form: "calls", answers: null };
   // Call library tag: Wow and Good calls are named in the agent's email; Bad is only for the training library.
   const CALL_TAGS = ["wow", "good", "bad"];
+  // How the evaluator heard the call; independent of the purpose (agent level, certification, calibration...).
+  const METHODS = ["recording", "sidebyside"];
   const HEADER = [
     ["agent", "h_agent", "person", true],
     ["evaluator", "h_evaluator", "person", true],
@@ -190,12 +192,13 @@
     ["callTag", "h_callTag", "select"],
     ["kbVersion", "h_kbVersion", "text"],
     ["purpose", "h_purpose", "purpose"],
+    ["method", "h_method", "select"],
   ];
 
   function blankAnswers(form) {
     const d = F.forms[form];
     return {
-      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "" },
+      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "", method: "recording" },
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
@@ -243,10 +246,11 @@
       if (kind === "select") {
         // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
         const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
+        if (key === "method" && purposeOf(a.header) === "roleplay") continue;
         if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
-        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
+        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
         if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
-        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
+        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "method" ? t("m_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
@@ -325,7 +329,7 @@
       if (p !== "calibration") hd.sampleRef = "";
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "sidebyside", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -788,11 +792,11 @@
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
-  const mailable = (r) => ["live", "certcall", "coaching", "sidebyside"].includes(purposeOf(r)) && !r.test;
+  const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
   function mailText(r) {
-    const sbs = purposeOf(r) === "sidebyside", coaching = purposeOf(r) === "coaching" || sbs;
+    const coaching = purposeOf(r) === "coaching";
     const form = r.form === "whatsapp" ? tx("واتساب", "WhatsApp chat") : tx("مكالمة", "call");
     const when = whenText(r);
     const phone = String(r.phone || "").replace(/\D/g, "");
@@ -800,12 +804,13 @@
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
-    const subject = (sbs ? tx("سايد باي سايد – ", "Side by side – ") : coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
+    const subject = (coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
       form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
     const lines = [tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (sbs ? tx("ده فيدباك السايد باي سايد (مش محسوب في تقييمك) على ", "This is your side-by-side feedback (not counted in your score) on the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
+      ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
       tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];
     if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
     if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
@@ -850,10 +855,10 @@
     const all = allRecords();
     fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
-    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = "";
@@ -862,7 +867,7 @@
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
@@ -1663,7 +1668,7 @@
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
