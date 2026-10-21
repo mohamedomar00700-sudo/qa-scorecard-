@@ -50,6 +50,7 @@
   const L = (it, f) => (lang === "ar" && it && it.ar && it.ar[f]) || (it && it[f]) || "";
   const formName = (k) => (lang === "ar" && F.forms[k] && F.forms[k].ar ? F.forms[k].ar.name : (F.forms[k] ? F.forms[k].name : k));
   const typeLabel = (form, v) => (lang === "ar" && F.forms[form] && F.forms[form].ar && F.forms[form].ar.types[v]) || v;
+  const stageLabel = (v) => { const s = F.odoo.stages.find((x) => x.name === v); return s ? (lang === "ar" ? s.ar + " (" + s.name + ")" : s.name) : v; };
   const outLabel = (form, v) => (lang === "ar" && F.forms[form] && F.forms[form].ar && F.forms[form].ar.outcomes[v]) || v;
   const secLabel = (x) => (lang === "ar" && F.sectionsAr && F.sectionsAr[x]) || x;
   function applyStatic() {
@@ -185,6 +186,7 @@
     ["type", "h_type", "select", true],
     ["duration", "", "duration"],
     ["outcome", "h_outcome", "select"],
+    ["odooTag", "h_odooTag", "select"],
     ["callTag", "h_callTag", "select"],
     ["kbVersion", "h_kbVersion", "text"],
     ["purpose", "h_purpose", "purpose"],
@@ -239,8 +241,12 @@
       }
       const lab = t(label);
       if (kind === "select") {
-        const opts = key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : d.outcomes;
-        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : outLabel(current.form, o));
+        // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
+        const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
+        if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
+        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
+        if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
+        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
@@ -269,6 +275,7 @@
         if (key === "type") { applyType(); renderItems(); }
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
+        if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
@@ -318,7 +325,7 @@
       if (p !== "calibration") hd.sampleRef = "";
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "sidebyside", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -781,11 +788,11 @@
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
-  const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
+  const mailable = (r) => ["live", "certcall", "coaching", "sidebyside"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
   function mailText(r) {
-    const coaching = purposeOf(r) === "coaching";
+    const sbs = purposeOf(r) === "sidebyside", coaching = purposeOf(r) === "coaching" || sbs;
     const form = r.form === "whatsapp" ? tx("واتساب", "WhatsApp chat") : tx("مكالمة", "call");
     const when = whenText(r);
     const phone = String(r.phone || "").replace(/\D/g, "");
@@ -793,10 +800,10 @@
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
-    const subject = (coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
+    const subject = (sbs ? tx("سايد باي سايد – ", "Side by side – ") : coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
       form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
     const lines = [tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (sbs ? tx("ده فيدباك السايد باي سايد (مش محسوب في تقييمك) على ", "This is your side-by-side feedback (not counted in your score) on the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];

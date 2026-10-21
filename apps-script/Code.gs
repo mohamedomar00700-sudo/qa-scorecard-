@@ -172,12 +172,12 @@ function pct_(x) {
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb') get no automatic email.
-  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching') || (r.mailMode && r.mailMode !== 'auto')) return '';
+  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching' && purpose !== 'sidebyside') || (r.mailMode && r.mailMode !== 'auto')) return '';
   const ro = readRoster_();
   const to = ro.emails[r.agent];
   if (!to) return '';
   const evEmail = ro.evalEmails[r.evaluator] || '';
-  const coaching = purpose === 'coaching', cert = purpose === 'certcall';
+  const sbs = purpose === 'sidebyside', coaching = purpose === 'coaching' || sbs, cert = purpose === 'certcall';
   try {
     const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
     const when = String(r.interactionDate || '').replace('T', ' ');
@@ -188,7 +188,7 @@ function emailAgent_(r) {
     const fb = r.feedback || {};
     const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (sbs ? 'ده فيدباك السايد باي سايد (مش محسوب في تقييمك) على ' : coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
       row('درجة البنود العادية', pct_(r.ncScore)) +
@@ -202,7 +202,7 @@ function emailAgent_(r) {
     if (fb.improve) html += '<p><b>محتاج تحسين:</b><br><span dir="auto">' + esc_(fb.improve) + '</span></p>';
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
-    const mail = { to: to, subject: (coaching ? 'فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + (coaching ? '' : ' – ' + pct_(r.final)),
+    const mail = { to: to, subject: (sbs ? 'سايد باي سايد – ' : coaching ? 'فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + (coaching ? '' : ' – ' + pct_(r.final)),
       htmlBody: html, name: (r.evaluator ? r.evaluator + ' – ' : '') + 'Quality' };
     if (evEmail) { mail.replyTo = evEmail; mail.cc = evEmail; }
     MailApp.sendEmail(mail);
