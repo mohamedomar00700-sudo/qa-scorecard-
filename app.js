@@ -89,7 +89,7 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
+  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
     if (settings.key || settings.session) store(LS_SETTINGS, settings);
@@ -97,12 +97,18 @@
   // Evaluators sign in with a code sent to their email (session); the access key still works for the admin.
   const connected = () => !!(settings.url && (settings.key || settings.session));
   const signedIn = () => !settings.key && !!settings.session;
+  // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
+  // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
+  const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
+  const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
+  let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
   function signOut() {
-    settings.session = ""; settings.email = ""; settings.who = ""; store(LS_SETTINGS, settings);
+    settings.session = ""; settings.email = ""; settings.who = ""; settings.owner = false; store(LS_SETTINGS, settings);
     showLogin();
   }
   // A sign-in that ended, or an access key that was changed on the script, sends this device back to the sign-in screen.
+  const permMsg = (e) => (e === "not_owner" ? t("perm_owner") : e === "not_yours" ? t("perm_yours") : e);
   const checkSignedOut = (j) => {
     const oldKey = j && j.error === "Wrong access key" && settings.key;
     if (!(j && j.error === "signed_out") && !oldKey) return;
@@ -116,7 +122,7 @@
     for (const [k, v] of Object.entries(Object.assign(creds(), params || {}))) u.searchParams.set(k, v);
     const j = await (await fetch(u)).json();
     checkSignedOut(j);
-    if (!j.ok) throw new Error(j.error || "Rejected");
+    if (!j.ok) throw new Error(permMsg(j.error) || "Rejected");
     return j;
   }
   async function apiPost(obj) {
@@ -126,15 +132,21 @@
       const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       const j = await r.json();
       checkSignedOut(j);
-      if (!j.ok) throw new Error(j.error || "Rejected");
+      if (!j.ok) throw Object.assign(new Error(permMsg(j.error) || "Rejected"), { refused: true });
       apiPost.last = j;
       return "saved";
     } catch (e) {
-      if (String(e.message).match(/key|Rejected|Bad/i) || e.signedOut) throw e;
+      if (String(e.message).match(/key|Rejected|Bad/i) || e.signedOut || e.refused) throw e;
       // Some browsers block reading the reply; send again without reading it.
       await fetch(settings.url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       return "sent";
     }
+  }
+
+  async function apiPostJson(obj) {
+    await apiPost(obj);
+    if (!apiPost.last) throw new Error(t("li_net"));
+    return apiPost.last;
   }
 
   // ---------- names (one shared list so reports group correctly) ----------
@@ -162,10 +174,14 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
+      if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
+        settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
+      }
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
-        for (const name of roster[role] || []) {
+        for (const name of (role === "agents" || isOwner() ? roster[role] : []) || []) {
           if (server[role].some((x) => nameKey(x) === nameKey(name))) continue;
           try { await apiPost({ action: "addPerson", role, name }); server[role].push(name); } catch (e) { /* try again next time */ }
         }
@@ -808,7 +824,7 @@
     if (!connected() || document.visibilityState !== "visible" || !view || view.view === "evaluate" || view.view === "settings") return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -893,9 +909,9 @@
       h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
-      h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
-        h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) })))));
+        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null))));
     out.append(tbl);
     if (recs.length > 300) out.append(h("p", { class: "hint", text: t("rec_more", { n: recs.length }) }));
   }
@@ -918,7 +934,7 @@
   async function deleteRecord(r) {
     if (!confirm(t("del_confirm", { a: r.agent || "–", d: whenText(r) }))) return;
     if (connected()) {
-      try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.evaluator || "" }); }
+      try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.who || settings.evaluator || "" }); }
       catch (e) { alert(t("name_failed", { e: e.message })); return; }
     }
     forgetDeleted([r.id]);
@@ -1452,6 +1468,109 @@
     section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), et);
   }
 
+  // ---------- my work: what each evaluator scored, and which agents still need evaluations ----------
+  function periodRange(p) {
+    const d = new Date(), ymd = (x) => x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+    if (p === "month") return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(d)];
+    if (p === "lastmonth") return [ymd(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymd(new Date(d.getFullYear(), d.getMonth(), 0))];
+    if (p === "week") return [weekStart(ymd(d)), ymd(d)];
+    return ["", ""];
+  }
+  const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "calibration", "roleplay"];
+  function workStats(list) {
+    const by = {}; PURPOSE_KEYS.forEach((k) => (by[k] = 0));
+    list.forEach((r) => { by[purposeOf(r)] = (by[purposeOf(r)] || 0) + 1; });
+    const counted = list.filter((r) => purposeOf(r) !== "calibration" && purposeOf(r) !== "roleplay");
+    return {
+      n: list.length, by,
+      rec: list.filter((r) => (r.method || "recording") === "recording" && purposeOf(r) !== "roleplay").length,
+      sbs: list.filter((r) => r.method === "sidebyside" && purposeOf(r) !== "roleplay").length,
+      agents: new Set(list.map((r) => r.agent).filter(Boolean)).size,
+      avg: avg(counted.map((r) => r.final).filter((x) => x !== null && x !== undefined)),
+      crit: list.reduce((s, r) => s + (r.critical || 0), 0),
+    };
+  }
+  function renderMyWork() {
+    if (!$("#view-mywork")) return;
+    const all = allRecords().filter((r) => !r.test);
+    const evaluators = [...new Set([...(roster.evaluators || []), ...all.map((r) => r.evaluator).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+    const sel = $("#mwWho"), own = isOwner();
+    const me = settings.who || settings.evaluator || "";
+    $("#mwWhoBox").hidden = !own;
+    if (own) {
+      const prev = sel.value || me;
+      sel.innerHTML = ""; sel.append(h("option", { value: "", text: t("mw_whole_team") }), ...evaluators.map((v) => h("option", { value: v, text: v })));
+      sel.value = evaluators.includes(prev) ? prev : "";
+      if (!sel.dataset.wired) { sel.dataset.wired = "1"; sel.addEventListener("change", renderMyWork); $("#mwPeriod").addEventListener("change", renderMyWork); }
+    } else if (!$("#mwPeriod").dataset.wired) { $("#mwPeriod").dataset.wired = "1"; $("#mwPeriod").addEventListener("change", renderMyWork); }
+    const who = own ? sel.value : me;
+    const per = $("#mwPeriod").value || "month";
+    const [from, to] = periodRange(per);
+    const inPeriod = all.filter((r) => (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+    const mine = who ? inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(who)) : inPeriod;
+    const s = workStats(mine), team = workStats(inPeriod);
+    $("#mwTitle").textContent = who ? (who === me ? t("mw_title") : t("mw_title_of", { n: who })) : t("mw_whole_team");
+
+    // KPI tiles
+    const gap = s.avg !== null && team.avg !== null && who ? s.avg - team.avg : null;
+    const tiles = [
+      [t("mw_k_evals"), s.n, t("mw_k_counted", { n: s.by.live + s.by.certcall })],
+      [t("mw_k_agents"), s.agents, roster.agents.length ? t("mw_k_of", { n: roster.agents.length }) : ""],
+      [t("m_recording"), s.rec, s.rec + s.sbs ? pct(s.rec / (s.rec + s.sbs)) : ""],
+      [t("m_sidebyside"), s.sbs, s.rec + s.sbs ? pct(s.sbs / (s.rec + s.sbs)) : ""],
+      [t("mw_k_avg"), pct(s.avg), gap === null ? "" : t("mw_k_vs_team", { g: (gap >= 0 ? "+" : "") + (Math.round(gap * 1000) / 10) })],
+      [t("e_crit"), s.crit, ""],
+    ];
+    section("#mwKpis", t("overview"), null, s.n ? h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub }))))
+      : h("div", { class: "empty", text: all.length ? t("mw_none") : t("db_empty") }));
+
+    // Agent coverage against the monthly target (agent-level evaluations by anyone, so the team sees who is still missing).
+    const target = Number(teamCfg.monthlyTarget) || 0;
+    const [mFrom, mTo] = periodRange(per === "lastmonth" ? "lastmonth" : "month");
+    const monthLive = all.filter((r) => purposeOf(r) === "live" && (r.evalDate || "") >= mFrom && (r.evalDate || "") <= mTo);
+    const agents = [...new Set([...(roster.agents || []), ...monthLive.map((r) => r.agent).filter(Boolean)])];
+    const cov = agents.map((a) => {
+      const l = monthLive.filter((r) => r.agent === a);
+      return { a, team: l.length, mine: who ? l.filter((r) => nameKey(r.evaluator) === nameKey(who)).length : l.length, last: l.map((r) => r.evalDate).sort().pop() || "" };
+    }).sort((x, y) => x.team - y.team || x.a.localeCompare(y.a));
+    const ct = h("table", {}, h("tr", {}, [t("c_agent"), who ? t("mw_by_me") : null, t("mw_team_month"), t("mw_last")].filter(Boolean).map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
+    cov.forEach((c) => ct.append(h("tr", {}, h("td", { text: c.a }), who ? h("td", { class: "num", text: c.mine }) : null,
+      h("td", { class: "num" }, h("span", { class: "pill " + (target && c.team >= target ? "good" : c.team ? "info" : "bad"), dir: "ltr", text: target ? c.team + " / " + target : String(c.team) })),
+      h("td", { class: "num", dir: "ltr", text: c.last || "–" }))));
+    const missing = target ? cov.filter((c) => c.team < target).length : 0;
+    section("#mwCoverage", t("mw_cov_title", { m: (per === "lastmonth" ? t("mw_last_month") : t("mw_this_month")) }),
+      target ? t("mw_cov_hint", { n: target, k: missing }) : t("mw_cov_hint0"), cov.length ? ct : h("div", { class: "empty", text: t("none_yet") }));
+
+    // By evaluation type
+    section("#mwTypes", t("mw_types"), null, s.n ? bars(PURPOSE_KEYS.filter((k) => s.by[k]).map((k) => ({ label: t("p_" + k).replace(/\s*\(.*\)$/, ""), value: s.by[k], display: String(s.by[k]) }))) : h("div", { class: "empty", text: t("mw_none") }));
+
+    // Team table (owner)
+    $("#mwTeam").hidden = !own;
+    if (own) {
+      const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
+      const rows = [head];
+      const tt = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
+      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([, w]) => w.n || (roster.evaluators || []).includes(ev))
+        .sort((a, b) => b[1].n - a[1].n).forEach(([ev, w]) => {
+          const g = w.avg === null || team.avg === null ? "–" : ((w.avg - team.avg) >= 0 ? "+" : "") + (Math.round((w.avg - team.avg) * 1000) / 10) + " " + t("pts");
+          const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.agents, pct(w.avg), g];
+          rows.push(row);
+          tt.append(h("tr", { class: w.n ? "" : "muted" }, row.map((x, i) => h("td", { class: i ? "num" : "", text: i === 0 ? x : String(x) }))));
+        });
+      section("#mwTeam", t("mw_team_title"), t("mw_team_hint"), tt,
+        h("p", {}, h("button", { text: t("download"), onclick: () => download("QA_Evaluators_" + per + "_" + today() + ".csv", toCsv(rows), "text/csv") })));
+    }
+
+    // Recent evaluations
+    const recent = mine.slice().sort((a, b) => whenText(b).localeCompare(whenText(a))).slice(0, 8);
+    const rt = h("table", {}, h("tr", {}, ["c_when", "c_agent", who ? null : "evaluator", "c_purpose", "final", ""].filter(Boolean).map((k) => h("th", { text: k ? t(k) : "" }))));
+    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
+      h("td", {}, h("span", { class: "pill " + (purposeOf(r) === "live" ? "good" : "info"), text: t("p_" + purposeOf(r)).replace(/\s*\(.*\)$/, "") }), r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside").replace(/\s*\(.*\)$/, "") }) : null),
+      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null))));
+    section("#mwRecent", t("mw_recent"), null, recent.length ? rt : h("div", { class: "empty", text: t("mw_none") }));
+  }
+
   // ---------- certification ----------
   // Everything comes from saved evaluations in the chosen window: live calls (calibration samples and
   // role-plays left out), Odoo accuracy from the Odoo items of those calls, and role-plays scored on
@@ -1569,7 +1688,9 @@
   async function loginCall(obj, btn) {
     const m = $("#liMsg"); m.className = "msg"; m.textContent = ""; btn.disabled = true;
     try {
-      const j = await (await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(obj), cache: "no-store" })).json();
+      const call = async () => (await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(obj), cache: "no-store" })).json();
+      // The script can be slow to wake up; one quiet retry saves people from pressing again.
+      const j = await call().catch(() => new Promise((ok) => setTimeout(ok, 1500)).then(call));
       if (!j.ok) { m.className = "msg err"; m.textContent = j.error === "Wrong access key" ? t("li_old_script") : (LI_ERR[j.error] ? t(LI_ERR[j.error]) : j.error); return null; }
       return j;
     } catch (e) { m.className = "msg err"; m.textContent = t("li_net"); return null; }
@@ -1577,6 +1698,18 @@
   }
   function setupLogin() {
     $("#loginLang").onclick = () => $("#btnLang").click();
+    let tick = null;
+    const startResend = () => {
+      const b = $("#liResend"); let n = 45; clearInterval(tick);
+      const draw = () => { b.disabled = n > 0; b.textContent = n > 0 ? t("li_resend_in", { n }) : t("li_resend"); };
+      draw(); tick = setInterval(() => { n--; draw(); if (n <= 0) clearInterval(tick); }, 1000);
+    };
+    $("#liResend").onclick = async () => {
+      const j = await loginCall({ action: "otpRequest", email: settings.email }, $("#liResend"));
+      if (!j) return;
+      const m = $("#liMsg"); m.className = "msg ok"; m.textContent = j.wait ? t("li_wait") : t("li_resent");
+      startResend();
+    };
     $("#liSend").onclick = async () => {
       const em = $("#liEmail").value.trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_bad_email"); return; }
@@ -1586,13 +1719,14 @@
       $("#liTo").textContent = em; $("#li1").hidden = true; $("#li2").hidden = false;
       const m = $("#liMsg"); m.className = "msg ok"; m.textContent = j.wait ? t("li_wait") : "";
       $("#liCode").value = ""; setTimeout(() => $("#liCode").focus(), 50);
+      startResend();
     };
     $("#liVerify").onclick = async () => {
       const code = $("#liCode").value.replace(/\D/g, "");
       if (code.length !== 6) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_six"); return; }
       const j = await loginCall({ action: "otpVerify", email: settings.email, code }, $("#liVerify"));
       if (!j) return;
-      Object.assign(settings, { session: j.session, email: j.email, who: j.name, evaluator: j.name });
+      Object.assign(settings, { session: j.session, email: j.email, who: j.name, owner: !!j.owner, evaluator: j.name });
       store(LS_SETTINGS, settings);
       location.reload();
     };
@@ -1652,15 +1786,26 @@
       try { await navigator.clipboard.writeText(link); m.className = "msg ok"; m.textContent = t("link_copied"); }
       catch (e) { m.className = "msg"; m.textContent = link; }
     };
+    $("#ownerCard").hidden = !isOwner();
+    $("#setTarget").value = teamCfg.monthlyTarget;
+    $("#btnSaveTarget").onclick = async () => {
+      const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
+      if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      catch (e) { m.className = "msg err"; m.textContent = e.message; }
+    };
+    $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
     const rl = $("#rosterList"); rl.innerHTML = "";
     for (const [role, label] of [["agents", "agents"], ["evaluators", "evaluators"]]) {
       rl.append(h("h3", { text: t(label) + " (" + roster[role].length + ")" }));
       if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
+      const own = isOwner();
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
-        h("span", {}, name, h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") })),
-        h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }),
-        h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }),
-        h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) })))));
+        h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
+          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null),
+        own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
+        own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
+        own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
     }
   }
 

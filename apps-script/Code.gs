@@ -49,18 +49,23 @@ function roster_() {
   return sh;
 }
 
+// Role column: 'Owner' (full control, also scores), 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
+function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
+function roleMatches_(v, role) { return role === 'evaluators' ? isEvalRole_(v) : /^a/i.test(String(v || '').trim()); }
+
 function nameKey_(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, '');
 }
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], emails: {}, evalEmails: {} };
+  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {} };
   if (sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
-    if (String(r[1]).toLowerCase().indexOf('eval') === 0) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
+    if (/^owner/i.test(String(r[1]).trim())) out.owners.push(name);
+    if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -77,7 +82,7 @@ function addPerson_(role, name) {
     const sh = roster_();
     const rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues() : [];
     const exists = rows.some(function (r) {
-      return nameKey_(r[0]) === nameKey_(name) && String(r[1]).charAt(0).toLowerCase() === label.charAt(0).toLowerCase();
+      return nameKey_(r[0]) === nameKey_(name) && roleMatches_(r[1], role === 'evaluators' ? 'evaluators' : 'agents');
     });
     if (!exists) sh.appendRow([name, label, 'Yes']);
   } finally {
@@ -92,7 +97,6 @@ function renamePerson_(role, from, to) {
   if (!from || !to || to.length > 80) return { ok: false, error: 'Bad name' };
   const field = role === 'evaluators' ? 'evaluator' : 'agent';
   const col = role === 'evaluators' ? 5 : 4;
-  const first = role === 'evaluators' ? 'e' : 'a';
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -101,7 +105,7 @@ function renamePerson_(role, from, to) {
     if (ro.getLastRow() > 1) {
       const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
       rows.forEach(function (r) {
-        if (String(r[1]).charAt(0).toLowerCase() !== first) return;
+        if (!roleMatches_(r[1], role)) return;
         if (nameKey_(r[0]) === nameKey_(from) || nameKey_(r[0]) === nameKey_(to)) {
           if (!kept) { r[0] = to; r[2] = 'Yes'; kept = true; } else { r[2] = 'No'; }
         }
@@ -130,12 +134,11 @@ function renamePerson_(role, from, to) {
 
 // Take a person off the list (Active = No). Past evaluations keep the name.
 function removePerson_(role, name) {
-  const first = role === 'evaluators' ? 'e' : 'a';
   const ro = roster_();
   if (ro.getLastRow() < 2) return { ok: true };
   const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
   rows.forEach(function (r) {
-    if (String(r[1]).charAt(0).toLowerCase() === first && nameKey_(r[0]) === nameKey_(name)) r[2] = 'No';
+    if (roleMatches_(r[1], role) && nameKey_(r[0]) === nameKey_(name)) r[2] = 'No';
   });
   rng.setValues(rows);
   return { ok: true };
@@ -143,20 +146,19 @@ function removePerson_(role, name) {
 
 // Save (or clear) an agent's or evaluator's email in the Roster tab.
 function setEmail_(role, name, email) {
-  const first = role === 'evaluators' ? 'e' : 'a';
   email = String(email || '').trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Bad email' };
   const ro = roster_();
   if (ro.getLastRow() > 1) {
     const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
     for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][1]).charAt(0).toLowerCase() === first && nameKey_(rows[i][0]) === nameKey_(name)) {
+      if (roleMatches_(rows[i][1], role) && nameKey_(rows[i][0]) === nameKey_(name)) {
         ro.getRange(i + 2, 4).setValue(email);
         return { ok: true };
       }
     }
   }
-  ro.appendRow([String(name || '').trim(), first === 'e' ? 'Evaluator' : 'Agent', 'Yes', email]);
+  ro.appendRow([String(name || '').trim(), role === 'evaluators' ? 'Evaluator' : 'Agent', 'Yes', email]);
   return { ok: true };
 }
 
@@ -341,10 +343,10 @@ function evaluatorByEmail_(email) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Roster');
   if (!sh || sh.getLastRow() < 2) return null;
   const row = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().find(function (r) {
-    return String(r[0] || '').trim() && String(r[1]).toLowerCase().indexOf('eval') === 0 &&
+    return String(r[0] || '').trim() && isEvalRole_(r[1]) &&
       String(r[2]).toLowerCase() !== 'no' && String(r[3] || '').trim().toLowerCase() === em;
   });
-  return row ? { name: String(row[0]).trim(), email: em } : null;
+  return row ? { name: String(row[0]).trim(), email: em, owner: /^owner/i.test(String(row[1]).trim()) } : null;
 }
 
 function otpRequest_(email) {
@@ -354,9 +356,13 @@ function otpRequest_(email) {
   if (!who) return { ok: false, error: 'not_allowed' };
   const cache = CacheService.getScriptCache();
   const old = JSON.parse(cache.get('otp_' + em) || 'null');
-  if (old && Date.now() - old.at < 60 * 1000) return { ok: true, wait: true };
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  cache.put('otp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: 0 }), OTP_MINUTES * 60);
+  if (old && Date.now() - old.at < 45 * 1000) return { ok: true, wait: true };
+  // Asking again sends the SAME code while it is still valid, so whichever email arrives first works.
+  const props = PropertiesService.getScriptProperties();
+  const live = JSON.parse(props.getProperty('otpc_' + hash_(em)) || 'null');
+  const code = live && live.exp > Date.now() + 60 * 1000 ? live.c : String(Math.floor(100000 + Math.random() * 900000));
+  if (!live || live.c !== code) props.setProperty('otpc_' + hash_(em), JSON.stringify({ c: code, exp: Date.now() + OTP_MINUTES * 60 * 1000 }));
+  cache.put('otp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: old && old.h === hash_(em + ':' + code) ? old.tries : 0 }), OTP_MINUTES * 60);
   MailApp.sendEmail({
     to: em, name: 'QA Scorecard', subject: 'QA Scorecard sign-in code: ' + code,
     htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
@@ -378,23 +384,47 @@ function otpVerify_(email, code) {
     return { ok: false, error: 'wrong_code' };
   }
   cache.remove('otp_' + em);
+  PropertiesService.getScriptProperties().deleteProperty('otpc_' + hash_(em));
   const who = evaluatorByEmail_(em);
   if (!who) return { ok: false, error: 'not_allowed' };
   const session = Utilities.getUuid() + Utilities.getUuid();
   PropertiesService.getScriptProperties().setProperty('ses_' + hash_(session),
     JSON.stringify({ email: em, exp: Date.now() + SESSION_DAYS * 864e5 }));
-  return { ok: true, session: session, email: em, name: who.name };
+  return { ok: true, session: session, email: em, name: who.name, owner: who.owner };
 }
 
-// True for the access key, or for a valid sign-in of someone who is still an active evaluator.
-function authOk_(o) {
-  if (o.key && o.key === ACCESS_KEY) return true;
-  if (!o.session) return false;
+// Who is asking: the access key counts as the owner; a sign-in counts while the person is still an active evaluator or owner.
+function who_(o) {
+  if (o.key && o.key === ACCESS_KEY) return { owner: true, name: '', email: '', key: true };
+  if (!o.session) return null;
   const props = PropertiesService.getScriptProperties();
   const k = 'ses_' + hash_(o.session);
   const s = JSON.parse(props.getProperty(k) || 'null');
-  if (!s || s.exp < Date.now() || !evaluatorByEmail_(s.email)) { if (s) props.deleteProperty(k); return false; }
-  return true;
+  const who = s && s.exp >= Date.now() ? evaluatorByEmail_(s.email) : null;
+  if (!who) { if (s) props.deleteProperty(k); return null; }
+  return who;
+}
+
+// Team settings shared by everyone (only the owner can change them).
+function config_() {
+  return Object.assign({ monthlyTarget: 4 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+}
+function setConfig_(c) {
+  const cur = config_();
+  const n = Number(c && c.monthlyTarget);
+  if (!(n >= 0 && n <= 100)) return { ok: false, error: 'Bad target' };
+  cur.monthlyTarget = Math.round(n);
+  PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
+  return { ok: true, config: cur };
+}
+
+// Evaluators may correct or delete only their own evaluations; the owner may change any.
+function recordOwnerOk_(me, id) {
+  if (me.owner) return true;
+  const sh = sheet_();
+  const row = findRow_(sh, id);
+  if (row === -1) return true;
+  try { return nameKey_(JSON.parse(sh.getRange(row, JSON_COL).getValue()).evaluator) === nameKey_(me.name); } catch (err) { return false; }
 }
 
 function reply_(obj) {
@@ -406,16 +436,28 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
-    if (!authOk_(body)) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
+    const me = who_(body);
+    if (!me) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
+    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setConfig: 1 };
+    if ((ownerOnly[body.action] || (body.action === 'addPerson' && body.role === 'evaluators')) && !me.owner) return reply_({ ok: false, error: 'not_owner' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
-    if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
     if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
+    if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
-    if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
+    if (body.action === 'updateRecord') {
+      if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
+      if (!me.owner) body.record.editedBy = me.name;
+      return reply_(updateRecord_(body.record));
+    }
+    if (body.action === 'deleteRecord') {
+      if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });
+      return reply_(deleteRecord_(body.id, me.name || body.by));
+    }
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
+    if (!me.owner) r.evaluator = me.name; // a signed-in evaluator always saves under their own name
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     const sh = sheet_();
@@ -439,11 +481,14 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
-  if (!authOk_(p)) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
+  const me = who_(p);
+  if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
+  if (p.action === 'config') return reply_({ ok: true, config: config_() });
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, emails: ro.emails, evalEmails: ro.evalEmails });
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails,
+      config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
@@ -452,4 +497,9 @@ function doGet(e) {
   const records = [];
   json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
   return reply_({ ok: true, records: records, deleted: deletedIds_() });
+}
+
+// Run once from the editor (select it, then Run) if Google asks again for permission to send email.
+function authorizeMail() {
+  MailApp.getRemainingDailyQuota();
 }

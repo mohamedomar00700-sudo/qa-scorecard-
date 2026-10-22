@@ -175,3 +175,5 @@ button.fill-rest { margin: 4px 0 10px; font-size: 13px; }
 button.linkish { border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px; align-self: center; }
 .account { margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .account[hidden] { display: none; }
+tr.muted td { color: var(--muted); }
+#ownerCard[hidden], #mwTeam[hidden], #mwWhoBox[hidden] { display: none; }
