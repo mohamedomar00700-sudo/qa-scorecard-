@@ -102,7 +102,14 @@
     settings.session = ""; settings.email = ""; settings.who = ""; store(LS_SETTINGS, settings);
     showLogin();
   }
-  const checkSignedOut = (j) => { if (j && j.error === "signed_out") { signOut(); throw Object.assign(new Error(t("li_expired")), { signedOut: true }); } };
+  // A sign-in that ended, or an access key that was changed on the script, sends this device back to the sign-in screen.
+  const checkSignedOut = (j) => {
+    const oldKey = j && j.error === "Wrong access key" && settings.key;
+    if (!(j && j.error === "signed_out") && !oldKey) return;
+    if (oldKey) settings.key = "";
+    signOut();
+    throw Object.assign(new Error(t("li_expired")), { signedOut: true });
+  };
 
   async function apiGet(params) {
     const u = new URL(settings.url);
