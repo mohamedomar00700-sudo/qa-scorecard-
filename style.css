@@ -186,3 +186,21 @@ tr.muted td { color: var(--muted); }
   .seg button { min-height: 40px; padding: 8px 12px; }
 }
 @media (max-width: 600px) { .top { position: static; } }
+
+/* Logos: Tech Source (company) and the account, on a white chip so the dark logo shows on the navy bar */
+.brand { display: flex; align-items: center; gap: 10px; }
+.logos { display: inline-flex; align-items: center; gap: 10px; background: #fff; border-radius: 8px; padding: 2px 10px; }
+.logos img { height: 30px; width: auto; display: block; }
+.logos img.acct { height: 44px; }
+.login-logo { height: 56px; width: auto; align-self: center; }
+@media (max-width: 600px) { .logos img { height: 26px; } .logos img.acct { height: 36px; } }
+
+/* Save result: a big message that can't be missed, at the top of the screen */
+.toast { position: fixed; z-index: 60; top: 12px; inset-inline: 12px; margin: 0 auto; max-width: 640px; padding: 14px 44px 14px 16px; border-radius: 10px; font-size: 15px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+[dir="rtl"] .toast { padding: 14px 16px 14px 44px; }
+.toast[hidden] { display: none; }
+.toast.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok); }
+.toast.err { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); }
+.toast ul { margin: 6px 0 0; padding-inline-start: 20px; font-weight: 500; font-size: 14px; }
+.toast .x { position: absolute; top: 8px; inset-inline-end: 8px; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 4px 8px; }
+.item.missing { box-shadow: 0 0 0 2px var(--bad); border-radius: 8px; }

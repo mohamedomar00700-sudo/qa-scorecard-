@@ -717,10 +717,27 @@
     b.textContent = t("conn_banner");
   }
 
+  // The save result also shows as a big message at the top of the screen, so nobody leaves thinking it saved when it didn't.
+  function toast(kind, text, list) {
+    const b = $("#toast"); clearTimeout(toast.timer);
+    b.className = "toast " + kind; b.innerHTML = "";
+    b.append(h("div", { text }), list && list.length ? h("ul", {}, list.map((x) => h("li", { text: x }))) : null,
+      h("button", { type: "button", class: "x", "aria-label": "×", text: "×", onclick: () => (b.hidden = true) }));
+    b.hidden = false;
+    if (kind === "ok") toast.timer = setTimeout(() => (b.hidden = true), 6000);
+  }
+
   async function onSave() {
     const msg = $("#saveMsg"); msg.className = "msg";
+    $("#toast").hidden = true;
     const problems = validate();
-    if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") }); return; }
+    if (problems.length) {
+      msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") });
+      toast("err", t("not_saved_yet", { n: problems.length }), problems.slice(0, 6).concat(problems.length > 6 ? ["…"] : []));
+      const first = $(".item.missing") || $("#headerFields");
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const rec = buildRecord();
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
@@ -743,6 +760,7 @@
         else if (!edit && how === "saved" && settings.mail === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
+        toast("err", msg.textContent);
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
       }
     } else {
@@ -753,6 +771,7 @@
     store(LS_DRAFT, null);
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
+    if (cls.includes("ok")) toast("ok", "✓ " + keep);
     if (!edit && settings.mail !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
   }
 

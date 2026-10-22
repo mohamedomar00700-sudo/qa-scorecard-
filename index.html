@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1792670000">
+<link rel="stylesheet" href="style.css?v=1792680000">
 </head>
 <body>
 <div id="login" class="login" hidden>
   <div class="login-box">
+    <img class="login-logo" src="img/techsource.png" alt="Tech Source">
     <div class="login-top"><b>QA Scorecard</b><button type="button" id="loginLang" class="ghost" data-i18n="lang_switch"></button></div>
     <h2 data-i18n="li_title"></h2>
     <div id="li1">
@@ -29,7 +30,7 @@
   </div>
 </div>
 <header class="top">
-  <div class="brand">QA Scorecard <span class="ver" id="ver"></span></div>
+  <div class="brand"><span class="logos"><img src="img/techsource.png" alt="Tech Source"><img src="img/tresjolie.png" alt="Tres Jolie" class="acct"></span>QA Scorecard <span class="ver" id="ver"></span></div>
   <nav>
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
     <button data-view="mywork" data-i18n="nav_mywork"></button>
@@ -295,6 +296,7 @@
   </section>
 </main>
 
+<div id="toast" class="toast" role="status" aria-live="assertive" hidden></div>
 <div id="miniBar" class="mini-bar" hidden>
   <span><span data-i18n="final"></span>: <b id="mbFinal">–</b></span>
   <span><span data-i18n="unanswered"></span>: <b id="mbOpen">–</b></span>
@@ -307,9 +309,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1792670000"></script>
-<script src="i18n.js?v=1792670000"></script>
-<script src="forms.js?v=1792670000"></script>
-<script src="app.js?v=1792670000"></script>
+<script src="config.js?v=1792680000"></script>
+<script src="i18n.js?v=1792680000"></script>
+<script src="forms.js?v=1792680000"></script>
+<script src="app.js?v=1792680000"></script>
 </body>
 </html>
