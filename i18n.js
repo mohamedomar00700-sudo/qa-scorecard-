@@ -1,7 +1,7 @@
 // Interface text in English and Arabic. Item text lives in forms.js.
 window.I18N = {
   en: {
-    nav_cert: "Certification", cert_title: "Certification", cert_hint: "Nothing to type except notes. Score each live certification call in the Evaluate page with the type \"Certification call\" (it stays out of the dashboard). Score each role-play on the same form with the type \"Certification role-play\". Odoo accuracy comes from the Odoo items of the live calls. Pick the certification window with the dates.",
+    nav_cert: "Certification", cert_title: "Certification", cert_hint: "Nothing to type except notes. Score each live certification call in the Evaluate page with the purpose \"Certification call\" (it stays out of the dashboard). Score each role-play on the same form with the purpose \"Certification role-play\". Odoo accuracy comes from the Odoo items of the live calls. Pick the certification window with the dates.",
     cert_r1: "Pending: fewer live calls or role-plays than the numbers above, in the chosen dates.",
     cert_r2: "Not certified: live average below the QA bar, or as many evaluations with a critical error as the limit above, or more.",
     cert_r3: "Conditional: some critical errors but fewer than the limit, Odoo accuracy below its bar, or a critical error in a role-play.",
@@ -117,6 +117,8 @@ window.I18N = {
     conn: "Connection", conn_hint: "Evaluators don't need this page: they open the setup link once and pick their name on the Evaluate page. Without a connection, each evaluation is downloaded as a file.",
     conn_banner: "This browser is not connected to the team's Google Sheet, so evaluations and new names stay on this device only and nobody else sees them. Open the setup link once to connect; anything saved here is then sent to the sheet automatically.",
     synced_n: "{n} evaluations saved earlier on this device were sent to the Google Sheet.",
+    storage_full: "This browser's storage is full, so the draft can't be kept if the page closes. Save this evaluation now.", bad_future: "Call date is in the future", bad_old: "Call date is more than 120 days ago", bad_phone: "Customer phone looks too short",
+    discard_edit: "Discard the changes to this evaluation?", del_failed: "Could not delete the evaluation: {e}",
     li_junk: "The email can take a minute. If it's not in your Inbox, check Junk / Spam. Asking again sends the same code.", li_resend: "Send the code again", li_resend_in: "Send again in {n}s", li_resent: "Sent again: it's the same code.",
     perm_owner: "Only the owner can do this.", perm_yours: "You can only correct or delete your own evaluations.", owner_tag: "Owner",
     own_head: "Team settings (owner)", own_hint: "Applies to everyone. Evaluators see progress against this target on the My work page.", own_target: "Agent-level evaluations per agent per month", own_bad: "Enter a number from 0 to 100.",
@@ -258,6 +260,8 @@ window.I18N = {
     conn: "الاتصال", conn_hint: "المقيّمين مش محتاجين الصفحة دي: بيفتحوا لينك الإعداد مرة واحدة ويختاروا اسمهم في صفحة التقييم. من غير اتصال، كل تقييم بيتنزّل كملف.",
     conn_banner: "المتصفح ده مش متوصل بالـ Google Sheet بتاع التيم، فالتقييمات والأسامي الجديدة بتتحفظ على الجهاز ده بس ومحدش تاني بيشوفها. افتح لينك الإعداد مرة واحدة عشان تتوصل، وأي حاجة اتحفظت هنا هتتبعت للشيت لوحدها.",
     synced_n: "{n} تقييم كانوا محفوظين على الجهاز ده اتبعتوا للـ Google Sheet.",
+    storage_full: "مساحة المتصفح اتملت، فالمسودة مش هتتحفظ لو الصفحة اتقفلت. احفظ التقييم ده دلوقتي.", bad_future: "تاريخ المكالمة في المستقبل", bad_old: "تاريخ المكالمة أقدم من 120 يوم", bad_phone: "رقم العميل شكله ناقص",
+    discard_edit: "تلغي التعديلات اللي عملتها على التقييم ده؟", del_failed: "مقدرتش أمسح التقييم: {e}",
     li_junk: "الإيميل ممكن ياخد دقيقة. لو مش في الـ Inbox بص في الـ Junk أو Spam. لو طلبته تاني هيجيلك نفس الكود.", li_resend: "ابعت الكود تاني", li_resend_in: "تقدر تبعته تاني بعد {n} ثانية", li_resent: "اتبعت تاني، وهو نفس الكود.",
     perm_owner: "ده للأونر بس.", perm_yours: "تقدر تعدّل أو تمسح تقييماتك إنت بس.", owner_tag: "الأونر",
     own_head: "إعدادات التيم (للأونر)", own_hint: "بتتطبق على الكل. المقيّمين بيشوفوا التقدم قصاد التارجت ده في صفحة شغلي.", own_target: "عدد تقييمات Agent level لكل إيجنت في الشهر", own_bad: "اكتب رقم من 0 لـ 100.",

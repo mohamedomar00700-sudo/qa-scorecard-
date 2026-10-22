@@ -177,3 +177,12 @@ button.linkish { border: 0; background: none; color: var(--muted); font-size: 12
 .account[hidden] { display: none; }
 tr.muted td { color: var(--muted); }
 #ownerCard[hidden], #mwTeam[hidden], #mwWhoBox[hidden] { display: none; }
+
+/* Phones: the header scrolls away, answer buttons are easier to tap, and the score + Save stay at the bottom while scoring */
+.mini-bar { display: none; }
+@media (max-width: 900px) {
+  .mini-bar:not([hidden]) { display: flex; position: fixed; inset-inline: 0; bottom: 0; z-index: 20; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0,0,0,.08); font-size: 13px; }
+  body.scoring main { padding-bottom: 64px; }
+  .seg button { min-height: 40px; padding: 8px 12px; }
+}
+@media (max-width: 600px) { .top { position: static; } }

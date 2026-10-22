@@ -49,7 +49,7 @@ function roster_() {
   return sh;
 }
 
-// Role column: 'Owner' (full control, also scores), 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
+// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
 function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
 function roleMatches_(v, role) { return role === 'evaluators' ? isEvalRole_(v) : /^a/i.test(String(v || '').trim()); }
 
@@ -64,7 +64,7 @@ function readRoster_() {
   sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
-    if (/^owner/i.test(String(r[1]).trim())) out.owners.push(name);
+    if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
     if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
   });
@@ -346,7 +346,7 @@ function evaluatorByEmail_(email) {
     return String(r[0] || '').trim() && isEvalRole_(r[1]) &&
       String(r[2]).toLowerCase() !== 'no' && String(r[3] || '').trim().toLowerCase() === em;
   });
-  return row ? { name: String(row[0]).trim(), email: em, owner: /^owner/i.test(String(row[1]).trim()) } : null;
+  return row ? { name: String(row[0]).trim(), email: em, owner: /owner/i.test(String(row[1]).trim()) } : null;
 }
 
 function otpRequest_(email) {
@@ -492,11 +492,22 @@ function doGet(e) {
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
-  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_() });
+  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_(), now: Date.now() });
   const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
+  // With ?since=<ms>, send only evaluations saved or corrected since then (the page asks for this every minute).
+  const since = Number(p.since) || 0;
+  const savedAt = since ? sh.getRange(2, 1, n, 1).getValues().flat() : [];
+  const editCol = COLUMNS.indexOf('Edited at') + 1;
+  const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
   const records = [];
-  json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
-  return reply_({ ok: true, records: records, deleted: deletedIds_() });
+  json.forEach(function (s, i) {
+    if (since) {
+      const t1 = new Date(savedAt[i]).getTime() || 0, t2 = new Date(editedAt[i] || 0).getTime() || 0;
+      if (Math.max(t1, t2) < since) return;
+    }
+    try { records.push(JSON.parse(s)); } catch (err) {}
+  });
+  return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
 }
 
 // Run once from the editor (select it, then Run) if Google asks again for permission to send email.

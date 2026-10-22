@@ -25,11 +25,13 @@
   const pct = (x) => (x === null || x === undefined || x === "" || isNaN(x) ? "–" : Math.round(x * 1000) / 10 + "%");
   // Local date (not UTC), so an evaluation done just after midnight in the UAE gets the right day.
   const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  // Returns false when the browser refuses to save (storage full or blocked), so callers can warn.
   function store(key, val) {
     try {
       if (val === undefined) return JSON.parse(localStorage.getItem(key) || "null");
       localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) { return null; }
+      return true;
+    } catch (e) { return val === undefined ? null : false; }
   }
   function download(name, text, type) {
     const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
@@ -80,7 +82,7 @@
     });
     const critical = errs.CC + errs.EU + errs.BC;
     const nc = applicable ? met / applicable : null;
-    const final = nc === null ? null : critical ? 0 : nc;
+    const final = critical ? 0 : nc; // any critical error fails the evaluation, even when every Part A item is N/A
     return {
       nc, cc: errs.CC ? 0 : 1, eu: errs.EU ? 0 : 1, bc: errs.BC ? 0 : 1, critical, final, open,
       result: final === null ? "" : final >= PASS ? "Pass" : "Fail",
@@ -566,6 +568,7 @@
     $("#sNC").textContent = pct(s.nc);
     $("#sCC").textContent = bucket("CC", s.cc); $("#sEU").textContent = bucket("EU", s.eu); $("#sBC").textContent = bucket("BC", s.bc);
     $("#sCrit").textContent = s.critical; $("#sOpen").textContent = s.open;
+    $("#mbFinal").textContent = $("#sFinal").textContent; $("#mbOpen").textContent = s.open;
     autoFeedback();
   }
 
@@ -575,7 +578,9 @@
     $("#saveMsg").textContent = "";
   }
 
-  function saveDraft() { store(LS_DRAFT, current); }
+  function saveDraft() {
+    if (store(LS_DRAFT, current) === false && !saveDraft.warned) { saveDraft.warned = true; pruneLocal(); if (store(LS_DRAFT, current) === false) alert(t("storage_full")); }
+  }
 
   // ---------- KB / offers updates log ----------
   // Every change to the KB or offers is logged with the exact time it takes effect. An evaluation
@@ -655,6 +660,12 @@
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
     if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
     if (!a.header.odooRef && !a.header.phone) problems.push(t("ref_needed"));
+    if (a.header.interactionDate && purposeOf(a.header) !== "roleplay") {
+      const when = new Date(a.header.interactionDate), now = Date.now();
+      if (isNaN(when) || when.getTime() > now + 10 * 60000) problems.push(t("bad_future"));
+      else if (when.getTime() < now - 120 * 864e5) problems.push(t("bad_old"));
+    }
+    if (a.header.phone && normPhone(a.header.phone).length < 7) problems.push(t("bad_phone"));
     $$(".item").forEach((el) => {
       const ans = a[el.dataset.kind][+el.dataset.i];
       el.classList.toggle("missing", !ans.result);
@@ -676,7 +687,16 @@
 
   const postRecord = (rec) => apiPost({ record: rec });
   const LS_SYNCED = "qa_synced";
-  const markSynced = (id) => { const s = store(LS_SYNCED) || []; if (!s.includes(id)) { s.push(id); store(LS_SYNCED, s); } };
+  const markSynced = (id) => { const s = store(LS_SYNCED) || []; if (!s.includes(id)) { s.push(id); store(LS_SYNCED, s); } pruneLocal(); };
+  // Evaluations already in the sheet don't need a full copy on this device; keep unsynced ones and the latest 30.
+  function pruneLocal() {
+    const done = new Set(store(LS_SYNCED) || []), local = store(LS_EVALS) || [];
+    const synced = local.filter((r) => r && done.has(r.id));
+    if (synced.length <= 30) return;
+    const keep = new Set(synced.slice(-30).map((r) => r.id));
+    store(LS_EVALS, local.filter((r) => r && (!done.has(r.id) || keep.has(r.id))));
+    store(LS_SYNCED, [...done].filter((id) => keep.has(id)).slice(-500));
+  }
 
   // Evaluations saved on this device while it was not connected (or when saving failed) are sent
   // to the sheet once it is connected. The sheet ignores an id it already has, so resending is safe.
@@ -708,7 +728,8 @@
       const dup = findDuplicate(rec);
       if (dup && !confirm(t("dup_confirm", { e: dup.evaluator || "–", d: (dup.evalDate || "") }))) return;
     }
-    const local = (store(LS_EVALS) || []).filter((r) => r.id !== rec.id); local.push(rec); store(LS_EVALS, local);
+    const local = (store(LS_EVALS) || []).filter((r) => r.id !== rec.id); local.push(rec);
+    if (store(LS_EVALS, local) === false) { pruneLocal(); store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => r.id !== rec.id).concat([rec])); }
     loaded.set(rec.id, rec);
     if (connected()) {
       msg.textContent = t("saving");
@@ -810,9 +831,13 @@
     if (!connected()) { say(t("not_connected_load")); return; }
     say(t("loading"));
     try {
-      const j = await apiGet({});
+      // After a full load, ask only for what changed (10-minute overlap for clock differences); a full load every 15 minutes.
+      const full = !sheetLoaded || !loadFromSheet.serverNow || Date.now() - loadFromSheet.lastFull > 15 * 60000;
+      const j = await apiGet(full ? {} : { since: loadFromSheet.serverNow - 10 * 60000 });
+      if (j.now) loadFromSheet.serverNow = j.now;
+      if (full || !j.partial) loadFromSheet.lastFull = Date.now();
       forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
-      say(t("loaded_n", { n: j.records.length, t: new Date().toLocaleTimeString() }));
+      say(t("loaded_n", { n: j.partial ? loaded.size : j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
@@ -822,6 +847,8 @@
   setInterval(() => {
     const view = ($("nav button.active") || {}).dataset;
     if (!connected() || document.visibilityState !== "visible" || !view || view.view === "evaluate" || view.view === "settings") return;
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".view.active input, .view.active textarea");
+    if (typing) return;
     loadFromSheet();
   }, 60000);
   function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
@@ -888,6 +915,8 @@
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(mailText(r), e.currentTarget) }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
+  // The day of the call (falls back to the evaluation day for role-plays and old records).
+  const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
   function renderRecords() {
     const out = $("#recOut"); if (!out) return;
@@ -902,31 +931,34 @@
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = "";
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
-    const tbl = h("table", {}, h("tr", {}, ["c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final", ""].map((k) => h("th", { text: k ? t(k) : "" }))));
+    const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
+        mailable(r) ? outlookButton(r, true) : null,
+        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
       h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
-      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
-      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
-        mailable(r) ? outlookButton(r, true) : null,
-        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null))));
+      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
     if (recs.length > 300) out.append(h("p", { class: "hint", text: t("rec_more", { n: recs.length }) }));
   }
 
+  const editChanged = () => !!(current.edit && current.edit.orig &&
+    current.edit.orig !== JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback));
   function openRecord(r) {
     const d = F.forms[r.form];
     const nc = r.items.filter((x) => x.kind === "NC"), cr = r.items.filter((x) => x.kind !== "NC");
     if (nc.length !== d.nc.length || cr.length !== d.crit.length) { alert(t("edit_mismatch")); return; }
-    if (dirty() && !current.edit && !confirm(t("switch_confirm"))) return;
+    if (((dirty() && !current.edit) || editChanged()) && !confirm(t("switch_confirm"))) return;
     const header = {};
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
+    current.edit.orig = JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback);
     saveDraft(); renderEvaluate();
     $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
   }
@@ -935,7 +967,7 @@
     if (!confirm(t("del_confirm", { a: r.agent || "–", d: whenText(r) }))) return;
     if (connected()) {
       try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.who || settings.evaluator || "" }); }
-      catch (e) { alert(t("name_failed", { e: e.message })); return; }
+      catch (e) { alert(t("del_failed", { e: e.message })); return; }
     }
     forgetDeleted([r.id]);
     if (current.edit && current.edit.id === r.id) { current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); }
@@ -948,6 +980,7 @@
     if (!current.edit) return;
     b.append(h("span", { text: t("editing_banner", { a: current.answers.header.agent || "–", d: whenText(current.answers.header) }) }),
       h("button", { type: "button", class: "ghost", text: t("cancel_edit"), onclick: () => {
+        if (editChanged() && !confirm(t("discard_edit"))) return;
         current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } }));
   }
 
@@ -1241,7 +1274,8 @@
     const ref = g.find((r) => r.evaluator === refSel.value) || null;
 
     const agreedIn = $("#calAgreed").value;
-    const agreed = agreedIn !== "" ? Number(agreedIn) / 100 : ref ? ref.ncScore : median;
+    const agreedNum = Number(agreedIn);
+    const agreed = agreedIn !== "" && agreedNum >= 0 && agreedNum <= 100 ? agreedNum / 100 : ref ? ref.ncScore : median;
     const stats = (r) => calStats(r, ref, agreed);
 
     const cols = ["evaluator", "nc_score", "gap_agreed", "within5", ...(ref ? ["cal_items_agree", "cal_crit_agree", "cal_decision", "cal_verdict"] : []), "crit_errors", "final", ...(ref ? [""] : [])];
@@ -1352,7 +1386,7 @@
     const t = new Date(d + "T00:00:00");
     if (isNaN(t)) return null;
     t.setDate(t.getDate() - ((t.getDay() + 6) % 7));
-    return t.toISOString().slice(0, 10);
+    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
   }
 
   function section(id, title, hint, ...content) {
@@ -1367,7 +1401,7 @@
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, level: $("#dbCal").value || "agent" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test &&
+      (!f.type || r.type === f.type) && (!f.from || callDay(r) >= f.from) && (!f.to || callDay(r) <= f.to) && !r.test &&
       (f.level === "all" || purposeOf(r) === "live" || (f.level === "program" && purposeOf(r) === "program")));
 
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
@@ -1397,7 +1431,7 @@
 
     // Weekly trend
     const weeks = new Map();
-    recs.forEach((r) => { const w = weekStart(r.evalDate); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
+    recs.forEach((r) => { const w = weekStart(callDay(r)); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
     const wk = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
     section("#dbTrend", t("trend"), t("trend_hint"),
       bars(wk.map(([w, l]) => { const v = avg(l.map((r) => r.final || 0)); return { label: t("week_of", { w }), value: v, display: pct(v), flag: v < PASS, title: t("trend_tip", { n: l.length, p: pct(l.filter((r) => r.result === "Pass").length / l.length) }) }; }), { max: 1, target: PASS }));
@@ -1612,7 +1646,7 @@
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
     const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && r.agent &&
-      (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+      (!from || callDay(r) >= from) && (!to || callDay(r) <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
     out.innerHTML = "";
@@ -1861,7 +1895,11 @@
   // ---------- boot ----------
   function boot() {
     $("#ver").textContent = F.version;
+    const showMini = (v) => { $("#miniBar").hidden = v !== "evaluate"; document.body.classList.toggle("scoring", v === "evaluate"); };
+    $("#mbSave").onclick = () => $("#btnSave").click();
+    showMini("evaluate");
     $$("nav button").forEach((b) => b.onclick = () => {
+      showMini(b.dataset.view);
       $$("nav button").forEach((x) => x.classList.toggle("active", x === b));
       $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + b.dataset.view));
       if (b.dataset.view !== "evaluate") { if (!sheetLoaded && connected()) loadFromSheet(); refreshViews(); }
