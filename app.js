@@ -213,6 +213,10 @@
   const CALL_TAGS = ["wow", "good", "bad"];
   // How the evaluator heard the call; independent of the purpose (agent level, certification, calibration...).
   const METHODS = ["recording", "sidebyside"];
+  // How the call was chosen. Random calls measure the agent fairly; targeted ones (a complaint, an escalation,
+  // a follow-up on a known issue) are kept for coaching and left out of agent-level results, as COPC-style monitoring expects.
+  const SELECTIONS = ["random", "targeted"];
+  const selectionOf = (r) => r.selection || "random";
   const HEADER = [
     ["agent", "h_agent", "person", true],
     ["evaluator", "h_evaluator", "person", true],
@@ -228,12 +232,13 @@
     ["kbVersion", "h_kbVersion", "text"],
     ["purpose", "h_purpose", "purpose"],
     ["method", "h_method", "select"],
+    ["selection", "h_selection", "select"],
   ];
 
   function blankAnswers(form) {
     const d = F.forms[form];
     return {
-      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "", method: "recording" },
+      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "", method: "recording", selection: "random" },
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
@@ -281,11 +286,11 @@
       if (kind === "select") {
         // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
         const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
-        if (key === "method" && purposeOf(a.header) === "roleplay") continue;
+        if ((key === "method" || key === "selection") && purposeOf(a.header) === "roleplay") continue;
         if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
-        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
+        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "selection" ? SELECTIONS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
         if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
-        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "method" ? t("m_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
+        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "method" ? t("m_" + o) : key === "selection" ? t("sel_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
@@ -320,11 +325,35 @@
         if (key === "type") { applyType(); renderItems(); }
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
+        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; } saveDraft(); renderHeader(); return; }
         if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
+      if (key === "selection" && (a.header.selection || "random") === "random") box.append(randomPicker(a));
     }
+  }
+
+  // Random call picker: a random day in the last week and a random time in working hours; the evaluator takes
+  // the agent's first answered call after that time. The pick is saved with the evaluation so it can be checked.
+  function randomPicker(a) {
+    const box = h("div", { class: "picker" });
+    const show = () => {
+      box.innerHTML = "";
+      box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
+        if (!a.header.agent) { alert(t("pick_need_agent")); return; }
+        const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
+        const days = Math.max(1, Number(teamCfg.pickDays) || 7);
+        const d = new Date(); d.setDate(d.getDate() - 1 - Math.floor(Math.random() * days));
+        const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
+        const day = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+        a.header.pickAgent = a.header.agent; saveDraft(); show();
+      } }));
+      if (a.header.pick) box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: a.header.pick.slice(0, 10), t: a.header.pick.slice(11) })));
+    };
+    show();
+    return box;
   }
 
   // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
@@ -942,13 +971,13 @@
     const all = allRecords();
     fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
-    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || selectionOf(r) === f.sel) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
-    out.innerHTML = "";
+    out.innerHTML = ""; lastLists.records = recs;
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
@@ -957,7 +986,7 @@
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -1421,8 +1450,9 @@
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, level: $("#dbCal").value || "agent" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
       (!f.type || r.type === f.type) && (!f.from || callDay(r) >= f.from) && (!f.to || callDay(r) <= f.to) && !r.test &&
-      (f.level === "all" || purposeOf(r) === "live" || (f.level === "program" && purposeOf(r) === "program")));
+      (f.level === "all" || (purposeOf(r) === "live" && selectionOf(r) === "random") || (f.level === "program" && purposeOf(r) === "program")));
 
+    lastLists.dashboard = recs;
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
       ids.forEach((i) => ($(i).innerHTML = ""));
@@ -1538,6 +1568,7 @@
       n: list.length, by,
       rec: list.filter((r) => (r.method || "recording") === "recording" && purposeOf(r) !== "roleplay").length,
       sbs: list.filter((r) => r.method === "sidebyside" && purposeOf(r) !== "roleplay").length,
+      targeted: list.filter((r) => selectionOf(r) === "targeted" && purposeOf(r) !== "roleplay").length,
       agents: new Set(list.map((r) => r.agent).filter(Boolean)).size,
       avg: avg(counted.map((r) => r.final).filter((x) => x !== null && x !== undefined)),
       crit: list.reduce((s, r) => s + (r.critical || 0), 0),
@@ -1561,7 +1592,7 @@
     const [from, to] = periodRange(per);
     const inPeriod = all.filter((r) => (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
     const mine = who ? inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(who)) : inPeriod;
-    const s = workStats(mine), team = workStats(inPeriod);
+    const s = workStats(mine), team = workStats(inPeriod); lastLists.mywork = mine;
     $("#mwTitle").textContent = who ? (who === me ? t("mw_title") : t("mw_title_of", { n: who })) : t("mw_whole_team");
 
     // KPI tiles
@@ -1572,6 +1603,7 @@
       [t("m_recording"), s.rec, s.rec + s.sbs ? pct(s.rec / (s.rec + s.sbs)) : ""],
       [t("m_sidebyside"), s.sbs, s.rec + s.sbs ? pct(s.sbs / (s.rec + s.sbs)) : ""],
       [t("mw_k_avg"), pct(s.avg), gap === null ? "" : t("mw_k_vs_team", { g: (gap >= 0 ? "+" : "") + (Math.round(gap * 1000) / 10) })],
+      [t("sel_targeted"), s.targeted, s.n ? t("mw_k_targeted_hint") : ""],
       [t("e_crit"), s.crit, ""],
     ];
     section("#mwKpis", t("overview"), null, s.n ? h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub }))))
@@ -1580,7 +1612,7 @@
     // Agent coverage against the monthly target (agent-level evaluations by anyone, so the team sees who is still missing).
     const target = Number(teamCfg.monthlyTarget) || 0;
     const [mFrom, mTo] = periodRange(per === "lastmonth" ? "lastmonth" : "month");
-    const monthLive = all.filter((r) => purposeOf(r) === "live" && (r.evalDate || "") >= mFrom && (r.evalDate || "") <= mTo);
+    const monthLive = all.filter((r) => purposeOf(r) === "live" && selectionOf(r) === "random" && (r.evalDate || "") >= mFrom && (r.evalDate || "") <= mTo);
     const agents = [...new Set([...(roster.agents || []), ...monthLive.map((r) => r.agent).filter(Boolean)])];
     const cov = agents.map((a) => {
       const l = monthLive.filter((r) => r.agent === a);
@@ -1600,13 +1632,13 @@
     // Team table (owner)
     $("#mwTeam").hidden = !own;
     if (own) {
-      const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
+      const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("sel_targeted"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
       const rows = [head];
       const tt = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
       evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([, w]) => w.n || (roster.evaluators || []).includes(ev))
         .sort((a, b) => b[1].n - a[1].n).forEach(([ev, w]) => {
           const g = w.avg === null || team.avg === null ? "–" : ((w.avg - team.avg) >= 0 ? "+" : "") + (Math.round((w.avg - team.avg) * 1000) / 10) + " " + t("pts");
-          const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.agents, pct(w.avg), g];
+          const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.targeted, w.agents, pct(w.avg), g];
           rows.push(row);
           tt.append(h("tr", { class: w.n ? "" : "muted" }, row.map((x, i) => h("td", { class: i ? "num" : "", text: i === 0 ? x : String(x) }))));
         });
@@ -1622,6 +1654,108 @@
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null))));
     section("#mwRecent", t("mw_recent"), null, recent.length ? rt : h("div", { class: "empty", text: t("mw_none") }));
+  }
+
+  // ---------- PDF and Excel downloads for the main pages ----------
+  const lastLists = {};
+  const EXPORT_VIEWS = { mywork: "mw_title", dashboard: "db_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
+  const fileStamp = () => today() + "_" + new Date().toTimeString().slice(0, 5).replace(":", "");
+  function filterSummary(view) {
+    const first = $(".card", view); if (!first) return "";
+    return [...first.querySelectorAll("label")].map((l) => {
+      const el = l.querySelector("select, input:not([type=checkbox]):not([type=file])"); if (!el || l.hidden || l.closest("[hidden]")) return "";
+      const v = el.tagName === "SELECT" ? (el.selectedOptions[0] || {}).text || "" : el.value;
+      const k = (l.querySelector("span") || l).childNodes[0].textContent.trim();
+      return v ? k + ": " + v : "";
+    }).filter(Boolean).join(" · ");
+  }
+  async function exportPdf(name) {
+    const view = $(".view.active"); if (!view) return;
+    const head = $("#printHead");
+    const title = view.id === "view-evaluate" ? t("nav_evaluate") + " · " + (current.answers.header.agent || "") : t(EXPORT_VIEWS[name] || (name === "guide" ? "nav_guide" : "nav_dashboard"));
+    head.innerHTML = "";
+    head.append(h("div", { class: "ph-logos" }, h("img", { src: "img/techsource.png", alt: "" }), h("img", { src: "img/tresjolie.png", alt: "", class: "acct" })),
+      h("div", {}, h("div", { class: "ph-title", text: "QA Scorecard · " + title }),
+        h("div", { class: "ph-meta", text: [filterSummary(view), t("pdf_made", { d: new Date().toLocaleString(lang === "ar" ? "ar-EG" : "en-GB"), n: settings.who || settings.evaluator || "" })].filter(Boolean).join(" · ") })));
+    const old = document.title; document.title = "QA_" + name + "_" + fileStamp();
+    // Wait for the logos so they are in the PDF.
+    await Promise.all([...head.querySelectorAll("img")].map((im) => (im.complete ? 0 : new Promise((ok) => { im.onload = im.onerror = ok; }))));
+    window.print();
+    setTimeout(() => (document.title = old), 500);
+  }
+  let xlsxLib = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxLib) xlsxLib = new Promise((ok, bad) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      sc.onload = () => ok(window.XLSX); sc.onerror = () => { xlsxLib = null; bad(new Error("Excel library")); };
+      document.head.append(sc);
+    });
+    return xlsxLib;
+  }
+  const cellVal = (v) => {
+    const x = String(v == null ? "" : v).trim();
+    if (/^[+-]?\d+(\.\d+)?%$/.test(x)) return { v: parseFloat(x) / 100, t: "n", z: "0.0%" };
+    if (/^[+-]?\d+(\.\d+)?$/.test(x)) return { v: parseFloat(x), t: "n" };
+    return { v: x, t: "s" };
+  };
+  // Every card on the page becomes a sheet: its tiles, tables and bar lists, as shown.
+  function viewSheets(view) {
+    const out = [];
+    $$(".card", view).forEach((card) => {
+      if (card.hidden || card.closest("[hidden]") || card.style.display === "none") return;
+      const title = ((card.querySelector("h2") || {}).textContent || "").trim();
+      const rows = [];
+      card.querySelectorAll(".tile").forEach((x) => rows.push([$(".tile-k", x).textContent, $(".tile-v", x).textContent, ($(".tile-s", x) || {}).textContent || ""]));
+      card.querySelectorAll("table").forEach((tb) => { if (rows.length) rows.push([]); tb.querySelectorAll("tr").forEach((tr) => {
+        const cells = [...tr.children].filter((c) => !c.classList.contains("actions") && !(c.tagName === "TH" && !c.textContent.trim() && c === tr.firstElementChild && tr.parentNode.querySelector("td.actions")));
+        rows.push(cells.map((c) => c.innerText.replace(/\s*\n\s*/g, " · ").trim())); }); });
+      card.querySelectorAll(".bar-row").forEach((b) => rows.push([$(".bar-label", b).textContent, $(".bar-value", b).textContent]));
+      if (rows.length && title) out.push({ name: title, rows });
+    });
+    return out;
+  }
+  function recordRows(list) {
+    const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by"];
+    return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
+      r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
+      ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
+      r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+      (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
+  }
+  async function exportExcel(name) {
+    const view = $(".view.active"); if (!view) return;
+    let X;
+    try { X = await loadXlsx(); } catch (e) { alert(t("xlsx_failed")); return; }
+    const wb = X.utils.book_new(); const used = new Set();
+    const add = (title, rows) => {
+      let n = String(title).replace(/[\[\]:*?\/\\]/g, " ").trim().slice(0, 28) || "Sheet"; let k = 2; const base = n;
+      while (used.has(n)) n = base.slice(0, 26) + " " + k++; used.add(n);
+      const ws = X.utils.aoa_to_sheet(rows.map((r) => r.map((c) => (c && typeof c === "object" ? c : cellVal(c)))));
+      ws["!cols"] = (rows[0] || []).map((_, i) => ({ wch: Math.min(60, Math.max(10, ...rows.map((r) => String(r[i] && r[i].v !== undefined ? r[i].v : r[i] || "").length))) }));
+      X.utils.book_append_sheet(wb, ws, n);
+    };
+    const info = [["QA Scorecard · " + t(EXPORT_VIEWS[name] || "nav_dashboard")], [filterSummary(view)], [t("pdf_made", { d: new Date().toLocaleString("en-GB"), n: settings.who || settings.evaluator || "" })]];
+    add(t("xlsx_info"), info);
+    viewSheets(view).forEach((sh) => add(sh.name, sh.rows));
+    const raw = lastLists[name];
+    if (raw && raw.length && name !== "records") add(t("xlsx_evals"), recordRows(raw));
+    if (name === "records" && raw) add(t("rec_title"), recordRows(raw));
+    if (lang === "ar") wb.Workbook = { Views: [{ RTL: true }] };
+    X.writeFile(wb, "QA_" + name + "_" + fileStamp() + ".xlsx");
+  }
+  function addExportButtons() {
+    for (const name of Object.keys(EXPORT_VIEWS)) {
+      const view = $("#view-" + name); if (!view || $(".export-bar", view)) continue;
+      const bar = h("div", { class: "export-bar" },
+        h("button", { type: "button", class: "ghost", text: "⬇ PDF", onclick: () => exportPdf(name) }),
+        name === "evaluate" ? null : h("button", { type: "button", class: "ghost", text: "⬇ Excel", onclick: () => exportExcel(name) }));
+      const target = name === "evaluate" ? $("#btnCsv").parentNode : $(".card", view);
+      if (name === "evaluate") $("#btnCsv").after(bar); else target.prepend(bar);
+    }
   }
 
   // ---------- certification ----------
@@ -1664,7 +1798,7 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && r.agent &&
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent &&
       (!from || callDay(r) >= from) && (!to || callDay(r) <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
@@ -1841,10 +1975,13 @@
     };
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
+    $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      const pf = $("#setPickFrom").value || "10:00", pt = $("#setPickTo").value || "21:30", pd = Math.round(Number($("#setPickDays").value) || 7);
+      if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -1943,11 +2080,11 @@
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
-    $("#btnPrintGuide").onclick = () => window.print();
+    $("#btnPrintGuide").onclick = () => exportPdf("guide");
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#calRef").addEventListener("change", (e) => { e.target.dataset.touched = "1"; renderCalibration(); });
     $("#btnSave").onclick = onSave;
@@ -1956,7 +2093,7 @@
     const draft = store(LS_DRAFT);
     if (draft && F.forms[draft.form] && draft.answers && draft.answers.header && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
     const fromLink = readSetupLink();
-    setupLoaders(); setupLogin(); applyStatic(); renderSettings(); renderEvaluate(); showLogin();
+    setupLoaders(); setupLogin(); addExportButtons(); applyStatic(); renderSettings(); renderEvaluate(); showLogin();
     if (fromLink) {
       const m = $("#saveMsg"); m.className = "msg ok";
       m.textContent = connected() ? t("linked_ok") : t("linked_bad");

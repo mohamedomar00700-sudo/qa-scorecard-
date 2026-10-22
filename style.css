@@ -123,7 +123,34 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 #guideOut h3 { margin: 18px 0 4px; }
 #guideOut h3.crit-h { color: var(--bad); }
 @media (max-width: 600px) { .g-head { grid-template-columns: 34px 1fr; } .g-head > .meta:last-child { grid-column: 2; } }
-@media print { .top, #view-guide .toolbar { display: none; } .view { display: none !important; } #view-guide { display: block !important; } .card { border: 0; } }
+/* PDF (print): only the page on screen, with a header (logos, page, filters, who and when); no buttons or menus */
+.print-head { display: none; }
+.export-bar { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 8px; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff; color: #111; font-size: 11px; }
+  .top, .toolbar, .export-bar, .mini-bar, .toast, .login, .banner, button, .loader, [data-loader], .picker button { display: none !important; }
+  .view { display: none !important; }
+  .view.active { display: block !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  .card { border: 1px solid #ddd; box-shadow: none; break-inside: avoid; page-break-inside: avoid; overflow: visible; }
+  .card.wide, #mwTeam, #dbAgents, #recOut, .card:has(table) { break-inside: auto; }
+  tr { break-inside: avoid; }
+  table { font-size: 10px; }
+  .tiles { grid-template-columns: repeat(4, 1fr) !important; }
+  .print-head { display: flex; gap: 14px; align-items: center; border-bottom: 2px solid #1f3864; padding-bottom: 8px; margin-bottom: 12px; }
+  .print-head .ph-logos { display: flex; gap: 10px; align-items: center; }
+  .print-head img { height: 34px; } .print-head img.acct { height: 46px; }
+  .print-head .ph-title { font-size: 16px; font-weight: 700; color: #1f3864; }
+  .print-head .ph-meta { font-size: 10px; color: #555; margin-top: 2px; }
+  select, input { border: 0 !important; background: none !important; -webkit-appearance: none; appearance: none; padding: 0 !important; }
+  .layout { display: block !important; }
+  .view.active > .card:first-of-type .grid, .view.active > .card:first-of-type .hint { display: none !important; }
+  table { width: 100% !important; table-layout: auto; }
+  th, td { white-space: normal !important; word-break: break-word; padding: 3px 4px !important; }
+  .sticky { position: static !important; }
+}
 .result.muted { color: var(--muted); font-weight: 400; font-size: 13px; }
 
 /* certification */
@@ -204,3 +231,6 @@ tr.muted td { color: var(--muted); }
 .toast ul { margin: 6px 0 0; padding-inline-start: 20px; font-weight: 500; font-size: 14px; }
 .toast .x { position: absolute; top: 8px; inset-inline-end: 8px; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 4px 8px; }
 .item.missing { box-shadow: 0 0 0 2px var(--bad); border-radius: 8px; }
+
+.picker { display: flex; flex-direction: column; gap: 6px; align-self: end; }
+.pick-out { background: var(--brand-soft); border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }

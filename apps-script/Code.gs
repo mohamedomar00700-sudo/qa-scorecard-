@@ -407,13 +407,17 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
   const n = Number(c && c.monthlyTarget);
   if (!(n >= 0 && n <= 100)) return { ok: false, error: 'Bad target' };
   cur.monthlyTarget = Math.round(n);
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
+  if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
+  const d = Number(c.pickDays); if (d >= 1 && d <= 31) cur.pickDays = Math.round(d);
   PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
   return { ok: true, config: cur };
 }
