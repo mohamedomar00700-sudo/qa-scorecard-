@@ -163,3 +163,15 @@ button.fill-rest { margin: 4px 0 10px; font-size: 13px; }
 .pill.tag-good { background: #e3f4e8; color: #1a7f37; margin-inline-start: 4px; }
 .pill.tag-bad { background: #fde8e8; color: #b42318; margin-inline-start: 4px; }
 .dup-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #fff4d6; color: #7a4f00; font-size: 13px; white-space: pre-line; }
+
+/* Sign-in screen (code sent by email) */
+.login { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+.login[hidden] { display: none; }
+.login-box { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.login-box > div { display: flex; flex-direction: column; gap: 12px; }
+.login-box > div[hidden] { display: none; }
+.login-top { flex-direction: row !important; justify-content: space-between; align-items: center; color: var(--brand); }
+.login-box .hint { margin: 0; }
+button.linkish { border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px; align-self: center; }
+.account { margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.account[hidden] { display: none; }

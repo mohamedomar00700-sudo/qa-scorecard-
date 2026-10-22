@@ -89,31 +89,41 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
+  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
-    if (settings.key) store(LS_SETTINGS, settings);
+    if (settings.key || settings.session) store(LS_SETTINGS, settings);
   }
-  const connected = () => !!(settings.url && settings.key);
+  // Evaluators sign in with a code sent to their email (session); the access key still works for the admin.
+  const connected = () => !!(settings.url && (settings.key || settings.session));
+  const signedIn = () => !settings.key && !!settings.session;
+  const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
+  function signOut() {
+    settings.session = ""; settings.email = ""; settings.who = ""; store(LS_SETTINGS, settings);
+    showLogin();
+  }
+  const checkSignedOut = (j) => { if (j && j.error === "signed_out") { signOut(); throw Object.assign(new Error(t("li_expired")), { signedOut: true }); } };
 
   async function apiGet(params) {
-    const u = new URL(settings.url); u.searchParams.set("key", settings.key);
-    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+    const u = new URL(settings.url);
+    for (const [k, v] of Object.entries(Object.assign(creds(), params || {}))) u.searchParams.set(k, v);
     const j = await (await fetch(u)).json();
+    checkSignedOut(j);
     if (!j.ok) throw new Error(j.error || "Rejected");
     return j;
   }
   async function apiPost(obj) {
-    const body = JSON.stringify(Object.assign({ key: settings.key }, obj));
+    const body = JSON.stringify(Object.assign(creds(), obj));
     apiPost.last = null;
     try {
       const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       const j = await r.json();
+      checkSignedOut(j);
       if (!j.ok) throw new Error(j.error || "Rejected");
       apiPost.last = j;
       return "saved";
     } catch (e) {
-      if (String(e.message).match(/key|Rejected|Bad/i)) throw e;
+      if (String(e.message).match(/key|Rejected|Bad/i) || e.signedOut) throw e;
       // Some browsers block reading the reply; send again without reading it.
       await fetch(settings.url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       return "sent";
@@ -259,6 +269,12 @@
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: o })),
           h("option", { value: "__new", text: t("add_name") }));
       } else input = h("input", { type: kind });
+      // Signed-in evaluators always save under their own name (an old evaluation being corrected keeps its evaluator).
+      if (key === "evaluator" && signedIn() && settings.who && !current.edit) {
+        if (a.header.evaluator !== settings.who) { a.header.evaluator = settings.who; saveDraft(); }
+        if (![...input.options].some((o) => o.value === settings.who)) input.append(h("option", { value: settings.who, text: settings.who }));
+        input.disabled = true;
+      }
       // Evaluation date is always the day it is saved (kept as is when correcting an old one).
       if (key === "evalDate") { if (!current.edit) a.header.evalDate = today(); input.readOnly = true; input.tabIndex = -1; input.className = "auto"; }
       // Offers / KB version follows the call date: the offers in force that month are the ones that count.
@@ -1533,6 +1549,53 @@
       } })));
   }
 
+  // ---------- sign-in (code sent by email) ----------
+  const LI_ERR = { bad_email: "li_bad_email", not_allowed: "li_not_allowed", wrong_code: "li_wrong_code", code_expired: "li_code_expired", too_many_tries: "li_too_many" };
+  function showLogin() {
+    const box = $("#login"); if (!box) return;
+    box.hidden = connected() || !settings.url;
+    if (box.hidden) return;
+    $("#li1").hidden = false; $("#li2").hidden = true; $("#liMsg").textContent = "";
+    if (settings.email) $("#liEmail").value = settings.email;
+    setTimeout(() => $("#liEmail").focus(), 50);
+  }
+  async function loginCall(obj, btn) {
+    const m = $("#liMsg"); m.className = "msg"; m.textContent = ""; btn.disabled = true;
+    try {
+      const j = await (await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(obj), cache: "no-store" })).json();
+      if (!j.ok) { m.className = "msg err"; m.textContent = j.error === "Wrong access key" ? t("li_old_script") : (LI_ERR[j.error] ? t(LI_ERR[j.error]) : j.error); return null; }
+      return j;
+    } catch (e) { m.className = "msg err"; m.textContent = t("li_net"); return null; }
+    finally { btn.disabled = false; }
+  }
+  function setupLogin() {
+    $("#loginLang").onclick = () => $("#btnLang").click();
+    $("#liSend").onclick = async () => {
+      const em = $("#liEmail").value.trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_bad_email"); return; }
+      const j = await loginCall({ action: "otpRequest", email: em }, $("#liSend"));
+      if (!j) return;
+      settings.email = em; store(LS_SETTINGS, settings);
+      $("#liTo").textContent = em; $("#li1").hidden = true; $("#li2").hidden = false;
+      const m = $("#liMsg"); m.className = "msg ok"; m.textContent = j.wait ? t("li_wait") : "";
+      $("#liCode").value = ""; setTimeout(() => $("#liCode").focus(), 50);
+    };
+    $("#liVerify").onclick = async () => {
+      const code = $("#liCode").value.replace(/\D/g, "");
+      if (code.length !== 6) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_six"); return; }
+      const j = await loginCall({ action: "otpVerify", email: settings.email, code }, $("#liVerify"));
+      if (!j) return;
+      Object.assign(settings, { session: j.session, email: j.email, who: j.name, evaluator: j.name });
+      store(LS_SETTINGS, settings);
+      location.reload();
+    };
+    $("#liBack").onclick = () => { $("#li1").hidden = false; $("#li2").hidden = true; $("#liMsg").textContent = ""; };
+    $("#liEmail").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#liSend").click(); });
+    $("#liCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#liVerify").click(); });
+    $("#liAdmin").onclick = () => { $("#login").hidden = true; $('nav button[data-view="settings"]').click(); };
+    $("#btnSignOut").onclick = () => { if (confirm(t("li_signout_confirm"))) signOut(); };
+  }
+
   // ---------- settings view ----------
   function setupLink() {
     const blob = btoa(unescape(encodeURIComponent(JSON.stringify({ u: settings.url, k: settings.key }))));
@@ -1558,6 +1621,9 @@
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
     status.className = "msg " + (connected() ? "ok" : "err");
+    $("#account").hidden = !signedIn();
+    $("#accountWho").textContent = signedIn() ? t("li_as", { n: settings.who, e: settings.email }) : "";
+    for (const id of ["#setUrl", "#setKey", "#btnSaveSettings", "#btnSetupLink"]) $(id).closest("label, button").hidden = signedIn();
     $("#btnSaveSettings").onclick = async () => {
       settings.url = $("#setUrl").value.trim(); settings.key = $("#setKey").value;
       store(LS_SETTINGS, settings);
@@ -1681,7 +1747,7 @@
     const draft = store(LS_DRAFT);
     if (draft && F.forms[draft.form] && draft.answers && draft.answers.header && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
     const fromLink = readSetupLink();
-    setupLoaders(); applyStatic(); renderSettings(); renderEvaluate();
+    setupLoaders(); setupLogin(); applyStatic(); renderSettings(); renderEvaluate(); showLogin();
     if (fromLink) {
       const m = $("#saveMsg"); m.className = "msg ok";
       m.textContent = connected() ? t("linked_ok") : t("linked_bad");

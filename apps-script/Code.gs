@@ -324,6 +324,79 @@ function readKb_() {
   }).filter(function (u) { return u.effective && u.text; });
 }
 
+// ---------- sign-in with a code sent by email ----------
+// Evaluators sign in with the email saved next to their name in the Roster tab (Role = Evaluator, Active = Yes).
+// The code is valid for 10 minutes; a sign-in lasts 30 days on that device. Removing someone from the Roster,
+// marking them Active = No or clearing their email signs them out on their next request.
+const OTP_MINUTES = 10;
+const SESSION_DAYS = 30;
+
+function hash_(s) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s)));
+}
+
+function evaluatorByEmail_(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em) return null;
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Roster');
+  if (!sh || sh.getLastRow() < 2) return null;
+  const row = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().find(function (r) {
+    return String(r[0] || '').trim() && String(r[1]).toLowerCase().indexOf('eval') === 0 &&
+      String(r[2]).toLowerCase() !== 'no' && String(r[3] || '').trim().toLowerCase() === em;
+  });
+  return row ? { name: String(row[0]).trim(), email: em } : null;
+}
+
+function otpRequest_(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return { ok: false, error: 'bad_email' };
+  const who = evaluatorByEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const cache = CacheService.getScriptCache();
+  const old = JSON.parse(cache.get('otp_' + em) || 'null');
+  if (old && Date.now() - old.at < 60 * 1000) return { ok: true, wait: true };
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  cache.put('otp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: 0 }), OTP_MINUTES * 60);
+  MailApp.sendEmail({
+    to: em, name: 'QA Scorecard', subject: 'QA Scorecard sign-in code: ' + code,
+    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
+      'كود الدخول على السكور كارد: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+      'الكود شغال ' + OTP_MINUTES + ' دقايق. لو مش إنت اللي طلبته تجاهل الإيميل ده.</div>' +
+      '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin-top:12px">Your QA Scorecard sign-in code is ' + code + '. It works for ' + OTP_MINUTES + ' minutes.</div>'
+  });
+  return { ok: true };
+}
+
+function otpVerify_(email, code) {
+  const em = String(email || '').trim().toLowerCase();
+  const cache = CacheService.getScriptCache();
+  const o = JSON.parse(cache.get('otp_' + em) || 'null');
+  if (!o) return { ok: false, error: 'code_expired' };
+  if (o.tries >= 5) { cache.remove('otp_' + em); return { ok: false, error: 'too_many_tries' }; }
+  if (hash_(em + ':' + String(code || '').replace(/\D/g, '')) !== o.h) {
+    o.tries++; cache.put('otp_' + em, JSON.stringify(o), OTP_MINUTES * 60);
+    return { ok: false, error: 'wrong_code' };
+  }
+  cache.remove('otp_' + em);
+  const who = evaluatorByEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const session = Utilities.getUuid() + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty('ses_' + hash_(session),
+    JSON.stringify({ email: em, exp: Date.now() + SESSION_DAYS * 864e5 }));
+  return { ok: true, session: session, email: em, name: who.name };
+}
+
+// True for the access key, or for a valid sign-in of someone who is still an active evaluator.
+function authOk_(o) {
+  if (o.key && o.key === ACCESS_KEY) return true;
+  if (!o.session) return false;
+  const props = PropertiesService.getScriptProperties();
+  const k = 'ses_' + hash_(o.session);
+  const s = JSON.parse(props.getProperty(k) || 'null');
+  if (!s || s.exp < Date.now() || !evaluatorByEmail_(s.email)) { if (s) props.deleteProperty(k); return false; }
+  return true;
+}
+
 function reply_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -331,7 +404,9 @@ function reply_(obj) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+    if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
+    if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
+    if (!authOk_(body)) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
@@ -364,7 +439,7 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
-  if (p.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+  if (!authOk_(p)) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
