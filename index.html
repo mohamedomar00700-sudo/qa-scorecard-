@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1792900000">
+<link rel="stylesheet" href="style.css?v=1793000000">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -37,6 +37,7 @@
     <button data-view="records" data-i18n="nav_records"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
+    <button data-view="reports" data-i18n="nav_reports"></button>
     <button data-view="certification" data-i18n="nav_cert"></button>
     <button data-view="kb" data-i18n="nav_kb"></button>
     <button data-view="guide" data-i18n="nav_guide"></button>
@@ -166,6 +167,29 @@
       <div class="card" id="dbEvaluators"></div>
     </div>
     <div class="card" id="dbAgents"></div>
+  </section>
+
+  <!-- Reports -->
+  <section id="view-reports" class="view">
+    <div class="card">
+      <h2 data-i18n="rp_title"></h2>
+      <p class="hint" data-i18n="rp_hint"></p>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label><span data-i18n="rp_period"></span><select id="rpPreset"><option value="week" data-i18n="rp_p_week"></option><option value="lastweek" data-i18n="rp_p_lastweek"></option><option value="month" data-i18n="rp_p_month"></option><option value="lastmonth" data-i18n="rp_p_lastmonth"></option><option value="all" data-i18n="rp_p_all"></option><option value="custom" data-i18n="rp_p_custom"></option></select></label>
+        <label><span data-i18n="f_from"></span><input type="date" id="rpFrom"></label>
+        <label><span data-i18n="f_to"></span><input type="date" id="rpTo"></label>
+        <label><span data-i18n="f_form"></span><select id="rpForm"></select></label>
+        <label><span data-i18n="f_agent"></span><select id="rpAgent"></select></label>
+        <label><span data-i18n="f_evaluator"></span><select id="rpEvaluator"></select></label>
+        <label><span data-i18n="f_type"></span><select id="rpType"></select></label>
+        <label><span data-i18n="f_level"></span><select id="rpLevel"><option value="agent" data-i18n="lv_agent"></option><option value="program" data-i18n="lv_program"></option><option value="all" data-i18n="rp_lv_all"></option></select></label>
+        <label><span data-i18n="rp_method"></span><select id="rpMethod"><option value="" data-i18n="rp_all_methods"></option><option value="recording" data-i18n="m_recording"></option><option value="sidebyside" data-i18n="rp_m_sbs"></option></select></label>
+      </div>
+      <h3 data-i18n="rp_sections"></h3>
+      <div class="rp-secs" id="rpSecs"></div>
+    </div>
+    <div id="rpOut"></div>
   </section>
 
   <!-- Certification -->
@@ -317,9 +341,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1792900000"></script>
-<script src="i18n.js?v=1792900000"></script>
-<script src="forms.js?v=1792900000"></script>
-<script src="app.js?v=1792900000"></script>
+<script src="config.js?v=1793000000"></script>
+<script src="i18n.js?v=1793000000"></script>
+<script src="forms.js?v=1793000000"></script>
+<script src="app.js?v=1793000000"></script>
 </body>
 </html>
