@@ -126,7 +126,18 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 /* PDF (print): only the page on screen, with a header (logos, page, filters, who and when); no buttons or menus */
 .print-head { display: none; }
 .export-bar { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 8px; }
+/* Reports */
+.rp-secs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 16px; }
+.rp-card h3 { margin: 16px 0 4px; font-size: 15px; }
+.good-txt { color: #1b7a3d; font-weight: 600; }
+.bad-txt { color: #b42318; font-weight: 600; }
+td.heat.h1 { background: #fff4d6; }
+td.heat.h2 { background: #fde0c2; }
+td.heat.h3 { background: #f8c9c4; color: #7a1a12; font-weight: 600; }
 @media print {
+  #view-reports > .card:first-child .grid, #view-reports > .card:first-child h3 { display: none !important; }
+  .rp-secs, #view-reports .hint { display: none !important; }
+
   @page { size: A4; margin: 12mm; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; color: #111; font-size: 11px; }

@@ -899,7 +899,7 @@
     if (typing) return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -1551,6 +1551,185 @@
     section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), et);
   }
 
+  // ---------- reports: pick period, filters and sections, then download as PDF or Excel ----------
+  const LS_REPORT = "qa_report";
+  const RP_SECTIONS = ["summary", "pareto", "categories", "agents", "matrix", "trend", "types", "critlog", "evaluators", "coaching"];
+  const RP_DEFAULT = ["summary", "pareto", "categories", "agents", "matrix", "trend", "critlog"];
+  let rpState = Object.assign({ preset: "month", secs: RP_DEFAULT.slice() }, store(LS_REPORT) || {});
+  // Short Excel sheet names (Excel allows 31 characters).
+  const RP_SHEET = {};
+  const rpSheetNames = () => { const n = { summary: "Summary", pareto: "Most missed (Pareto)", categories: "By category", agents: "Agents", matrix: "Agent x attribute", trend: "Weekly trend", types: "By type & outcome", critlog: "Critical errors", evaluators: "Evaluators", coaching: "Coaching focus" };
+    RP_SECTIONS.forEach((k) => (RP_SHEET[t("rp_s_" + k)] = n[k])); };
+  const isMiss = (i) => i.result === "Not met" || i.result === "Error";
+  const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  function rpRange(p) {
+    const d = new Date();
+    if (p === "lastweek") { const s = new Date(weekStart(ymdOf(d)) + "T00:00:00"); s.setDate(s.getDate() - 7); const e = new Date(s); e.setDate(e.getDate() + 6); return [ymdOf(s), ymdOf(e)]; }
+    if (p === "all") return ["", ""];
+    return periodRange(p);
+  }
+  // Same length, right before the chosen dates; empty when there are no dates.
+  function rpPrevRange(from, to) {
+    if (!from || !to) return null;
+    const a = new Date(from + "T00:00:00"), b = new Date(to + "T00:00:00");
+    const days = Math.round((b - a) / 864e5) + 1;
+    const pe = new Date(a); pe.setDate(pe.getDate() - 1); const ps = new Date(pe); ps.setDate(ps.getDate() - days + 1);
+    return [ymdOf(ps), ymdOf(pe)];
+  }
+  function rpTable(head, rows, num) {
+    const tb = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: num && num.includes(i) ? "num" : "", text: x }))));
+    rows.forEach((r) => tb.append(h("tr", {}, r.map((c, i) => (c instanceof Node ? h("td", {}, c) : c && typeof c === "object" && "text" in c ? h("td", Object.assign({ class: num && num.includes(i) ? "num" : "" }, c)) : h("td", { class: num && num.includes(i) ? "num" : "", text: c === null || c === undefined ? "" : c }))))));
+    return h("div", { class: "table-wrap" }, tb);
+  }
+  const rpCard = (title, hint, ...content) => h("div", { class: "card rp-card", "data-sheet": RP_SHEET[title] || null }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...content);
+  const signed = (x, unit) => (x === null || x === undefined || isNaN(x) ? "–" : (x > 0 ? "+" : "") + (Math.round(x * 1000) / 10) + (unit || " " + t("pts")));
+  function itemStats(recs) {
+    const stat = new Map();
+    recs.forEach((r) => (r.items || []).forEach((it) => {
+      if (!it.result || it.result === "N/A") return;
+      const key = r.form + "|" + it.kind + "|" + it.id;
+      if (!stat.has(key)) {
+        const def = itemDef(r.form, it);
+        stat.set(key, { key, form: r.form, id: it.id, kind: it.kind, text: (def && L(def, "label")) || it.text, full: (def && L(def, "item")) || it.text, section: def && def.section, n: 0, miss: 0, agents: new Map() });
+      }
+      const s = stat.get(key); s.n++; if (isMiss(it)) s.miss++;
+      const a = s.agents.get(r.agent) || { n: 0, miss: 0 }; a.n++; if (isMiss(it)) a.miss++; s.agents.set(r.agent, a);
+    }));
+    return [...stat.values()];
+  }
+  function rpStats(list) {
+    const fin = list.map((r) => r.final).filter((x) => x !== null && x !== undefined);
+    return { n: list.length, avg: avg(fin), pass: list.length ? list.filter((r) => r.result === "Pass").length / list.length : null,
+      nc: avg(list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined)), crit: list.filter((r) => r.critical > 0).length,
+      cc: avg(list.map((r) => r.cc).filter((x) => x !== null && x !== undefined)), eu: avg(list.map((r) => r.eu).filter((x) => x !== null && x !== undefined)), bc: avg(list.map((r) => r.bc).filter((x) => x !== null && x !== undefined)) };
+  }
+  function renderReports() {
+    if (!$("#view-reports")) return;
+    const all = allRecords().filter((r) => !r.test);
+    fillSelect($("#rpForm"), Object.keys(F.forms), t("f_all_forms"), formName);
+    fillSelect($("#rpAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
+    fillSelect($("#rpEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
+    fillSelect($("#rpType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
+    if (!$("#rpSecs").dataset.built) {
+      $("#rpSecs").dataset.built = "1";
+      ["form", "agent", "evaluator", "type", "level", "method"].forEach((k) => { const el = $("#rp" + k[0].toUpperCase() + k.slice(1)); if (rpState[k] !== undefined && [...el.options].some((o) => o.value === rpState[k])) el.value = rpState[k]; });
+      $("#rpPreset").value = rpState.preset || "month";
+      if (rpState.preset === "custom") { $("#rpFrom").value = rpState.from || ""; $("#rpTo").value = rpState.to || ""; }
+    }
+    const box = $("#rpSecs"); box.innerHTML = "";
+    RP_SECTIONS.forEach((k) => box.append(h("label", { class: "check" }, h("input", { type: "checkbox", checked: rpState.secs.includes(k) ? "" : null, onchange: (e) => {
+      rpState.secs = e.target.checked ? RP_SECTIONS.filter((x) => x === k || rpState.secs.includes(x)) : rpState.secs.filter((x) => x !== k); store(LS_REPORT, rpState); renderReports(); } }), t("rp_s_" + k))));
+    if (rpState.preset !== "custom") { const [a, b] = rpRange(rpState.preset); $("#rpFrom").value = a; $("#rpTo").value = b; }
+    const f = { form: $("#rpForm").value, agent: $("#rpAgent").value, ev: $("#rpEvaluator").value, type: $("#rpType").value, level: $("#rpLevel").value || "agent", method: $("#rpMethod").value, from: $("#rpFrom").value, to: $("#rpTo").value };
+    const pick = (from, to) => all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) && (!f.type || r.type === f.type) &&
+      (!f.method || (r.method || "recording") === f.method) && (!from || callDay(r) >= from) && (!to || callDay(r) <= to) &&
+      (f.level === "all" ? !["calibration", "roleplay"].includes(purposeOf(r)) : (purposeOf(r) === "live" && selectionOf(r) === "random") || (f.level === "program" && purposeOf(r) === "program")));
+    const recs = pick(f.from, f.to);
+    const pr = rpPrevRange(f.from, f.to), prev = pr ? pick(pr[0], pr[1]) : null;
+    lastLists.reports = recs;
+    rpSheetNames();
+    const out = $("#rpOut"); out.innerHTML = "";
+    if (!recs.length) { out.append(h("div", { class: "card" }, h("div", { class: "empty", text: t("rp_none") }))); return; }
+    const on = (k) => rpState.secs.includes(k);
+    const S = rpStats(recs), P = prev && prev.length ? rpStats(prev) : null;
+    const items = itemStats(recs), prevItems = prev ? itemStats(prev) : [];
+    const multiForm = new Set(recs.map((r) => r.form)).size > 1;
+    const iname = (s) => (multiForm ? formName(s.form) + " · " : "") + (s.kind === "NC" ? "N" : "") + s.id + " " + s.text;
+    const icat = (s) => (s.kind === "NC" ? t("rp_nc_cat") : t("rp_crit_cat") + " " + s.kind);
+
+    if (on("summary")) {
+      const row = (label, a, b, isPct, lowerBetter) => {
+        const ch = a === null || b === null || b === undefined ? null : a - b;
+        return [label, isPct ? pct(a) : a, P ? (isPct ? pct(b) : b) : "–", !P || ch === null ? "–" : { text: isPct ? signed(ch) : (ch > 0 ? "+" : "") + ch, class: "num " + ((lowerBetter ? ch < 0 : ch > 0) ? "good-txt" : ch === 0 ? "" : "bad-txt") }];
+      };
+      const tiles = [[t("rp_evals"), S.n, t("k_agents", { n: new Set(recs.map((r) => r.agent)).size })], [t("rp_avg"), pct(S.avg), t("k_target")], [t("rp_pass"), pct(S.pass), ""], [t("rp_withcrit"), S.crit, pct(S.crit / S.n)]];
+      out.append(rpCard(t("rp_s_summary"), pr ? t("rp_vs", { a: pr[0], b: pr[1] }) + (P ? "" : " " + t("rp_prev_empty")) : t("rp_prev_na"),
+        h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))),
+        rpTable([t("rp_metric"), t("rp_this"), t("rp_prev"), t("rp_change")], [
+          row(t("rp_evals"), S.n, P && P.n), row(t("rp_avg"), S.avg, P && P.avg, true), row(t("rp_pass"), S.pass, P && P.pass, true), row(t("rp_nc"), S.nc, P && P.nc, true),
+          row(t("cc_acc"), S.cc, P && P.cc, true), row(t("eu_acc"), S.eu, P && P.eu, true), row(t("bc_acc"), S.bc, P && P.bc, true), row(t("rp_withcrit"), S.crit, P && P.crit, false, true)], [1, 2, 3])));
+    }
+    if (on("pareto")) {
+      const missed = items.filter((s) => s.miss).sort((a, b) => b.miss - a.miss || b.miss / b.n - a.miss / a.n);
+      const total = missed.reduce((x, s) => x + s.miss, 0); let cum = 0;
+      const rows = missed.slice(0, 20).map((s, i) => { cum += s.miss; const pv = prevItems.find((p) => p.key === s.key);
+        return [i + 1, iname(s), icat(s), s.miss, s.n, pct(s.miss / s.n), pct(s.miss / total), pct(cum / total), pv && pv.n ? signed(s.miss / s.n - pv.miss / pv.n) : "–"]; });
+      out.append(rpCard(t("rp_s_pareto"), t("rp_pareto_hint"),
+        missed.length ? bars(missed.slice(0, 10).map((s) => ({ label: iname(s), value: s.miss, display: s.miss + " · " + pct(s.miss / s.n), flag: s.kind !== "NC", title: s.full }))) : h("div", { class: "empty", text: t("no_missed") }),
+        missed.length ? rpTable(["#", t("rp_item"), t("rp_cat"), t("rp_misses"), t("rp_applied"), t("rp_rate"), t("rp_share"), t("rp_cum"), t("rp_rate_change")], rows, [0, 3, 4, 5, 6, 7, 8]) : null));
+    }
+    if (on("categories")) {
+      const cats = ["NC", "CC", "EU", "BC"].map((k) => { const l = items.filter((s) => s.kind === k); const n = l.reduce((x, s) => x + s.n, 0), m = l.reduce((x, s) => x + s.miss, 0);
+        const evWith = k === "NC" ? null : recs.filter((r) => (r.items || []).some((i) => i.kind === k && i.result === "Error")).length;
+        return [k === "NC" ? t("rp_nc_cat") : t("rp_crit_cat") + " " + k, k === "NC" ? pct(S.nc) : pct(S[k.toLowerCase()]), m, n, n ? pct(m / n) : "–", evWith === null ? "–" : evWith]; });
+      const secs = new Map();
+      items.filter((s) => s.kind === "NC").forEach((s) => { const k = s.section ? secLabel(s.section) : t("other"); const v = secs.get(k) || { n: 0, miss: 0 }; v.n += s.n; v.miss += s.miss; secs.set(k, v); });
+      out.append(rpCard(t("rp_s_categories"), t("rp_cat_hint"),
+        rpTable([t("rp_cat"), t("rp_score_acc"), t("rp_misses"), t("rp_applied"), t("rp_rate"), t("rp_evals_with")], cats, [1, 2, 3, 4, 5]),
+        h("h3", { text: t("rp_area") }),
+        rpTable([t("rp_area"), t("rp_misses"), t("rp_applied"), t("rp_rate")], [...secs.entries()].sort((a, b) => b[1].miss / (b[1].n || 1) - a[1].miss / (a[1].n || 1)).map(([k, v]) => [k, v.miss, v.n, v.n ? pct(v.miss / v.n) : "–"]), [1, 2, 3])));
+    }
+    const byAgent = new Map(); recs.forEach((r) => { const k = r.agent || "–"; if (!byAgent.has(k)) byAgent.set(k, []); byAgent.get(k).push(r); });
+    const agentNames = [...byAgent.keys()].sort((a, b) => (rpStats(byAgent.get(b)).avg || 0) - (rpStats(byAgent.get(a)).avg || 0));
+    if (on("agents")) {
+      const rows = agentNames.map((a) => { const l = byAgent.get(a), s = rpStats(l), ps = prev ? rpStats(prev.filter((r) => r.agent === a)) : null;
+        const top = itemStats(l).filter((x) => x.miss).sort((x, y) => y.miss - x.miss)[0];
+        const ok = s.avg !== null && s.avg >= PASS && !l.some((r) => r.critical > 0);
+        return [a, s.n, pct(s.avg), ps && ps.n ? signed(s.avg - ps.avg) : "–", pct(s.pass), pct(s.nc), pct(s.cc), pct(s.eu), pct(s.bc), l.reduce((x, r) => x + (r.critical || 0), 0), top ? iname(top) + " (" + top.miss + ")" : "–", { text: ok ? t("st_ok") : t("st_bad"), class: ok ? "good-txt" : "bad-txt" }]; });
+      out.append(rpCard(t("rp_s_agents"), t("rp_agents_hint"),
+        rpTable([t("c_agent"), t("rp_evals"), t("rp_avg"), t("rp_change"), t("rp_pass"), t("rp_nc"), t("cc_acc"), t("eu_acc"), t("bc_acc"), t("c_crit"), t("rp_top_miss"), t("c_status")], rows, [1, 2, 3, 4, 5, 6, 7, 8, 9])));
+    }
+    if (on("matrix")) {
+      const cols = items.filter((s) => s.miss).sort((a, b) => b.miss - a.miss).slice(0, 12);
+      const rows = agentNames.map((a) => [a, ...cols.map((s) => { const x = s.agents.get(a); if (!x || !x.n) return "–"; const r = x.miss / x.n;
+        return { text: x.miss + "/" + x.n, class: "num heat" + (r >= 0.5 ? " h3" : r >= 0.25 ? " h2" : r > 0 ? " h1" : ""), title: pct(r) }; })]);
+      rows.push([t("rp_team"), ...cols.map((s) => ({ text: s.miss + "/" + s.n, class: "num", title: pct(s.miss / s.n) }))]);
+      out.append(rpCard(t("rp_s_matrix"), t("rp_matrix_hint"),
+        cols.length ? rpTable([t("c_agent"), ...cols.map((s) => (s.kind === "NC" ? "N" : "") + s.id + " " + s.text)], rows, cols.map((_, i) => i + 1)) : h("div", { class: "empty", text: t("no_missed") })));
+    }
+    if (on("trend")) {
+      const weeks = new Map(); recs.forEach((r) => { const w = weekStart(callDay(r)); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
+      const wk = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      out.append(rpCard(t("rp_s_trend"), t("trend_hint"),
+        bars(wk.map(([w, l]) => { const v = rpStats(l).avg; return { label: t("week_of", { w }), value: v || 0, display: pct(v), flag: (v || 0) < PASS }; }), { max: 1, target: PASS }),
+        rpTable([t("rp_week"), t("rp_evals"), t("rp_avg"), t("rp_pass"), t("rp_nc"), t("rp_withcrit")], wk.map(([w, l]) => { const s = rpStats(l); return [w, s.n, pct(s.avg), pct(s.pass), pct(s.nc), s.crit]; }), [1, 2, 3, 4, 5])));
+    }
+    if (on("types")) {
+      const grp = (key, label) => { const m = new Map(); recs.forEach((r) => { const k = label(r) || "–"; if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
+        return [...m.entries()].sort((a, b) => b[1].length - a[1].length).map(([k, l]) => { const s = rpStats(l); return [k, s.n, pct(s.avg), pct(s.pass), s.crit]; }); };
+      const head = (x) => [x, t("rp_evals"), t("rp_avg"), t("rp_pass"), t("rp_withcrit")];
+      out.append(rpCard(t("rp_s_types"), null,
+        rpTable(head(t("f_type")), grp("type", (r) => typeLabel(r.form, r.type)), [1, 2, 3, 4]),
+        h("h3", { text: t("rp_outcome") }), rpTable(head(t("rp_outcome")), grp("outcome", (r) => r.outcome), [1, 2, 3, 4]),
+        h("h3", { text: t("rp_method") }), rpTable(head(t("rp_method")), grp("method", (r) => t(r.method === "sidebyside" ? "rp_m_sbs" : "m_recording")), [1, 2, 3, 4])));
+    }
+    if (on("critlog")) {
+      const rows = [];
+      recs.slice().sort((a, b) => callDay(b).localeCompare(callDay(a))).forEach((r) => (r.items || []).filter((i) => i.kind !== "NC" && i.result === "Error").forEach((i) => {
+        const def = itemDef(r.form, i); rows.push([callDay(r), r.agent || "", "[" + i.kind + "] " + i.id + " " + ((def && L(def, "label")) || i.text), r.evaluator || "", [i.evidence, i.comment].filter(Boolean).join(" · ")]); }));
+      out.append(rpCard(t("rp_s_critlog"), null, rows.length ? rpTable([t("rp_date"), t("c_agent"), t("rp_item"), t("evaluator"), t("rp_comment")], rows) : h("div", { class: "empty", text: t("no_crit") })));
+    }
+    if (on("evaluators")) {
+      const m = new Map(); recs.forEach((r) => { const k = r.evaluator || "–"; if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
+      out.append(rpCard(t("rp_s_evaluators"), t("evaluators_hint"), rpTable([t("evaluator"), t("rp_evals"), t("rp_avg"), t("e_gap"), t("e_crit"), t("m_recording"), t("rp_m_sbs"), t("rp_agents_n")],
+        [...m.entries()].sort((a, b) => b[1].length - a[1].length).map(([ev, l]) => { const s = rpStats(l);
+          return [ev, s.n, pct(s.avg), s.avg === null || S.avg === null ? "–" : signed(s.avg - S.avg), l.reduce((x, r) => x + (r.critical || 0), 0), l.filter((r) => r.method !== "sidebyside").length, l.filter((r) => r.method === "sidebyside").length, new Set(l.map((r) => r.agent)).size]; }), [1, 2, 3, 4, 5, 6, 7])));
+    }
+    if (on("coaching")) {
+      out.append(rpCard(t("rp_s_coaching"), t("rp_coach_hint"), rpTable([t("c_agent"), t("rp_coach_focus"), t("rp_last_coach")], agentNames.map((a) => {
+        const l = byAgent.get(a), top = itemStats(l).filter((x) => x.miss).sort((x, y) => (y.kind !== "NC") - (x.kind !== "NC") || y.miss - x.miss).slice(0, 3);
+        const last = l.slice().sort((x, y) => callDay(y).localeCompare(callDay(x))).find((r) => r.feedback && r.feedback.coaching);
+        return [a, top.length ? top.map((s) => iname(s) + " (" + s.miss + "/" + s.n + ")").join(" · ") : t("no_missed"), last ? callDay(last) + ": " + last.feedback.coaching.replace(/\s*\n\s*/g, " ") : "–"]; }))));
+    }
+  }
+  function wireReports() {
+    if (!$("#view-reports")) return;
+    const save = () => { ["form", "agent", "evaluator", "type", "level", "method"].forEach((k) => (rpState[k] = $("#rp" + k[0].toUpperCase() + k.slice(1)).value)); rpState.preset = $("#rpPreset").value; rpState.from = $("#rpFrom").value; rpState.to = $("#rpTo").value; store(LS_REPORT, rpState); };
+    ["#rpForm", "#rpAgent", "#rpEvaluator", "#rpType", "#rpLevel", "#rpMethod"].forEach((s) => $(s).addEventListener("input", () => { save(); renderReports(); }));
+    $("#rpPreset").addEventListener("input", () => { save(); renderReports(); });
+    ["#rpFrom", "#rpTo"].forEach((s) => $(s).addEventListener("input", () => { $("#rpPreset").value = "custom"; save(); renderReports(); }));
+  }
+
   // ---------- my work: what each evaluator scored, and which agents still need evaluations ----------
   function periodRange(p) {
     const d = new Date(), ymd = (x) => x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
@@ -1658,7 +1837,7 @@
 
   // ---------- PDF and Excel downloads for the main pages ----------
   const lastLists = {};
-  const EXPORT_VIEWS = { mywork: "mw_title", dashboard: "db_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
+  const EXPORT_VIEWS = { mywork: "mw_title", dashboard: "db_title", reports: "rp_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
   const fileStamp = () => today() + "_" + new Date().toTimeString().slice(0, 5).replace(":", "");
   function filterSummary(view) {
     const first = $(".card", view); if (!first) return "";
@@ -1705,7 +1884,7 @@
     const out = [];
     $$(".card", view).forEach((card) => {
       if (card.hidden || card.closest("[hidden]") || card.style.display === "none") return;
-      const title = ((card.querySelector("h2") || {}).textContent || "").trim();
+      const title = card.dataset.sheet || ((card.querySelector("h2") || {}).textContent || "").trim();
       const rows = [];
       card.querySelectorAll(".tile").forEach((x) => rows.push([$(".tile-k", x).textContent, $(".tile-v", x).textContent, ($(".tile-s", x) || {}).textContent || ""]));
       card.querySelectorAll("table").forEach((tb) => { if (rows.length) rows.push([]); tb.querySelectorAll("tr").forEach((tr) => {
@@ -1726,6 +1905,28 @@
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
       (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
   }
+  // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
+  const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;
+  const itemCat = (i) => (i.kind === "NC" ? "Non-critical" : "Critical " + i.kind);
+  function itemSheets(list) {
+    const out = [];
+    [...new Set(list.map((r) => r.form))].forEach((form) => {
+      const recs = list.filter((r) => r.form === form), cols = [];
+      [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
+      const head = ["Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
+      const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
+        return [whenText(r), r.agent || "", r.evaluator || "", purposeOf(r) + (r.test ? " (test)" : ""), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+          r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
+          ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
+      const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {
+        const vals = recs.map((r) => (r.items || []).find((i) => itemKey(i) === c.k)).filter((i) => i && i.result && i.result !== "N/A");
+        const bad = vals.filter((i) => i.result === "Not met" || i.result === "Error").length;
+        return [c.k, itemCat(c.i), c.i.text, vals.length, bad, vals.length ? { v: bad / vals.length, t: "n", z: "0.0%" } : ""]; })];
+      const fname = F.forms[form] ? F.forms[form].name : form;
+      out.push({ name: "Items " + fname, rows: [head, ...rows] }, { name: "Item errors " + fname, rows: sum });
+    });
+    return out;
+  }
   async function exportExcel(name) {
     const view = $(".view.active"); if (!view) return;
     let X;
@@ -1744,6 +1945,7 @@
     const raw = lastLists[name];
     if (raw && raw.length && name !== "records") add(t("xlsx_evals"), recordRows(raw));
     if (name === "records" && raw) add(t("rec_title"), recordRows(raw));
+    if (raw && raw.length) itemSheets(raw).forEach((sh) => add(sh.name, sh.rows));
     if (lang === "ar") wb.Workbook = { Views: [{ RTL: true }] };
     X.writeFile(wb, "QA_" + name + "_" + fileStamp() + ".xlsx");
   }
@@ -2078,6 +2280,7 @@
     $("#fillCrit").onclick = () => fillRest("crit", "No error");
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
+    wireReports();
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
     ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
