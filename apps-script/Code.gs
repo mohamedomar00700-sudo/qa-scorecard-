@@ -246,12 +246,13 @@ function updateRecord_(r) {
   try {
     const sh = sheet_();
     const row = findRow_(sh, r.id);
-    if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); return { ok: true, added: true }; }
+    if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); syncItems_(r, new Date()); return { ok: true, added: true }; }
     const savedAt = sh.getRange(row, 1).getValue();
     const vals = row_(r, savedAt);
     vals[COLUMNS.length - 1] = sh.getRange(row, COLUMNS.length).getValue(); // keep the email note
     sh.getRange(row, 1, 1, COLUMNS.length).setValues([vals]);
     format_(sh, row);
+    syncItems_(r, savedAt);
   } finally {
     lock.releaseLock();
   }
@@ -276,10 +277,96 @@ function deleteRecord_(id, by) {
     const values = row === -1 ? [id] : sh.getRange(row, 1, 1, COLUMNS.length).getValues()[0];
     del.appendRow([new Date(), by || ''].concat(row === -1 ? ['', id] : values));
     if (row !== -1) sh.deleteRow(row);
+    removeItems_(id);
   } finally {
     lock.releaseLock();
   }
   return { ok: true };
+}
+
+// Item tabs: one tab per form ('Items - calls', 'Items - whatsapp'), one row per evaluation and one column per
+// scorecard item (Met / Not met / N/A for non-critical, Error / No error / N/A for critical), so every error
+// is listed under its own header. Kept in step with the Evaluations tab on save, edit and delete.
+// To fill them for evaluations saved before this existed, run rebuildItemTabs() once from the editor.
+const ITEM_FIXED = ['Saved at', 'ID', 'Agent', 'Evaluator', 'Interaction date', 'Purpose', 'Test', 'Final score', 'Result', 'Critical errors', 'Non-critical missed'];
+function itemTab_(form) {
+  const name = 'Items - ' + (form || 'calls');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, ITEM_FIXED.length).setValues([ITEM_FIXED]).setFontWeight('bold');
+    sh.setFrozenRows(1); sh.setFrozenColumns(4);
+    const rules = [['Error', '#f8d7da', '#842029'], ['Not met', '#fff3cd', '#7a5a00']].map(function (x) {
+      return SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith(x[0]).setBackground(x[1]).setFontColor(x[2])
+        .setRanges([sh.getRange('L2:ZZ')]).build();
+    });
+    sh.setConditionalFormatRules(rules);
+  }
+  return sh;
+}
+function itemHeader_(i) {
+  return (i.kind === 'NC' ? 'N' + i.id : i.id) + ' [' + (i.kind === 'NC' ? 'Non-critical' : 'Critical ' + i.kind) + '] ' + i.text;
+}
+function itemRowValues_(sh, r, savedAt) {
+  const lastCol = Math.max(sh.getLastColumn(), ITEM_FIXED.length);
+  const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  const keys = head.map(function (h) { return h.split(' [')[0]; });
+  const add = [];
+  (r.items || []).forEach(function (i) {
+    const k = i.kind === 'NC' ? 'N' + i.id : i.id;
+    if (keys.indexOf(k) === -1) { keys.push(k); head.push(itemHeader_(i)); add.push(itemHeader_(i)); }
+  });
+  if (add.length) sh.getRange(1, lastCol + 1, 1, add.length).setValues([add]).setFontWeight('bold').setWrap(true);
+  const row = new Array(head.length).fill('');
+  const ncMissed = (r.items || []).filter(function (i) { return i.kind === 'NC' && i.result === 'Not met'; }).length;
+  [savedAt, r.id, r.agent, r.evaluator, r.interactionDate, r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'),
+    r.test ? 'Yes' : 'No', r.final, r.result, r.critical || 0, ncMissed].forEach(function (v, n) { row[n] = v; });
+  (r.items || []).forEach(function (i) {
+    const at = keys.indexOf(i.kind === 'NC' ? 'N' + i.id : i.id);
+    row[at] = i.result + (i.result === 'Not met' || i.result === 'Error' ? (i.comment ? ': ' + i.comment : '') : '');
+  });
+  return row;
+}
+function syncItems_(r, savedAt) {
+  try {
+    const sh = itemTab_(r.form);
+    const vals = itemRowValues_(sh, r, savedAt);
+    const at = findRow_(sh, r.id);
+    if (at === -1) sh.appendRow(vals); else sh.getRange(at, 1, 1, vals.length).setValues([vals]);
+    const row = at === -1 ? sh.getLastRow() : at;
+    sh.getRange(row, 8).setNumberFormat('0%');
+  } catch (e) { /* the item tab is a copy for reading; never block a save */ }
+}
+function removeItems_(id) {
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function (sh) {
+      if (sh.getName().indexOf('Items - ') !== 0) return;
+      const at = findRow_(sh, id); if (at !== -1) sh.deleteRow(at);
+    });
+  } catch (e) {}
+}
+// Run once from the Apps Script editor (select it, press Run) to rebuild the item tabs from all saved evaluations.
+function rebuildItemTabs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheets().forEach(function (sh) { if (sh.getName().indexOf('Items - ') === 0) ss.deleteSheet(sh); });
+  const sh = sheet_();
+  if (sh.getLastRow() < 2) return;
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, JSON_COL).getValues();
+  const byForm = {};
+  data.forEach(function (d) {
+    let r; try { r = JSON.parse(d[JSON_COL - 1]); } catch (e) { return; }
+    if (!r || !r.id) return;
+    (byForm[r.form || 'calls'] = byForm[r.form || 'calls'] || []).push([r, d[0]]);
+  });
+  Object.keys(byForm).forEach(function (f) {
+    const tab = itemTab_(f);
+    const rows = byForm[f].map(function (x) { return itemRowValues_(tab, x[0], x[1]); });
+    const w = tab.getLastColumn();
+    const out = rows.map(function (r) { while (r.length < w) r.push(''); return r.slice(0, w); });
+    tab.getRange(2, 1, out.length, w).setValues(out);
+    tab.getRange(2, 8, out.length, 1).setNumberFormat('0%');
+  });
 }
 
 function deletedIds_() {
@@ -472,6 +559,7 @@ function doPost(e) {
       if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
       sh.appendRow(row_(r, new Date()));
       format_(sh, sh.getLastRow());
+      syncItems_(r, new Date());
     } finally {
       lock.releaseLock();
     }
