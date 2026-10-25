@@ -25,11 +25,13 @@
   const pct = (x) => (x === null || x === undefined || x === "" || isNaN(x) ? "–" : Math.round(x * 1000) / 10 + "%");
   // Local date (not UTC), so an evaluation done just after midnight in the UAE gets the right day.
   const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  // Returns false when the browser refuses to save (storage full or blocked), so callers can warn.
   function store(key, val) {
     try {
       if (val === undefined) return JSON.parse(localStorage.getItem(key) || "null");
       localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) { return null; }
+      return true;
+    } catch (e) { return val === undefined ? null : false; }
   }
   function download(name, text, type) {
     const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
@@ -50,6 +52,7 @@
   const L = (it, f) => (lang === "ar" && it && it.ar && it.ar[f]) || (it && it[f]) || "";
   const formName = (k) => (lang === "ar" && F.forms[k] && F.forms[k].ar ? F.forms[k].ar.name : (F.forms[k] ? F.forms[k].name : k));
   const typeLabel = (form, v) => (lang === "ar" && F.forms[form] && F.forms[form].ar && F.forms[form].ar.types[v]) || v;
+  const stageLabel = (v) => { const s = F.odoo.stages.find((x) => x.name === v); return s ? (lang === "ar" ? s.ar + " (" + s.name + ")" : s.name) : v; };
   const outLabel = (form, v) => (lang === "ar" && F.forms[form] && F.forms[form].ar && F.forms[form].ar.outcomes[v]) || v;
   const secLabel = (x) => (lang === "ar" && F.sectionsAr && F.sectionsAr[x]) || x;
   function applyStatic() {
@@ -79,7 +82,7 @@
     });
     const critical = errs.CC + errs.EU + errs.BC;
     const nc = applicable ? met / applicable : null;
-    const final = nc === null ? null : critical ? 0 : nc;
+    const final = critical ? 0 : nc; // any critical error fails the evaluation, even when every Part A item is N/A
     return {
       nc, cc: errs.CC ? 0 : 1, eu: errs.EU ? 0 : 1, bc: errs.BC ? 0 : 1, critical, final, open,
       result: final === null ? "" : final >= PASS ? "Pass" : "Fail",
@@ -88,35 +91,64 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
+  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
-    if (settings.key) store(LS_SETTINGS, settings);
+    if (settings.key || settings.session) store(LS_SETTINGS, settings);
   }
-  const connected = () => !!(settings.url && settings.key);
+  // Evaluators sign in with a code sent to their email (session); the access key still works for the admin.
+  const connected = () => !!(settings.url && (settings.key || settings.session));
+  const signedIn = () => !settings.key && !!settings.session;
+  // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
+  // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
+  const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
+  const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
+  let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
+  const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
+  function signOut() {
+    settings.session = ""; settings.email = ""; settings.who = ""; settings.owner = false; store(LS_SETTINGS, settings);
+    showLogin();
+  }
+  // A sign-in that ended, or an access key that was changed on the script, sends this device back to the sign-in screen.
+  const permMsg = (e) => (e === "not_owner" ? t("perm_owner") : e === "not_yours" ? t("perm_yours") : e);
+  const checkSignedOut = (j) => {
+    const oldKey = j && j.error === "Wrong access key" && settings.key;
+    if (!(j && j.error === "signed_out") && !oldKey) return;
+    if (oldKey) settings.key = "";
+    signOut();
+    throw Object.assign(new Error(t("li_expired")), { signedOut: true });
+  };
 
   async function apiGet(params) {
-    const u = new URL(settings.url); u.searchParams.set("key", settings.key);
-    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+    const u = new URL(settings.url);
+    for (const [k, v] of Object.entries(Object.assign(creds(), params || {}))) u.searchParams.set(k, v);
     const j = await (await fetch(u)).json();
-    if (!j.ok) throw new Error(j.error || "Rejected");
+    checkSignedOut(j);
+    if (!j.ok) throw new Error(permMsg(j.error) || "Rejected");
     return j;
   }
   async function apiPost(obj) {
-    const body = JSON.stringify(Object.assign({ key: settings.key }, obj));
+    const body = JSON.stringify(Object.assign(creds(), obj));
     apiPost.last = null;
     try {
       const r = await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "Rejected");
+      checkSignedOut(j);
+      if (!j.ok) throw Object.assign(new Error(permMsg(j.error) || "Rejected"), { refused: true });
       apiPost.last = j;
       return "saved";
     } catch (e) {
-      if (String(e.message).match(/key|Rejected|Bad/i)) throw e;
+      if (String(e.message).match(/key|Rejected|Bad/i) || e.signedOut || e.refused) throw e;
       // Some browsers block reading the reply; send again without reading it.
       await fetch(settings.url, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
       return "sent";
     }
+  }
+
+  async function apiPostJson(obj) {
+    await apiPost(obj);
+    if (!apiPost.last) throw new Error(t("li_net"));
+    return apiPost.last;
   }
 
   // ---------- names (one shared list so reports group correctly) ----------
@@ -144,10 +176,14 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
+      if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
+        settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
+      }
       // Names added on this device while it was not connected go up to the shared list.
       for (const role of ["agents", "evaluators"]) {
-        for (const name of roster[role] || []) {
+        for (const name of (role === "agents" || isOwner() ? roster[role] : []) || []) {
           if (server[role].some((x) => nameKey(x) === nameKey(name))) continue;
           try { await apiPost({ action: "addPerson", role, name }); server[role].push(name); } catch (e) { /* try again next time */ }
         }
@@ -173,6 +209,14 @@
 
   // ---------- evaluate view ----------
   let current = { form: "calls", answers: null };
+  // Call library tag: Wow and Good calls are named in the agent's email; Bad is only for the training library.
+  const CALL_TAGS = ["wow", "good", "bad"];
+  // How the evaluator heard the call; independent of the purpose (agent level, certification, calibration...).
+  const METHODS = ["recording", "sidebyside"];
+  // How the call was chosen. Random calls measure the agent fairly; targeted ones (a complaint, an escalation,
+  // a follow-up on a known issue) are kept for coaching and left out of agent-level results, as COPC-style monitoring expects.
+  const SELECTIONS = ["random", "targeted"];
+  const selectionOf = (r) => r.selection || "random";
   const HEADER = [
     ["agent", "h_agent", "person", true],
     ["evaluator", "h_evaluator", "person", true],
@@ -183,14 +227,18 @@
     ["type", "h_type", "select", true],
     ["duration", "", "duration"],
     ["outcome", "h_outcome", "select"],
+    ["odooTag", "h_odooTag", "select"],
+    ["callTag", "h_callTag", "select"],
     ["kbVersion", "h_kbVersion", "text"],
     ["purpose", "h_purpose", "purpose"],
+    ["method", "h_method", "select"],
+    ["selection", "h_selection", "select"],
   ];
 
   function blankAnswers(form) {
     const d = F.forms[form];
     return {
-      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "" },
+      header: { evaluator: settings.evaluator, evalDate: today(), kbVersion: "", method: "recording", selection: "random" },
       nc: d.nc.map(() => ({ result: "", evidence: "", comment: "" })),
       crit: d.crit.map(() => ({ result: "", evidence: "", comment: "" })),
       feedback: { strengths: "", improve: "", coaching: "" },
@@ -236,8 +284,13 @@
       }
       const lab = t(label);
       if (kind === "select") {
-        const opts = key === "type" ? Object.keys(d.types) : d.outcomes;
-        const show = (o) => (key === "type" ? typeLabel(current.form, o) : outLabel(current.form, o));
+        // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
+        const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
+        if ((key === "method" || key === "selection") && purposeOf(a.header) === "roleplay") continue;
+        if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
+        const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "selection" ? SELECTIONS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
+        if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
+        const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "method" ? t("m_" + o) : key === "selection" ? t("sel_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
@@ -246,6 +299,12 @@
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: o })),
           h("option", { value: "__new", text: t("add_name") }));
       } else input = h("input", { type: kind });
+      // Signed-in evaluators always save under their own name (an old evaluation being corrected keeps its evaluator).
+      if (key === "evaluator" && signedIn() && settings.who && !current.edit) {
+        if (a.header.evaluator !== settings.who) { a.header.evaluator = settings.who; saveDraft(); }
+        if (![...input.options].some((o) => o.value === settings.who)) input.append(h("option", { value: settings.who, text: settings.who }));
+        input.disabled = true;
+      }
       // Evaluation date is always the day it is saved (kept as is when correcting an old one).
       if (key === "evalDate") { if (!current.edit) a.header.evalDate = today(); input.readOnly = true; input.tabIndex = -1; input.className = "auto"; }
       // Offers / KB version follows the call date: the offers in force that month are the ones that count.
@@ -265,10 +324,36 @@
         a.header[key] = input.value;
         if (key === "type") { applyType(); renderItems(); }
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
+        if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
+        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; } saveDraft(); renderHeader(); return; }
+        if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input));
+      if (key === "selection" && (a.header.selection || "random") === "random") box.append(randomPicker(a));
     }
+  }
+
+  // Random call picker: a random day in the last week and a random time in working hours; the evaluator takes
+  // the agent's first answered call after that time. The pick is saved with the evaluation so it can be checked.
+  function randomPicker(a) {
+    const box = h("div", { class: "picker" });
+    const show = () => {
+      box.innerHTML = "";
+      box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
+        if (!a.header.agent) { alert(t("pick_need_agent")); return; }
+        const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
+        const days = Math.max(1, Number(teamCfg.pickDays) || 7);
+        const d = new Date(); d.setDate(d.getDate() - 1 - Math.floor(Math.random() * days));
+        const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
+        const day = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+        a.header.pickAgent = a.header.agent; saveDraft(); show();
+      } }));
+      if (a.header.pick) box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: a.header.pick.slice(0, 10), t: a.header.pick.slice(11) })));
+    };
+    show();
+    return box;
   }
 
   // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
@@ -512,16 +597,19 @@
     $("#sNC").textContent = pct(s.nc);
     $("#sCC").textContent = bucket("CC", s.cc); $("#sEU").textContent = bucket("EU", s.eu); $("#sBC").textContent = bucket("BC", s.bc);
     $("#sCrit").textContent = s.critical; $("#sOpen").textContent = s.open;
+    $("#mbFinal").textContent = $("#sFinal").textContent; $("#mbOpen").textContent = s.open;
     autoFeedback();
   }
 
   function renderEvaluate() {
     if (!current.answers) current.answers = blankAnswers(current.form);
-    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore(); renderEditBanner();
+    renderFormSwitch(); renderHeader(); applyType(); renderItems(); renderFeedback(); updateScore(); renderEditBanner(); renderDupWarn();
     $("#saveMsg").textContent = "";
   }
 
-  function saveDraft() { store(LS_DRAFT, current); }
+  function saveDraft() {
+    if (store(LS_DRAFT, current) === false && !saveDraft.warned) { saveDraft.warned = true; pruneLocal(); if (store(LS_DRAFT, current) === false) alert(t("storage_full")); }
+  }
 
   // ---------- KB / offers updates log ----------
   // Every change to the KB or offers is logged with the exact time it takes effect. An evaluation
@@ -601,6 +689,12 @@
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
     if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
     if (!a.header.odooRef && !a.header.phone) problems.push(t("ref_needed"));
+    if (a.header.interactionDate && purposeOf(a.header) !== "roleplay") {
+      const when = new Date(a.header.interactionDate), now = Date.now();
+      if (isNaN(when) || when.getTime() > now + 10 * 60000) problems.push(t("bad_future"));
+      else if (when.getTime() < now - 120 * 864e5) problems.push(t("bad_old"));
+    }
+    if (a.header.phone && normPhone(a.header.phone).length < 7) problems.push(t("bad_phone"));
     $$(".item").forEach((el) => {
       const ans = a[el.dataset.kind][+el.dataset.i];
       el.classList.toggle("missing", !ans.result);
@@ -622,7 +716,16 @@
 
   const postRecord = (rec) => apiPost({ record: rec });
   const LS_SYNCED = "qa_synced";
-  const markSynced = (id) => { const s = store(LS_SYNCED) || []; if (!s.includes(id)) { s.push(id); store(LS_SYNCED, s); } };
+  const markSynced = (id) => { const s = store(LS_SYNCED) || []; if (!s.includes(id)) { s.push(id); store(LS_SYNCED, s); } pruneLocal(); };
+  // Evaluations already in the sheet don't need a full copy on this device; keep unsynced ones and the latest 30.
+  function pruneLocal() {
+    const done = new Set(store(LS_SYNCED) || []), local = store(LS_EVALS) || [];
+    const synced = local.filter((r) => r && done.has(r.id));
+    if (synced.length <= 30) return;
+    const keep = new Set(synced.slice(-30).map((r) => r.id));
+    store(LS_EVALS, local.filter((r) => r && (!done.has(r.id) || keep.has(r.id))));
+    store(LS_SYNCED, [...done].filter((id) => keep.has(id)).slice(-500));
+  }
 
   // Evaluations saved on this device while it was not connected (or when saving failed) are sent
   // to the sheet once it is connected. The sheet ignores an id it already has, so resending is safe.
@@ -643,10 +746,27 @@
     b.textContent = t("conn_banner");
   }
 
+  // The save result also shows as a big message at the top of the screen, so nobody leaves thinking it saved when it didn't.
+  function toast(kind, text, list) {
+    const b = $("#toast"); clearTimeout(toast.timer);
+    b.className = "toast " + kind; b.innerHTML = "";
+    b.append(h("div", { text }), list && list.length ? h("ul", {}, list.map((x) => h("li", { text: x }))) : null,
+      h("button", { type: "button", class: "x", "aria-label": "×", text: "×", onclick: () => (b.hidden = true) }));
+    b.hidden = false;
+    if (kind === "ok") toast.timer = setTimeout(() => (b.hidden = true), 6000);
+  }
+
   async function onSave() {
     const msg = $("#saveMsg"); msg.className = "msg";
+    $("#toast").hidden = true;
     const problems = validate();
-    if (problems.length) { msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") }); return; }
+    if (problems.length) {
+      msg.className = "msg err"; msg.textContent = t("missing", { x: problems.slice(0, 8).join((lang === "ar" ? "، " : ", ")) + (problems.length > 8 ? " …" : "") });
+      toast("err", t("not_saved_yet", { n: problems.length }), problems.slice(0, 6).concat(problems.length > 6 ? ["…"] : []));
+      const first = $(".item.missing") || $("#headerFields");
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const rec = buildRecord();
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
@@ -654,7 +774,8 @@
       const dup = findDuplicate(rec);
       if (dup && !confirm(t("dup_confirm", { e: dup.evaluator || "–", d: (dup.evalDate || "") }))) return;
     }
-    const local = (store(LS_EVALS) || []).filter((r) => r.id !== rec.id); local.push(rec); store(LS_EVALS, local);
+    const local = (store(LS_EVALS) || []).filter((r) => r.id !== rec.id); local.push(rec);
+    if (store(LS_EVALS, local) === false) { pruneLocal(); store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => r.id !== rec.id).concat([rec])); }
     loaded.set(rec.id, rec);
     if (connected()) {
       msg.textContent = t("saving");
@@ -668,6 +789,7 @@
         else if (!edit && how === "saved" && settings.mail === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
+        toast("err", msg.textContent);
         download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
       }
     } else {
@@ -678,14 +800,32 @@
     store(LS_DRAFT, null);
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
+    if (cls.includes("ok")) toast("ok", "✓ " + keep);
     if (!edit && settings.mail !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
   }
 
-  // Same interaction already evaluated for real (same agent, time and customer)?
+  // Same interaction already evaluated (any evaluator, not a calibration sample or test):
+  // same Odoo ref or customer number (last 9 digits), and the same call day when both have one.
+  const phoneTail = (p) => normPhone(p).replace(/\D/g, "").slice(-9);
+  function sameCallMatches(x) {
+    const ref = String(x.odooRef || "").trim().toLowerCase(), tail = phoneTail(x.phone), day = String(x.interactionDate || "").slice(0, 10);
+    if (!ref && tail.length < 7) return [];
+    return allRecords().filter((r) => r.id !== x.id && !r.sampleRef && !r.test && r.form === x.form &&
+      ((ref && String(r.odooRef || "").trim().toLowerCase() === ref) || (tail.length >= 7 && phoneTail(r.phone) === tail)) &&
+      (!day || !r.interactionDate || String(r.interactionDate).slice(0, 10) === day));
+  }
   function findDuplicate(rec) {
     if (rec.sampleRef || rec.test) return null;
-    return allRecords().find((r) => r.id !== rec.id && !r.sampleRef && !r.test && purposeOf(r) === purposeOf(rec) && r.form === rec.form && r.agent === rec.agent &&
-      r.interactionDate === rec.interactionDate && ((rec.phone && normPhone(r.phone) === rec.phone) || (rec.odooRef && r.odooRef === rec.odooRef)));
+    return sameCallMatches(rec)[0] || null;
+  }
+  // Shown while the evaluator fills the call details, before any time goes into scoring.
+  function renderDupWarn() {
+    const box = $("#dupWarn"); if (!box) return;
+    const hd = current.answers.header;
+    const list = current.edit || hd.test || purposeOf(hd) === "calibration" ? [] : sameCallMatches({ ...hd, form: current.form, id: current.edit && current.edit.id });
+    box.hidden = !list.length;
+    if (list.length) box.textContent = t("dup_early") + "\n" + list.slice(0, 3).map((r) =>
+      "• " + (r.evaluator || "–") + " · " + (r.agent || "–") + " · " + whenText(r) + " · " + pct(r.final)).join("\n");
   }
 
   const fileName = (rec, ext) => ["QA", F.forms[rec.form].name, (rec.agent || "agent").replace(/[^\w؀-ۿ-]+/g, "_"), rec.evalDate, rec.id.slice(0, 6)].join("_") + "." + ext;
@@ -723,15 +863,29 @@
     });
   }
 
-  let sheetLoaded = false;
+  let sheetLoaded = false, lastSheetLoad = 0;
+  // Pull the latest saves from the sheet (at most every 30 s) so the same-call warning sees other evaluators' work.
+  let dupTimer = null;
+  function checkSameCall() {
+    renderDupWarn();
+    clearTimeout(dupTimer);
+    dupTimer = setTimeout(async () => {
+      if (connected() && Date.now() - lastSheetLoad > 30000) { await loadFromSheet(); }
+      renderDupWarn();
+    }, 800);
+  }
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
     say(t("loading"));
     try {
-      const j = await apiGet({});
-      forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true;
-      say(t("loaded_n", { n: j.records.length, t: new Date().toLocaleTimeString() }));
+      // After a full load, ask only for what changed (10-minute overlap for clock differences); a full load every 15 minutes.
+      const full = !sheetLoaded || !loadFromSheet.serverNow || Date.now() - loadFromSheet.lastFull > 15 * 60000;
+      const j = await apiGet(full ? {} : { since: loadFromSheet.serverNow - 10 * 60000 });
+      if (j.now) loadFromSheet.serverNow = j.now;
+      if (full || !j.partial) loadFromSheet.lastFull = Date.now();
+      forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
+      say(t("loaded_n", { n: j.partial ? loaded.size : j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
     } catch (e) { say(t("load_failed", { e: e.message })); }
   }
@@ -741,9 +895,11 @@
   setInterval(() => {
     const view = ($("nav button.active") || {}).dataset;
     if (!connected() || document.visibilityState !== "visible" || !view || view.view === "evaluate" || view.view === "settings") return;
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".view.active input, .view.active textarea");
+    if (typing) return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -768,7 +924,10 @@
       (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
+      ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
       tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];
+    if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
+    if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
     if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
     if (fb.strengths) lines.push("", tx("نقاط القوة:", "Strengths:"), fb.strengths);
     if (fb.improve) lines.push("", tx("محتاج تحسين:", "Areas to improve:"), fb.improve);
@@ -804,45 +963,50 @@
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(mailText(r), e.currentTarget) }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
+  // The day of the call (falls back to the evaluation day for role-plays and old records).
+  const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
   function renderRecords() {
     const out = $("#recOut"); if (!out) return;
     const all = allRecords();
     fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
-    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || selectionOf(r) === f.sel) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
-    out.innerHTML = "";
+    out.innerHTML = ""; lastLists.records = recs;
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
-    const tbl = h("table", {}, h("tr", {}, ["c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final", ""].map((k) => h("th", { text: k ? t(k) : "" }))));
+    const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
+        mailable(r) ? outlookButton(r, true) : null,
+        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
-      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
-      h("td", { class: "actions" }, h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
-        mailable(r) ? outlookButton(r, true) : null,
-        h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) })))));
+      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
     if (recs.length > 300) out.append(h("p", { class: "hint", text: t("rec_more", { n: recs.length }) }));
   }
 
+  const editChanged = () => !!(current.edit && current.edit.orig &&
+    current.edit.orig !== JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback));
   function openRecord(r) {
     const d = F.forms[r.form];
     const nc = r.items.filter((x) => x.kind === "NC"), cr = r.items.filter((x) => x.kind !== "NC");
     if (nc.length !== d.nc.length || cr.length !== d.crit.length) { alert(t("edit_mismatch")); return; }
-    if (dirty() && !current.edit && !confirm(t("switch_confirm"))) return;
+    if (((dirty() && !current.edit) || editChanged()) && !confirm(t("switch_confirm"))) return;
     const header = {};
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
+    current.edit.orig = JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback);
     saveDraft(); renderEvaluate();
     $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
   }
@@ -850,8 +1014,8 @@
   async function deleteRecord(r) {
     if (!confirm(t("del_confirm", { a: r.agent || "–", d: whenText(r) }))) return;
     if (connected()) {
-      try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.evaluator || "" }); }
-      catch (e) { alert(t("name_failed", { e: e.message })); return; }
+      try { await apiPost({ action: "deleteRecord", id: r.id, by: settings.who || settings.evaluator || "" }); }
+      catch (e) { alert(t("del_failed", { e: e.message })); return; }
     }
     forgetDeleted([r.id]);
     if (current.edit && current.edit.id === r.id) { current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); }
@@ -864,6 +1028,7 @@
     if (!current.edit) return;
     b.append(h("span", { text: t("editing_banner", { a: current.answers.header.agent || "–", d: whenText(current.answers.header) }) }),
       h("button", { type: "button", class: "ghost", text: t("cancel_edit"), onclick: () => {
+        if (editChanged() && !confirm(t("discard_edit"))) return;
         current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } }));
   }
 
@@ -1157,7 +1322,8 @@
     const ref = g.find((r) => r.evaluator === refSel.value) || null;
 
     const agreedIn = $("#calAgreed").value;
-    const agreed = agreedIn !== "" ? Number(agreedIn) / 100 : ref ? ref.ncScore : median;
+    const agreedNum = Number(agreedIn);
+    const agreed = agreedIn !== "" && agreedNum >= 0 && agreedNum <= 100 ? agreedNum / 100 : ref ? ref.ncScore : median;
     const stats = (r) => calStats(r, ref, agreed);
 
     const cols = ["evaluator", "nc_score", "gap_agreed", "within5", ...(ref ? ["cal_items_agree", "cal_crit_agree", "cal_decision", "cal_verdict"] : []), "crit_errors", "final", ...(ref ? [""] : [])];
@@ -1268,7 +1434,7 @@
     const t = new Date(d + "T00:00:00");
     if (isNaN(t)) return null;
     t.setDate(t.getDate() - ((t.getDay() + 6) % 7));
-    return t.toISOString().slice(0, 10);
+    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
   }
 
   function section(id, title, hint, ...content) {
@@ -1283,9 +1449,10 @@
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
     const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, level: $("#dbCal").value || "agent" };
     const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || (r.evalDate || "") >= f.from) && (!f.to || (r.evalDate || "") <= f.to) && !r.test &&
-      (f.level === "all" || purposeOf(r) === "live" || (f.level === "program" && purposeOf(r) === "program")));
+      (!f.type || r.type === f.type) && (!f.from || callDay(r) >= f.from) && (!f.to || callDay(r) <= f.to) && !r.test &&
+      (f.level === "all" || (purposeOf(r) === "live" && selectionOf(r) === "random") || (f.level === "program" && purposeOf(r) === "program")));
 
+    lastLists.dashboard = recs;
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
     if (!recs.length) {
       ids.forEach((i) => ($(i).innerHTML = ""));
@@ -1313,7 +1480,7 @@
 
     // Weekly trend
     const weeks = new Map();
-    recs.forEach((r) => { const w = weekStart(r.evalDate); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
+    recs.forEach((r) => { const w = weekStart(callDay(r)); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
     const wk = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
     section("#dbTrend", t("trend"), t("trend_hint"),
       bars(wk.map(([w, l]) => { const v = avg(l.map((r) => r.final || 0)); return { label: t("week_of", { w }), value: v, display: pct(v), flag: v < PASS, title: t("trend_tip", { n: l.length, p: pct(l.filter((r) => r.result === "Pass").length / l.length) }) }; }), { max: 1, target: PASS }));
@@ -1384,6 +1551,213 @@
     section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), et);
   }
 
+  // ---------- my work: what each evaluator scored, and which agents still need evaluations ----------
+  function periodRange(p) {
+    const d = new Date(), ymd = (x) => x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+    if (p === "month") return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(d)];
+    if (p === "lastmonth") return [ymd(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymd(new Date(d.getFullYear(), d.getMonth(), 0))];
+    if (p === "week") return [weekStart(ymd(d)), ymd(d)];
+    return ["", ""];
+  }
+  const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "calibration", "roleplay"];
+  function workStats(list) {
+    const by = {}; PURPOSE_KEYS.forEach((k) => (by[k] = 0));
+    list.forEach((r) => { by[purposeOf(r)] = (by[purposeOf(r)] || 0) + 1; });
+    const counted = list.filter((r) => purposeOf(r) !== "calibration" && purposeOf(r) !== "roleplay");
+    return {
+      n: list.length, by,
+      rec: list.filter((r) => (r.method || "recording") === "recording" && purposeOf(r) !== "roleplay").length,
+      sbs: list.filter((r) => r.method === "sidebyside" && purposeOf(r) !== "roleplay").length,
+      targeted: list.filter((r) => selectionOf(r) === "targeted" && purposeOf(r) !== "roleplay").length,
+      agents: new Set(list.map((r) => r.agent).filter(Boolean)).size,
+      avg: avg(counted.map((r) => r.final).filter((x) => x !== null && x !== undefined)),
+      crit: list.reduce((s, r) => s + (r.critical || 0), 0),
+    };
+  }
+  function renderMyWork() {
+    if (!$("#view-mywork")) return;
+    const all = allRecords().filter((r) => !r.test);
+    const evaluators = [...new Set([...(roster.evaluators || []), ...all.map((r) => r.evaluator).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+    const sel = $("#mwWho"), own = isOwner();
+    const me = settings.who || settings.evaluator || "";
+    $("#mwWhoBox").hidden = !own;
+    if (own) {
+      const prev = sel.value || me;
+      sel.innerHTML = ""; sel.append(h("option", { value: "", text: t("mw_whole_team") }), ...evaluators.map((v) => h("option", { value: v, text: v })));
+      sel.value = evaluators.includes(prev) ? prev : "";
+      if (!sel.dataset.wired) { sel.dataset.wired = "1"; sel.addEventListener("change", renderMyWork); $("#mwPeriod").addEventListener("change", renderMyWork); }
+    } else if (!$("#mwPeriod").dataset.wired) { $("#mwPeriod").dataset.wired = "1"; $("#mwPeriod").addEventListener("change", renderMyWork); }
+    const who = own ? sel.value : me;
+    const per = $("#mwPeriod").value || "month";
+    const [from, to] = periodRange(per);
+    const inPeriod = all.filter((r) => (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+    const mine = who ? inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(who)) : inPeriod;
+    const s = workStats(mine), team = workStats(inPeriod); lastLists.mywork = mine;
+    $("#mwTitle").textContent = who ? (who === me ? t("mw_title") : t("mw_title_of", { n: who })) : t("mw_whole_team");
+
+    // KPI tiles
+    const gap = s.avg !== null && team.avg !== null && who ? s.avg - team.avg : null;
+    const tiles = [
+      [t("mw_k_evals"), s.n, t("mw_k_counted", { n: s.by.live + s.by.certcall })],
+      [t("mw_k_agents"), s.agents, roster.agents.length ? t("mw_k_of", { n: roster.agents.length }) : ""],
+      [t("m_recording"), s.rec, s.rec + s.sbs ? pct(s.rec / (s.rec + s.sbs)) : ""],
+      [t("m_sidebyside"), s.sbs, s.rec + s.sbs ? pct(s.sbs / (s.rec + s.sbs)) : ""],
+      [t("mw_k_avg"), pct(s.avg), gap === null ? "" : t("mw_k_vs_team", { g: (gap >= 0 ? "+" : "") + (Math.round(gap * 1000) / 10) })],
+      [t("sel_targeted"), s.targeted, s.n ? t("mw_k_targeted_hint") : ""],
+      [t("e_crit"), s.crit, ""],
+    ];
+    section("#mwKpis", t("overview"), null, s.n ? h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub }))))
+      : h("div", { class: "empty", text: all.length ? t("mw_none") : t("db_empty") }));
+
+    // Agent coverage against the monthly target (agent-level evaluations by anyone, so the team sees who is still missing).
+    const target = Number(teamCfg.monthlyTarget) || 0;
+    const [mFrom, mTo] = periodRange(per === "lastmonth" ? "lastmonth" : "month");
+    const monthLive = all.filter((r) => purposeOf(r) === "live" && selectionOf(r) === "random" && (r.evalDate || "") >= mFrom && (r.evalDate || "") <= mTo);
+    const agents = [...new Set([...(roster.agents || []), ...monthLive.map((r) => r.agent).filter(Boolean)])];
+    const cov = agents.map((a) => {
+      const l = monthLive.filter((r) => r.agent === a);
+      return { a, team: l.length, mine: who ? l.filter((r) => nameKey(r.evaluator) === nameKey(who)).length : l.length, last: l.map((r) => r.evalDate).sort().pop() || "" };
+    }).sort((x, y) => x.team - y.team || x.a.localeCompare(y.a));
+    const ct = h("table", {}, h("tr", {}, [t("c_agent"), who ? t("mw_by_me") : null, t("mw_team_month"), t("mw_last")].filter(Boolean).map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
+    cov.forEach((c) => ct.append(h("tr", {}, h("td", { text: c.a }), who ? h("td", { class: "num", text: c.mine }) : null,
+      h("td", { class: "num" }, h("span", { class: "pill " + (target && c.team >= target ? "good" : c.team ? "info" : "bad"), dir: "ltr", text: target ? c.team + " / " + target : String(c.team) })),
+      h("td", { class: "num", dir: "ltr", text: c.last || "–" }))));
+    const missing = target ? cov.filter((c) => c.team < target).length : 0;
+    section("#mwCoverage", t("mw_cov_title", { m: (per === "lastmonth" ? t("mw_last_month") : t("mw_this_month")) }),
+      target ? t("mw_cov_hint", { n: target, k: missing }) : t("mw_cov_hint0"), cov.length ? ct : h("div", { class: "empty", text: t("none_yet") }));
+
+    // By evaluation type
+    section("#mwTypes", t("mw_types"), null, s.n ? bars(PURPOSE_KEYS.filter((k) => s.by[k]).map((k) => ({ label: t("p_" + k).replace(/\s*\(.*\)$/, ""), value: s.by[k], display: String(s.by[k]) }))) : h("div", { class: "empty", text: t("mw_none") }));
+
+    // Team table (owner)
+    $("#mwTeam").hidden = !own;
+    if (own) {
+      const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("sel_targeted"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
+      const rows = [head];
+      const tt = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
+      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([, w]) => w.n || (roster.evaluators || []).includes(ev))
+        .sort((a, b) => b[1].n - a[1].n).forEach(([ev, w]) => {
+          const g = w.avg === null || team.avg === null ? "–" : ((w.avg - team.avg) >= 0 ? "+" : "") + (Math.round((w.avg - team.avg) * 1000) / 10) + " " + t("pts");
+          const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.targeted, w.agents, pct(w.avg), g];
+          rows.push(row);
+          tt.append(h("tr", { class: w.n ? "" : "muted" }, row.map((x, i) => h("td", { class: i ? "num" : "", text: i === 0 ? x : String(x) }))));
+        });
+      section("#mwTeam", t("mw_team_title"), t("mw_team_hint"), tt,
+        h("p", {}, h("button", { text: t("download"), onclick: () => download("QA_Evaluators_" + per + "_" + today() + ".csv", toCsv(rows), "text/csv") })));
+    }
+
+    // Recent evaluations
+    const recent = mine.slice().sort((a, b) => whenText(b).localeCompare(whenText(a))).slice(0, 8);
+    const rt = h("table", {}, h("tr", {}, ["c_when", "c_agent", who ? null : "evaluator", "c_purpose", "final", ""].filter(Boolean).map((k) => h("th", { text: k ? t(k) : "" }))));
+    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
+      h("td", {}, h("span", { class: "pill " + (purposeOf(r) === "live" ? "good" : "info"), text: t("p_" + purposeOf(r)).replace(/\s*\(.*\)$/, "") }), r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside").replace(/\s*\(.*\)$/, "") }) : null),
+      h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null))));
+    section("#mwRecent", t("mw_recent"), null, recent.length ? rt : h("div", { class: "empty", text: t("mw_none") }));
+  }
+
+  // ---------- PDF and Excel downloads for the main pages ----------
+  const lastLists = {};
+  const EXPORT_VIEWS = { mywork: "mw_title", dashboard: "db_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
+  const fileStamp = () => today() + "_" + new Date().toTimeString().slice(0, 5).replace(":", "");
+  function filterSummary(view) {
+    const first = $(".card", view); if (!first) return "";
+    return [...first.querySelectorAll("label")].map((l) => {
+      const el = l.querySelector("select, input:not([type=checkbox]):not([type=file])"); if (!el || l.hidden || l.closest("[hidden]")) return "";
+      const v = el.tagName === "SELECT" ? (el.selectedOptions[0] || {}).text || "" : el.value;
+      const k = (l.querySelector("span") || l).childNodes[0].textContent.trim();
+      return v ? k + ": " + v : "";
+    }).filter(Boolean).join(" · ");
+  }
+  async function exportPdf(name) {
+    const view = $(".view.active"); if (!view) return;
+    const head = $("#printHead");
+    const title = view.id === "view-evaluate" ? t("nav_evaluate") + " · " + (current.answers.header.agent || "") : t(EXPORT_VIEWS[name] || (name === "guide" ? "nav_guide" : "nav_dashboard"));
+    head.innerHTML = "";
+    head.append(h("div", { class: "ph-logos" }, h("img", { src: "img/techsource.png", alt: "" }), h("img", { src: "img/tresjolie.png", alt: "", class: "acct" })),
+      h("div", {}, h("div", { class: "ph-title", text: "QA Scorecard · " + title }),
+        h("div", { class: "ph-meta", text: [filterSummary(view), t("pdf_made", { d: new Date().toLocaleString(lang === "ar" ? "ar-EG" : "en-GB"), n: settings.who || settings.evaluator || "" })].filter(Boolean).join(" · ") })));
+    const old = document.title; document.title = "QA_" + name + "_" + fileStamp();
+    // Wait for the logos so they are in the PDF.
+    await Promise.all([...head.querySelectorAll("img")].map((im) => (im.complete ? 0 : new Promise((ok) => { im.onload = im.onerror = ok; }))));
+    window.print();
+    setTimeout(() => (document.title = old), 500);
+  }
+  let xlsxLib = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxLib) xlsxLib = new Promise((ok, bad) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      sc.onload = () => ok(window.XLSX); sc.onerror = () => { xlsxLib = null; bad(new Error("Excel library")); };
+      document.head.append(sc);
+    });
+    return xlsxLib;
+  }
+  const cellVal = (v) => {
+    const x = String(v == null ? "" : v).trim();
+    if (/^[+-]?\d+(\.\d+)?%$/.test(x)) return { v: parseFloat(x) / 100, t: "n", z: "0.0%" };
+    if (/^[+-]?\d+(\.\d+)?$/.test(x)) return { v: parseFloat(x), t: "n" };
+    return { v: x, t: "s" };
+  };
+  // Every card on the page becomes a sheet: its tiles, tables and bar lists, as shown.
+  function viewSheets(view) {
+    const out = [];
+    $$(".card", view).forEach((card) => {
+      if (card.hidden || card.closest("[hidden]") || card.style.display === "none") return;
+      const title = ((card.querySelector("h2") || {}).textContent || "").trim();
+      const rows = [];
+      card.querySelectorAll(".tile").forEach((x) => rows.push([$(".tile-k", x).textContent, $(".tile-v", x).textContent, ($(".tile-s", x) || {}).textContent || ""]));
+      card.querySelectorAll("table").forEach((tb) => { if (rows.length) rows.push([]); tb.querySelectorAll("tr").forEach((tr) => {
+        const cells = [...tr.children].filter((c) => !c.classList.contains("actions") && !(c.tagName === "TH" && !c.textContent.trim() && c === tr.firstElementChild && tr.parentNode.querySelector("td.actions")));
+        rows.push(cells.map((c) => c.innerText.replace(/\s*\n\s*/g, " · ").trim())); }); });
+      card.querySelectorAll(".bar-row").forEach((b) => rows.push([$(".bar-label", b).textContent, $(".bar-value", b).textContent]));
+      if (rows.length && title) out.push({ name: title, rows });
+    });
+    return out;
+  }
+  function recordRows(list) {
+    const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by"];
+    return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
+      r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
+      ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
+      r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+      (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
+  }
+  async function exportExcel(name) {
+    const view = $(".view.active"); if (!view) return;
+    let X;
+    try { X = await loadXlsx(); } catch (e) { alert(t("xlsx_failed")); return; }
+    const wb = X.utils.book_new(); const used = new Set();
+    const add = (title, rows) => {
+      let n = String(title).replace(/[\[\]:*?\/\\]/g, " ").trim().slice(0, 28) || "Sheet"; let k = 2; const base = n;
+      while (used.has(n)) n = base.slice(0, 26) + " " + k++; used.add(n);
+      const ws = X.utils.aoa_to_sheet(rows.map((r) => r.map((c) => (c && typeof c === "object" ? c : cellVal(c)))));
+      ws["!cols"] = (rows[0] || []).map((_, i) => ({ wch: Math.min(60, Math.max(10, ...rows.map((r) => String(r[i] && r[i].v !== undefined ? r[i].v : r[i] || "").length))) }));
+      X.utils.book_append_sheet(wb, ws, n);
+    };
+    const info = [["QA Scorecard · " + t(EXPORT_VIEWS[name] || "nav_dashboard")], [filterSummary(view)], [t("pdf_made", { d: new Date().toLocaleString("en-GB"), n: settings.who || settings.evaluator || "" })]];
+    add(t("xlsx_info"), info);
+    viewSheets(view).forEach((sh) => add(sh.name, sh.rows));
+    const raw = lastLists[name];
+    if (raw && raw.length && name !== "records") add(t("xlsx_evals"), recordRows(raw));
+    if (name === "records" && raw) add(t("rec_title"), recordRows(raw));
+    if (lang === "ar") wb.Workbook = { Views: [{ RTL: true }] };
+    X.writeFile(wb, "QA_" + name + "_" + fileStamp() + ".xlsx");
+  }
+  function addExportButtons() {
+    for (const name of Object.keys(EXPORT_VIEWS)) {
+      const view = $("#view-" + name); if (!view || $(".export-bar", view)) continue;
+      const bar = h("div", { class: "export-bar" },
+        h("button", { type: "button", class: "ghost", text: "⬇ PDF", onclick: () => exportPdf(name) }),
+        name === "evaluate" ? null : h("button", { type: "button", class: "ghost", text: "⬇ Excel", onclick: () => exportExcel(name) }));
+      const target = name === "evaluate" ? $("#btnCsv").parentNode : $(".card", view);
+      if (name === "evaluate") $("#btnCsv").after(bar); else target.prepend(bar);
+    }
+  }
+
   // ---------- certification ----------
   // Everything comes from saved evaluations in the chosen window: live calls (calibration samples and
   // role-plays left out), Odoo accuracy from the Odoo items of those calls, and role-plays scored on
@@ -1424,8 +1798,8 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value;
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && r.agent &&
-      (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent &&
+      (!from || callDay(r) >= from) && (!to || callDay(r) <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
     out.innerHTML = "";
@@ -1488,6 +1862,68 @@
       } })));
   }
 
+  // ---------- sign-in (code sent by email) ----------
+  const LI_ERR = { bad_email: "li_bad_email", not_allowed: "li_not_allowed", wrong_code: "li_wrong_code", code_expired: "li_code_expired", too_many_tries: "li_too_many" };
+  function showLogin() {
+    const box = $("#login"); if (!box) return;
+    box.hidden = connected() || !settings.url;
+    if (box.hidden) return;
+    $("#li1").hidden = false; $("#li2").hidden = true; $("#liMsg").textContent = "";
+    if (settings.email) $("#liEmail").value = settings.email;
+    setTimeout(() => $("#liEmail").focus(), 50);
+  }
+  async function loginCall(obj, btn) {
+    const m = $("#liMsg"); m.className = "msg"; m.textContent = ""; btn.disabled = true;
+    try {
+      const call = async () => (await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(obj), cache: "no-store" })).json();
+      // The script can be slow to wake up; one quiet retry saves people from pressing again.
+      const j = await call().catch(() => new Promise((ok) => setTimeout(ok, 1500)).then(call));
+      if (!j.ok) { m.className = "msg err"; m.textContent = j.error === "Wrong access key" ? t("li_old_script") : (LI_ERR[j.error] ? t(LI_ERR[j.error]) : j.error); return null; }
+      return j;
+    } catch (e) { m.className = "msg err"; m.textContent = t("li_net"); return null; }
+    finally { btn.disabled = false; }
+  }
+  function setupLogin() {
+    $("#loginLang").onclick = () => $("#btnLang").click();
+    let tick = null;
+    const startResend = () => {
+      const b = $("#liResend"); let n = 45; clearInterval(tick);
+      const draw = () => { b.disabled = n > 0; b.textContent = n > 0 ? t("li_resend_in", { n }) : t("li_resend"); };
+      draw(); tick = setInterval(() => { n--; draw(); if (n <= 0) clearInterval(tick); }, 1000);
+    };
+    $("#liResend").onclick = async () => {
+      const j = await loginCall({ action: "otpRequest", email: settings.email }, $("#liResend"));
+      if (!j) return;
+      const m = $("#liMsg"); m.className = "msg ok"; m.textContent = j.wait ? t("li_wait") : t("li_resent");
+      startResend();
+    };
+    $("#liSend").onclick = async () => {
+      const em = $("#liEmail").value.trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_bad_email"); return; }
+      const j = await loginCall({ action: "otpRequest", email: em }, $("#liSend"));
+      if (!j) return;
+      settings.email = em; store(LS_SETTINGS, settings);
+      $("#liTo").textContent = em; $("#li1").hidden = true; $("#li2").hidden = false;
+      const m = $("#liMsg"); m.className = "msg ok"; m.textContent = j.wait ? t("li_wait") : "";
+      $("#liCode").value = ""; setTimeout(() => $("#liCode").focus(), 50);
+      startResend();
+    };
+    $("#liVerify").onclick = async () => {
+      const code = $("#liCode").value.replace(/\D/g, "");
+      if (code.length !== 6) { const m = $("#liMsg"); m.className = "msg err"; m.textContent = t("li_six"); return; }
+      const j = await loginCall({ action: "otpVerify", email: settings.email, code }, $("#liVerify"));
+      if (!j) return;
+      Object.assign(settings, { session: j.session, email: j.email, who: j.name, owner: !!j.owner, evaluator: j.name });
+      store(LS_SETTINGS, settings);
+      location.reload();
+    };
+    $("#liBack").onclick = () => { $("#li1").hidden = false; $("#li2").hidden = true; $("#liMsg").textContent = ""; };
+    $("#liEmail").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#liSend").click(); });
+    $("#liCode").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#liVerify").click(); });
+    $("#liAdmin").onclick = () => { $("#login").hidden = true; $('nav button[data-view="settings"]').click(); };
+    $("#btnSignOut").onclick = () => { if (confirm(t("li_signout_confirm"))) signOut(); };
+  }
+
   // ---------- settings view ----------
   function setupLink() {
     const blob = btoa(unescape(encodeURIComponent(JSON.stringify({ u: settings.url, k: settings.key }))));
@@ -1513,6 +1949,9 @@
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
     status.className = "msg " + (connected() ? "ok" : "err");
+    $("#account").hidden = !signedIn();
+    $("#accountWho").textContent = signedIn() ? t("li_as", { n: settings.who, e: settings.email }) : "";
+    for (const id of ["#setUrl", "#setKey", "#btnSaveSettings", "#btnSetupLink"]) $(id).closest("label, button").hidden = signedIn();
     $("#btnSaveSettings").onclick = async () => {
       settings.url = $("#setUrl").value.trim(); settings.key = $("#setKey").value;
       store(LS_SETTINGS, settings);
@@ -1534,15 +1973,29 @@
       try { await navigator.clipboard.writeText(link); m.className = "msg ok"; m.textContent = t("link_copied"); }
       catch (e) { m.className = "msg"; m.textContent = link; }
     };
+    $("#ownerCard").hidden = !isOwner();
+    $("#setTarget").value = teamCfg.monthlyTarget;
+    $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
+    $("#btnSaveTarget").onclick = async () => {
+      const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
+      if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
+      const pf = $("#setPickFrom").value || "10:00", pt = $("#setPickTo").value || "21:30", pd = Math.round(Number($("#setPickDays").value) || 7);
+      if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      catch (e) { m.className = "msg err"; m.textContent = e.message; }
+    };
+    $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
     const rl = $("#rosterList"); rl.innerHTML = "";
     for (const [role, label] of [["agents", "agents"], ["evaluators", "evaluators"]]) {
       rl.append(h("h3", { text: t(label) + " (" + roster[role].length + ")" }));
       if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
+      const own = isOwner();
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
-        h("span", {}, name, h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") })),
-        h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }),
-        h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }),
-        h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) })))));
+        h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
+          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null),
+        own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
+        own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
+        own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
     }
   }
 
@@ -1598,7 +2051,11 @@
   // ---------- boot ----------
   function boot() {
     $("#ver").textContent = F.version;
+    const showMini = (v) => { $("#miniBar").hidden = v !== "evaluate"; document.body.classList.toggle("scoring", v === "evaluate"); };
+    $("#mbSave").onclick = () => $("#btnSave").click();
+    showMini("evaluate");
     $$("nav button").forEach((b) => b.onclick = () => {
+      showMini(b.dataset.view);
       $$("nav button").forEach((x) => x.classList.toggle("active", x === b));
       $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + b.dataset.view));
       if (b.dataset.view !== "evaluate") { if (!sheetLoaded && connected()) loadFromSheet(); refreshViews(); }
@@ -1610,15 +2067,24 @@
       applyStatic(); renderConnBanner(); fillForms(); renderEvaluate(); renderSettings(); refreshViews();
     };
     $("#showExplain").checked = showExplain;
+    // Only items left empty get filled; misses already marked and N/A items stay as they are.
+    const fillRest = (kind, value) => {
+      const list = current.answers[kind].filter((x) => !x.result && !x.locked);
+      if (!list.length) return alert(t("fill_none"));
+      list.forEach((x) => { x.result = value; });
+      renderItems(); autoFeedback(); saveDraft(); updateScore();
+    };
+    $("#fillNc").onclick = () => fillRest("nc", "Met");
+    $("#fillCrit").onclick = () => fillRest("crit", "No error");
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
     ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
-    $("#btnPrintGuide").onclick = () => window.print();
+    $("#btnPrintGuide").onclick = () => exportPdf("guide");
     $("#calAgreed").addEventListener("input", renderCalibration);
     $("#calRef").addEventListener("change", (e) => { e.target.dataset.touched = "1"; renderCalibration(); });
     $("#btnSave").onclick = onSave;
@@ -1627,7 +2093,7 @@
     const draft = store(LS_DRAFT);
     if (draft && F.forms[draft.form] && draft.answers && draft.answers.header && draft.answers.nc && draft.answers.nc.length === F.forms[draft.form].nc.length && draft.answers.crit.length === F.forms[draft.form].crit.length) current = draft;
     const fromLink = readSetupLink();
-    setupLoaders(); applyStatic(); renderSettings(); renderEvaluate();
+    setupLoaders(); setupLogin(); addExportButtons(); applyStatic(); renderSettings(); renderEvaluate(); showLogin();
     if (fromLink) {
       const m = $("#saveMsg"); m.className = "msg ok";
       m.textContent = connected() ? t("linked_ok") : t("linked_bad");
@@ -1636,6 +2102,7 @@
     window.addEventListener("hashchange", () => { if (readSetupLink()) location.reload(); });
     loadRoster().then(() => { renderHeader(); renderSettings(); renderKb(); });
     loadKb().then(() => { renderHeader(); renderKb(); });
+    if (connected()) loadFromSheet().then(renderDupWarn);
     syncLocal().then((n) => { if (n) { const m = $("#saveMsg"); m.className = "msg ok"; m.textContent = t("synced_n", { n }); sheetLoaded = false; } });
   }
   boot();

@@ -123,7 +123,34 @@ html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", Aria
 #guideOut h3 { margin: 18px 0 4px; }
 #guideOut h3.crit-h { color: var(--bad); }
 @media (max-width: 600px) { .g-head { grid-template-columns: 34px 1fr; } .g-head > .meta:last-child { grid-column: 2; } }
-@media print { .top, #view-guide .toolbar { display: none; } .view { display: none !important; } #view-guide { display: block !important; } .card { border: 0; } }
+/* PDF (print): only the page on screen, with a header (logos, page, filters, who and when); no buttons or menus */
+.print-head { display: none; }
+.export-bar { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 8px; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff; color: #111; font-size: 11px; }
+  .top, .toolbar, .export-bar, .mini-bar, .toast, .login, .banner, button, .loader, [data-loader], .picker button { display: none !important; }
+  .view { display: none !important; }
+  .view.active { display: block !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  .card { border: 1px solid #ddd; box-shadow: none; break-inside: avoid; page-break-inside: avoid; overflow: visible; }
+  .card.wide, #mwTeam, #dbAgents, #recOut, .card:has(table) { break-inside: auto; }
+  tr { break-inside: avoid; }
+  table { font-size: 10px; }
+  .tiles { grid-template-columns: repeat(4, 1fr) !important; }
+  .print-head { display: flex; gap: 14px; align-items: center; border-bottom: 2px solid #1f3864; padding-bottom: 8px; margin-bottom: 12px; }
+  .print-head .ph-logos { display: flex; gap: 10px; align-items: center; }
+  .print-head img { height: 34px; } .print-head img.acct { height: 46px; }
+  .print-head .ph-title { font-size: 16px; font-weight: 700; color: #1f3864; }
+  .print-head .ph-meta { font-size: 10px; color: #555; margin-top: 2px; }
+  select, input { border: 0 !important; background: none !important; -webkit-appearance: none; appearance: none; padding: 0 !important; }
+  .layout { display: block !important; }
+  .view.active > .card:first-of-type .grid, .view.active > .card:first-of-type .hint { display: none !important; }
+  table { width: 100% !important; table-layout: auto; }
+  th, td { white-space: normal !important; word-break: break-word; padding: 3px 4px !important; }
+  .sticky { position: static !important; }
+}
 .result.muted { color: var(--muted); font-weight: 400; font-size: 13px; }
 
 /* certification */
@@ -157,3 +184,53 @@ td.actions button { padding: 4px 8px; font-size: 12px; margin-inline-end: 4px; }
 .cal-ref { margin: 0 0 10px; }
 input.auto { background: var(--na-soft); color: var(--muted); pointer-events: none; }
 td.wrap { white-space: pre-wrap; min-width: 220px; }
+
+button.fill-rest { margin: 4px 0 10px; font-size: 13px; }
+.pill.tag-wow { background: #fff4d6; color: #8a5a00; margin-inline-start: 4px; }
+.pill.tag-good { background: #e3f4e8; color: #1a7f37; margin-inline-start: 4px; }
+.pill.tag-bad { background: #fde8e8; color: #b42318; margin-inline-start: 4px; }
+.dup-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #fff4d6; color: #7a4f00; font-size: 13px; white-space: pre-line; }
+
+/* Sign-in screen (code sent by email) */
+.login { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+.login[hidden] { display: none; }
+.login-box { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.login-box > div { display: flex; flex-direction: column; gap: 12px; }
+.login-box > div[hidden] { display: none; }
+.login-top { flex-direction: row !important; justify-content: space-between; align-items: center; color: var(--brand); }
+.login-box .hint { margin: 0; }
+button.linkish { border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px; align-self: center; }
+.account { margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.account[hidden] { display: none; }
+tr.muted td { color: var(--muted); }
+#ownerCard[hidden], #mwTeam[hidden], #mwWhoBox[hidden] { display: none; }
+
+/* Phones: the header scrolls away, answer buttons are easier to tap, and the score + Save stay at the bottom while scoring */
+.mini-bar { display: none; }
+@media (max-width: 900px) {
+  .mini-bar:not([hidden]) { display: flex; position: fixed; inset-inline: 0; bottom: 0; z-index: 20; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0,0,0,.08); font-size: 13px; }
+  body.scoring main { padding-bottom: 64px; }
+  .seg button { min-height: 40px; padding: 8px 12px; }
+}
+@media (max-width: 600px) { .top { position: static; } }
+
+/* Logos: Tech Source (company) and the account, on a white chip so the dark logo shows on the navy bar */
+.brand { display: flex; align-items: center; gap: 10px; }
+.logos { display: inline-flex; align-items: center; gap: 10px; background: #fff; border-radius: 8px; padding: 2px 10px; }
+.logos img { height: 30px; width: auto; display: block; }
+.logos img.acct { height: 44px; }
+.login-logo { height: 56px; width: auto; align-self: center; }
+@media (max-width: 600px) { .logos img { height: 26px; } .logos img.acct { height: 36px; } }
+
+/* Save result: a big message that can't be missed, at the top of the screen */
+.toast { position: fixed; z-index: 60; top: 12px; inset-inline: 12px; margin: 0 auto; max-width: 640px; padding: 14px 44px 14px 16px; border-radius: 10px; font-size: 15px; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+[dir="rtl"] .toast { padding: 14px 16px 14px 44px; }
+.toast[hidden] { display: none; }
+.toast.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok); }
+.toast.err { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); }
+.toast ul { margin: 6px 0 0; padding-inline-start: 20px; font-weight: 500; font-size: 14px; }
+.toast .x { position: absolute; top: 8px; inset-inline-end: 8px; border: 0; background: transparent; color: inherit; font-size: 20px; line-height: 1; padding: 4px 8px; }
+.item.missing { box-shadow: 0 0 0 2px var(--bad); border-radius: 8px; }
+
+.picker { display: flex; flex-direction: column; gap: 6px; align-self: end; }
+.pick-out { background: var(--brand-soft); border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }

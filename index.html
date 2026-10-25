@@ -4,13 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1792070000">
+<link rel="stylesheet" href="style.css?v=1792700000">
 </head>
 <body>
+<div id="login" class="login" hidden>
+  <div class="login-box">
+    <img class="login-logo" src="img/techsource.png" alt="Tech Source">
+    <div class="login-top"><b>QA Scorecard</b><button type="button" id="loginLang" class="ghost" data-i18n="lang_switch"></button></div>
+    <h2 data-i18n="li_title"></h2>
+    <div id="li1">
+      <p class="hint" data-i18n="li_hint"></p>
+      <label><span data-i18n="li_email"></span><input id="liEmail" type="email" dir="ltr" autocomplete="email" placeholder="name@company.com"></label>
+      <button class="primary" id="liSend" type="button" data-i18n="li_send"></button>
+    </div>
+    <div id="li2" hidden>
+      <p class="hint"><span data-i18n="li_sent"></span> <b id="liTo" dir="ltr"></b></p>
+      <label><span data-i18n="li_code"></span><input id="liCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr" placeholder="123456"></label>
+      <button class="primary" id="liVerify" type="button" data-i18n="li_verify"></button>
+      <p class="hint" data-i18n="li_junk"></p>
+      <button class="ghost" id="liResend" type="button"></button>
+      <button class="ghost" id="liBack" type="button" data-i18n="li_back"></button>
+    </div>
+    <div class="msg" id="liMsg"></div>
+    <button class="linkish" id="liAdmin" type="button" data-i18n="li_admin"></button>
+  </div>
+</div>
 <header class="top">
-  <div class="brand">QA Scorecard <span class="ver" id="ver"></span></div>
+  <div class="brand"><span class="logos"><img src="img/techsource.png" alt="Tech Source"><img src="img/tresjolie.png" alt="Tres Jolie" class="acct"></span>QA Scorecard <span class="ver" id="ver"></span></div>
   <nav>
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
+    <button data-view="mywork" data-i18n="nav_mywork"></button>
     <button data-view="records" data-i18n="nav_records"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
@@ -23,6 +46,7 @@
 </header>
 
 <main>
+  <div id="printHead" class="print-head"></div>
   <!-- Evaluate -->
   <section id="view-evaluate" class="view active">
     <div id="connBanner" class="banner" hidden></div>
@@ -32,16 +56,19 @@
         <div class="card">
           <div class="form-switch" id="formSwitch"></div>
           <div class="grid" id="headerFields"></div>
+          <div id="dupWarn" class="dup-warn" hidden></div>
         </div>
         <div class="card">
           <h2 data-i18n="partA"></h2>
           <p class="hint" data-i18n="partA_hint"></p>
           <label class="check"><input type="checkbox" id="showExplain"> <span data-i18n="show_explain"></span></label>
+          <button type="button" class="fill-rest" id="fillNc" data-i18n="fill_met"></button>
           <div id="ncList"></div>
         </div>
         <div class="card crit">
           <h2 data-i18n="partB"></h2>
           <p class="hint" data-i18n="partB_hint"></p>
+          <button type="button" class="fill-rest" id="fillCrit" data-i18n="fill_noerr"></button>
           <div id="critList"></div>
         </div>
         <div class="card">
@@ -97,6 +124,24 @@
   </section>
 
   <!-- Dashboard -->
+  <section id="view-mywork" class="view">
+    <div class="card">
+      <h2 id="mwTitle" data-i18n="mw_title"></h2>
+      <p class="hint" data-i18n="mw_hint"></p>
+      <div class="grid">
+        <label id="mwWhoBox"><span data-i18n="evaluator"></span><select id="mwWho"></select></label>
+        <label><span data-i18n="mw_period"></span><select id="mwPeriod">
+          <option value="month" data-i18n="mw_this_month"></option><option value="lastmonth" data-i18n="mw_last_month"></option>
+          <option value="week" data-i18n="mw_this_week"></option><option value="all" data-i18n="mw_all_time"></option></select></label>
+      </div>
+    </div>
+    <div class="card" id="mwKpis"></div>
+    <div class="card" id="mwCoverage"></div>
+    <div class="card" id="mwTypes"></div>
+    <div class="card" id="mwTeam"></div>
+    <div class="card" id="mwRecent"></div>
+  </section>
+
   <section id="view-dashboard" class="view">
     <div class="card">
       <h2 data-i18n="db_title"></h2>
@@ -162,9 +207,15 @@
         <label><span data-i18n="f_evaluator"></span><select id="recEvaluator"></select></label>
         <label><span data-i18n="f_agent"></span><select id="recAgent"></select></label>
         <label><span data-i18n="c_purpose"></span><select id="recPurpose">
-          <option value="" data-i18n="f_all"></option><option value="live" data-i18n="p_live"></option><option value="program" data-i18n="p_program"></option><option value="coaching" data-i18n="p_coaching"></option>
+          <option value="" data-i18n="f_all"></option><option value="live" data-i18n="p_live"></option><option value="certcall" data-i18n="p_certcall"></option><option value="program" data-i18n="p_program"></option><option value="coaching" data-i18n="p_coaching"></option>
           <option value="calibration" data-i18n="p_calibration"></option><option value="roleplay" data-i18n="p_roleplay"></option>
           <option value="test" data-i18n="test_tag"></option></select></label>
+        <label><span data-i18n="h_callTag"></span><select id="recTag">
+          <option value="" data-i18n="f_all"></option><option value="wow" data-i18n="tag_wow"></option><option value="good" data-i18n="tag_good"></option><option value="bad" data-i18n="tag_bad"></option></select></label>
+        <label><span data-i18n="h_method"></span><select id="recMethod">
+          <option value="" data-i18n="f_all"></option><option value="recording" data-i18n="m_recording"></option><option value="sidebyside" data-i18n="m_sidebyside"></option></select></label>
+        <label><span data-i18n="h_selection"></span><select id="recSel">
+          <option value="" data-i18n="f_all"></option><option value="random" data-i18n="sel_random"></option><option value="targeted" data-i18n="sel_targeted"></option></select></label>
       </div>
     </div>
     <div class="card" id="recOut"></div>
@@ -214,6 +265,7 @@
     <div class="card">
       <h2 data-i18n="conn"></h2>
       <div class="msg" id="connStatus"></div>
+      <div class="account" id="account" hidden><span id="accountWho"></span> <button type="button" class="ghost" id="btnSignOut" data-i18n="li_signout"></button></div>
       <p class="hint" data-i18n="conn_hint"></p>
       <div class="grid one">
         <label><span data-i18n="set_url"></span><input id="setUrl" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec"></label>
@@ -232,13 +284,32 @@
         <option value="outlook" data-i18n="mail_outlook"></option>
         <option value="outlookweb" data-i18n="mail_outlookweb"></option></select></label>
     </div>
+    <div class="card" id="ownerCard">
+      <h2 data-i18n="own_head"></h2>
+      <p class="hint" data-i18n="own_hint"></p>
+      <label><span data-i18n="own_target"></span><input id="setTarget" type="number" min="0" max="100" step="1" dir="ltr"></label>
+      <div class="grid">
+        <label><span data-i18n="own_pick_from"></span><input id="setPickFrom" type="time" dir="ltr"></label>
+        <label><span data-i18n="own_pick_to"></span><input id="setPickTo" type="time" dir="ltr"></label>
+        <label><span data-i18n="own_pick_days"></span><input id="setPickDays" type="number" min="1" max="31" step="1" dir="ltr"></label>
+      </div>
+      <button class="primary" id="btnSaveTarget" data-i18n="save"></button>
+      <div class="msg" id="ownMsg"></div>
+    </div>
     <div class="card">
       <h2 data-i18n="names"></h2>
-      <p class="hint" data-i18n="names_hint"></p>
+      <p class="hint" id="namesHint"></p>
       <div id="rosterList" class="roster"></div>
     </div>
   </section>
 </main>
+
+<div id="toast" class="toast" role="status" aria-live="assertive" hidden></div>
+<div id="miniBar" class="mini-bar" hidden>
+  <span><span data-i18n="final"></span>: <b id="mbFinal">–</b></span>
+  <span><span data-i18n="unanswered"></span>: <b id="mbOpen">–</b></span>
+  <button class="primary" type="button" id="mbSave" data-i18n="save_eval"></button>
+</div>
 
 <template id="loaderTpl">
   <button class="loadSheet" data-i18n="load_sheet"></button>
@@ -246,9 +317,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1792070000"></script>
-<script src="i18n.js?v=1792070000"></script>
-<script src="forms.js?v=1792070000"></script>
-<script src="app.js?v=1792070000"></script>
+<script src="config.js?v=1792700000"></script>
+<script src="i18n.js?v=1792700000"></script>
+<script src="forms.js?v=1792700000"></script>
+<script src="app.js?v=1792700000"></script>
 </body>
 </html>

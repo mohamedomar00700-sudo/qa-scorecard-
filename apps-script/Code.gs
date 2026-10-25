@@ -49,18 +49,23 @@ function roster_() {
   return sh;
 }
 
+// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
+function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
+function roleMatches_(v, role) { return role === 'evaluators' ? isEvalRole_(v) : /^a/i.test(String(v || '').trim()); }
+
 function nameKey_(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, '');
 }
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], emails: {}, evalEmails: {} };
+  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {} };
   if (sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
-    if (String(r[1]).toLowerCase().indexOf('eval') === 0) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
+    if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
+    if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -77,7 +82,7 @@ function addPerson_(role, name) {
     const sh = roster_();
     const rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues() : [];
     const exists = rows.some(function (r) {
-      return nameKey_(r[0]) === nameKey_(name) && String(r[1]).charAt(0).toLowerCase() === label.charAt(0).toLowerCase();
+      return nameKey_(r[0]) === nameKey_(name) && roleMatches_(r[1], role === 'evaluators' ? 'evaluators' : 'agents');
     });
     if (!exists) sh.appendRow([name, label, 'Yes']);
   } finally {
@@ -92,7 +97,6 @@ function renamePerson_(role, from, to) {
   if (!from || !to || to.length > 80) return { ok: false, error: 'Bad name' };
   const field = role === 'evaluators' ? 'evaluator' : 'agent';
   const col = role === 'evaluators' ? 5 : 4;
-  const first = role === 'evaluators' ? 'e' : 'a';
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -101,7 +105,7 @@ function renamePerson_(role, from, to) {
     if (ro.getLastRow() > 1) {
       const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
       rows.forEach(function (r) {
-        if (String(r[1]).charAt(0).toLowerCase() !== first) return;
+        if (!roleMatches_(r[1], role)) return;
         if (nameKey_(r[0]) === nameKey_(from) || nameKey_(r[0]) === nameKey_(to)) {
           if (!kept) { r[0] = to; r[2] = 'Yes'; kept = true; } else { r[2] = 'No'; }
         }
@@ -130,12 +134,11 @@ function renamePerson_(role, from, to) {
 
 // Take a person off the list (Active = No). Past evaluations keep the name.
 function removePerson_(role, name) {
-  const first = role === 'evaluators' ? 'e' : 'a';
   const ro = roster_();
   if (ro.getLastRow() < 2) return { ok: true };
   const rng = ro.getRange(2, 1, ro.getLastRow() - 1, 3), rows = rng.getValues();
   rows.forEach(function (r) {
-    if (String(r[1]).charAt(0).toLowerCase() === first && nameKey_(r[0]) === nameKey_(name)) r[2] = 'No';
+    if (roleMatches_(r[1], role) && nameKey_(r[0]) === nameKey_(name)) r[2] = 'No';
   });
   rng.setValues(rows);
   return { ok: true };
@@ -143,20 +146,19 @@ function removePerson_(role, name) {
 
 // Save (or clear) an agent's or evaluator's email in the Roster tab.
 function setEmail_(role, name, email) {
-  const first = role === 'evaluators' ? 'e' : 'a';
   email = String(email || '').trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Bad email' };
   const ro = roster_();
   if (ro.getLastRow() > 1) {
     const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
     for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][1]).charAt(0).toLowerCase() === first && nameKey_(rows[i][0]) === nameKey_(name)) {
+      if (roleMatches_(rows[i][1], role) && nameKey_(rows[i][0]) === nameKey_(name)) {
         ro.getRange(i + 2, 4).setValue(email);
         return { ok: true };
       }
     }
   }
-  ro.appendRow([String(name || '').trim(), first === 'e' ? 'Evaluator' : 'Agent', 'Yes', email]);
+  ro.appendRow([String(name || '').trim(), role === 'evaluators' ? 'Evaluator' : 'Agent', 'Yes', email]);
   return { ok: true };
 }
 
@@ -194,6 +196,8 @@ function emailAgent_(r) {
       row('درجة البنود العادية', pct_(r.ncScore)) +
       row('أخطاء حرجة', esc_(r.critical || 0)) +
       row('المقيّم', esc_(r.evaluator)) + '</table>';
+    if (r.callTag === 'wow') html += '<p style="background:#fff4d6;padding:8px 12px;border-radius:6px">🌟 <b>مكالمة Wow!</b> المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.</p>';
+    if (r.callTag === 'good') html += '<p style="background:#e3f4e8;padding:8px 12px;border-radius:6px">👍 <b>مكالمة كويسة جداً</b> واتحطت كمثال في مكتبة التدريب. استمر.</p>';
     if (missed.length) html += '<p><b>البنود اللي محتاجة تتظبط:</b></p><ul>' + missed.map(function (i) {
       return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
     if (fb.strengths) html += '<p><b>نقاط القوة:</b><br><span dir="auto">' + esc_(fb.strengths) + '</span></p>';
@@ -242,12 +246,13 @@ function updateRecord_(r) {
   try {
     const sh = sheet_();
     const row = findRow_(sh, r.id);
-    if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); return { ok: true, added: true }; }
+    if (row === -1) { sh.appendRow(row_(r, new Date())); format_(sh, sh.getLastRow()); syncItems_(r, new Date()); return { ok: true, added: true }; }
     const savedAt = sh.getRange(row, 1).getValue();
     const vals = row_(r, savedAt);
     vals[COLUMNS.length - 1] = sh.getRange(row, COLUMNS.length).getValue(); // keep the email note
     sh.getRange(row, 1, 1, COLUMNS.length).setValues([vals]);
     format_(sh, row);
+    syncItems_(r, savedAt);
   } finally {
     lock.releaseLock();
   }
@@ -272,10 +277,96 @@ function deleteRecord_(id, by) {
     const values = row === -1 ? [id] : sh.getRange(row, 1, 1, COLUMNS.length).getValues()[0];
     del.appendRow([new Date(), by || ''].concat(row === -1 ? ['', id] : values));
     if (row !== -1) sh.deleteRow(row);
+    removeItems_(id);
   } finally {
     lock.releaseLock();
   }
   return { ok: true };
+}
+
+// Item tabs: one tab per form ('Items - calls', 'Items - whatsapp'), one row per evaluation and one column per
+// scorecard item (Met / Not met / N/A for non-critical, Error / No error / N/A for critical), so every error
+// is listed under its own header. Kept in step with the Evaluations tab on save, edit and delete.
+// To fill them for evaluations saved before this existed, run rebuildItemTabs() once from the editor.
+const ITEM_FIXED = ['Saved at', 'ID', 'Agent', 'Evaluator', 'Interaction date', 'Purpose', 'Test', 'Final score', 'Result', 'Critical errors', 'Non-critical missed'];
+function itemTab_(form) {
+  const name = 'Items - ' + (form || 'calls');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, ITEM_FIXED.length).setValues([ITEM_FIXED]).setFontWeight('bold');
+    sh.setFrozenRows(1); sh.setFrozenColumns(4);
+    const rules = [['Error', '#f8d7da', '#842029'], ['Not met', '#fff3cd', '#7a5a00']].map(function (x) {
+      return SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith(x[0]).setBackground(x[1]).setFontColor(x[2])
+        .setRanges([sh.getRange('L2:ZZ')]).build();
+    });
+    sh.setConditionalFormatRules(rules);
+  }
+  return sh;
+}
+function itemHeader_(i) {
+  return (i.kind === 'NC' ? 'N' + i.id : i.id) + ' [' + (i.kind === 'NC' ? 'Non-critical' : 'Critical ' + i.kind) + '] ' + i.text;
+}
+function itemRowValues_(sh, r, savedAt) {
+  const lastCol = Math.max(sh.getLastColumn(), ITEM_FIXED.length);
+  const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  const keys = head.map(function (h) { return h.split(' [')[0]; });
+  const add = [];
+  (r.items || []).forEach(function (i) {
+    const k = i.kind === 'NC' ? 'N' + i.id : i.id;
+    if (keys.indexOf(k) === -1) { keys.push(k); head.push(itemHeader_(i)); add.push(itemHeader_(i)); }
+  });
+  if (add.length) sh.getRange(1, lastCol + 1, 1, add.length).setValues([add]).setFontWeight('bold').setWrap(true);
+  const row = new Array(head.length).fill('');
+  const ncMissed = (r.items || []).filter(function (i) { return i.kind === 'NC' && i.result === 'Not met'; }).length;
+  [savedAt, r.id, r.agent, r.evaluator, r.interactionDate, r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'),
+    r.test ? 'Yes' : 'No', r.final, r.result, r.critical || 0, ncMissed].forEach(function (v, n) { row[n] = v; });
+  (r.items || []).forEach(function (i) {
+    const at = keys.indexOf(i.kind === 'NC' ? 'N' + i.id : i.id);
+    row[at] = i.result + (i.result === 'Not met' || i.result === 'Error' ? (i.comment ? ': ' + i.comment : '') : '');
+  });
+  return row;
+}
+function syncItems_(r, savedAt) {
+  try {
+    const sh = itemTab_(r.form);
+    const vals = itemRowValues_(sh, r, savedAt);
+    const at = findRow_(sh, r.id);
+    if (at === -1) sh.appendRow(vals); else sh.getRange(at, 1, 1, vals.length).setValues([vals]);
+    const row = at === -1 ? sh.getLastRow() : at;
+    sh.getRange(row, 8).setNumberFormat('0%');
+  } catch (e) { /* the item tab is a copy for reading; never block a save */ }
+}
+function removeItems_(id) {
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function (sh) {
+      if (sh.getName().indexOf('Items - ') !== 0) return;
+      const at = findRow_(sh, id); if (at !== -1) sh.deleteRow(at);
+    });
+  } catch (e) {}
+}
+// Run once from the Apps Script editor (select it, press Run) to rebuild the item tabs from all saved evaluations.
+function rebuildItemTabs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheets().forEach(function (sh) { if (sh.getName().indexOf('Items - ') === 0) ss.deleteSheet(sh); });
+  const sh = sheet_();
+  if (sh.getLastRow() < 2) return;
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, JSON_COL).getValues();
+  const byForm = {};
+  data.forEach(function (d) {
+    let r; try { r = JSON.parse(d[JSON_COL - 1]); } catch (e) { return; }
+    if (!r || !r.id) return;
+    (byForm[r.form || 'calls'] = byForm[r.form || 'calls'] || []).push([r, d[0]]);
+  });
+  Object.keys(byForm).forEach(function (f) {
+    const tab = itemTab_(f);
+    const rows = byForm[f].map(function (x) { return itemRowValues_(tab, x[0], x[1]); });
+    const w = tab.getLastColumn();
+    const out = rows.map(function (r) { while (r.length < w) r.push(''); return r.slice(0, w); });
+    tab.getRange(2, 1, out.length, w).setValues(out);
+    tab.getRange(2, 8, out.length, 1).setNumberFormat('0%');
+  });
 }
 
 function deletedIds_() {
@@ -322,6 +413,111 @@ function readKb_() {
   }).filter(function (u) { return u.effective && u.text; });
 }
 
+// ---------- sign-in with a code sent by email ----------
+// Evaluators sign in with the email saved next to their name in the Roster tab (Role = Evaluator, Active = Yes).
+// The code is valid for 10 minutes; a sign-in lasts 30 days on that device. Removing someone from the Roster,
+// marking them Active = No or clearing their email signs them out on their next request.
+const OTP_MINUTES = 10;
+const SESSION_DAYS = 30;
+
+function hash_(s) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s)));
+}
+
+function evaluatorByEmail_(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em) return null;
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Roster');
+  if (!sh || sh.getLastRow() < 2) return null;
+  const row = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().find(function (r) {
+    return String(r[0] || '').trim() && isEvalRole_(r[1]) &&
+      String(r[2]).toLowerCase() !== 'no' && String(r[3] || '').trim().toLowerCase() === em;
+  });
+  return row ? { name: String(row[0]).trim(), email: em, owner: /owner/i.test(String(row[1]).trim()) } : null;
+}
+
+function otpRequest_(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return { ok: false, error: 'bad_email' };
+  const who = evaluatorByEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const cache = CacheService.getScriptCache();
+  const old = JSON.parse(cache.get('otp_' + em) || 'null');
+  if (old && Date.now() - old.at < 45 * 1000) return { ok: true, wait: true };
+  // Asking again sends the SAME code while it is still valid, so whichever email arrives first works.
+  const props = PropertiesService.getScriptProperties();
+  const live = JSON.parse(props.getProperty('otpc_' + hash_(em)) || 'null');
+  const code = live && live.exp > Date.now() + 60 * 1000 ? live.c : String(Math.floor(100000 + Math.random() * 900000));
+  if (!live || live.c !== code) props.setProperty('otpc_' + hash_(em), JSON.stringify({ c: code, exp: Date.now() + OTP_MINUTES * 60 * 1000 }));
+  cache.put('otp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: old && old.h === hash_(em + ':' + code) ? old.tries : 0 }), OTP_MINUTES * 60);
+  MailApp.sendEmail({
+    to: em, name: 'QA Scorecard', subject: 'QA Scorecard sign-in code: ' + code,
+    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
+      'كود الدخول على السكور كارد: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+      'الكود شغال ' + OTP_MINUTES + ' دقايق. لو مش إنت اللي طلبته تجاهل الإيميل ده.</div>' +
+      '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin-top:12px">Your QA Scorecard sign-in code is ' + code + '. It works for ' + OTP_MINUTES + ' minutes.</div>'
+  });
+  return { ok: true };
+}
+
+function otpVerify_(email, code) {
+  const em = String(email || '').trim().toLowerCase();
+  const cache = CacheService.getScriptCache();
+  const o = JSON.parse(cache.get('otp_' + em) || 'null');
+  if (!o) return { ok: false, error: 'code_expired' };
+  if (o.tries >= 5) { cache.remove('otp_' + em); return { ok: false, error: 'too_many_tries' }; }
+  if (hash_(em + ':' + String(code || '').replace(/\D/g, '')) !== o.h) {
+    o.tries++; cache.put('otp_' + em, JSON.stringify(o), OTP_MINUTES * 60);
+    return { ok: false, error: 'wrong_code' };
+  }
+  cache.remove('otp_' + em);
+  PropertiesService.getScriptProperties().deleteProperty('otpc_' + hash_(em));
+  const who = evaluatorByEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const session = Utilities.getUuid() + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty('ses_' + hash_(session),
+    JSON.stringify({ email: em, exp: Date.now() + SESSION_DAYS * 864e5 }));
+  return { ok: true, session: session, email: em, name: who.name, owner: who.owner };
+}
+
+// Who is asking: the access key counts as the owner; a sign-in counts while the person is still an active evaluator or owner.
+function who_(o) {
+  if (o.key && o.key === ACCESS_KEY) return { owner: true, name: '', email: '', key: true };
+  if (!o.session) return null;
+  const props = PropertiesService.getScriptProperties();
+  const k = 'ses_' + hash_(o.session);
+  const s = JSON.parse(props.getProperty(k) || 'null');
+  const who = s && s.exp >= Date.now() ? evaluatorByEmail_(s.email) : null;
+  if (!who) { if (s) props.deleteProperty(k); return null; }
+  return who;
+}
+
+// Team settings shared by everyone (only the owner can change them).
+function config_() {
+  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+}
+function setConfig_(c) {
+  const cur = config_();
+  const n = Number(c && c.monthlyTarget);
+  if (!(n >= 0 && n <= 100)) return { ok: false, error: 'Bad target' };
+  cur.monthlyTarget = Math.round(n);
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
+  if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
+  const d = Number(c.pickDays); if (d >= 1 && d <= 31) cur.pickDays = Math.round(d);
+  PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
+  return { ok: true, config: cur };
+}
+
+// Evaluators may correct or delete only their own evaluations; the owner may change any.
+function recordOwnerOk_(me, id) {
+  if (me.owner) return true;
+  const sh = sheet_();
+  const row = findRow_(sh, id);
+  if (row === -1) return true;
+  try { return nameKey_(JSON.parse(sh.getRange(row, JSON_COL).getValue()).evaluator) === nameKey_(me.name); } catch (err) { return false; }
+}
+
 function reply_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -329,16 +525,30 @@ function reply_(obj) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+    if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
+    if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
+    const me = who_(body);
+    if (!me) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
+    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setConfig: 1 };
+    if ((ownerOnly[body.action] || (body.action === 'addPerson' && body.role === 'evaluators')) && !me.owner) return reply_({ ok: false, error: 'not_owner' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
-    if (body.action === 'updateRecord') return reply_(updateRecord_(body.record));
     if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
+    if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
-    if (body.action === 'deleteRecord') return reply_(deleteRecord_(body.id, body.by));
+    if (body.action === 'updateRecord') {
+      if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
+      if (!me.owner) body.record.editedBy = me.name;
+      return reply_(updateRecord_(body.record));
+    }
+    if (body.action === 'deleteRecord') {
+      if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });
+      return reply_(deleteRecord_(body.id, me.name || body.by));
+    }
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
+    if (!me.owner) r.evaluator = me.name; // a signed-in evaluator always saves under their own name
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     const sh = sheet_();
@@ -349,6 +559,7 @@ function doPost(e) {
       if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
       sh.appendRow(row_(r, new Date()));
       format_(sh, sh.getLastRow());
+      syncItems_(r, new Date());
     } finally {
       lock.releaseLock();
     }
@@ -362,17 +573,36 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
-  if (p.key !== ACCESS_KEY) return reply_({ ok: false, error: 'Wrong access key' });
+  const me = who_(p);
+  if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
+  if (p.action === 'config') return reply_({ ok: true, config: config_() });
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, emails: ro.emails, evalEmails: ro.evalEmails });
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails,
+      config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
-  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_() });
+  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_(), now: Date.now() });
   const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
+  // With ?since=<ms>, send only evaluations saved or corrected since then (the page asks for this every minute).
+  const since = Number(p.since) || 0;
+  const savedAt = since ? sh.getRange(2, 1, n, 1).getValues().flat() : [];
+  const editCol = COLUMNS.indexOf('Edited at') + 1;
+  const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
   const records = [];
-  json.forEach(function (s) { try { records.push(JSON.parse(s)); } catch (err) {} });
-  return reply_({ ok: true, records: records, deleted: deletedIds_() });
+  json.forEach(function (s, i) {
+    if (since) {
+      const t1 = new Date(savedAt[i]).getTime() || 0, t2 = new Date(editedAt[i] || 0).getTime() || 0;
+      if (Math.max(t1, t2) < since) return;
+    }
+    try { records.push(JSON.parse(s)); } catch (err) {}
+  });
+  return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
+}
+
+// Run once from the editor (select it, then Run) if Google asks again for permission to send email.
+function authorizeMail() {
+  MailApp.getRemainingDailyQuota();
 }
