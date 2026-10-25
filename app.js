@@ -1726,6 +1726,28 @@
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
       (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
   }
+  // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
+  const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;
+  const itemCat = (i) => (i.kind === "NC" ? "Non-critical" : "Critical " + i.kind);
+  function itemSheets(list) {
+    const out = [];
+    [...new Set(list.map((r) => r.form))].forEach((form) => {
+      const recs = list.filter((r) => r.form === form), cols = [];
+      [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
+      const head = ["Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
+      const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
+        return [whenText(r), r.agent || "", r.evaluator || "", purposeOf(r) + (r.test ? " (test)" : ""), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+          r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
+          ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
+      const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {
+        const vals = recs.map((r) => (r.items || []).find((i) => itemKey(i) === c.k)).filter((i) => i && i.result && i.result !== "N/A");
+        const bad = vals.filter((i) => i.result === "Not met" || i.result === "Error").length;
+        return [c.k, itemCat(c.i), c.i.text, vals.length, bad, vals.length ? { v: bad / vals.length, t: "n", z: "0.0%" } : ""]; })];
+      const fname = F.forms[form] ? F.forms[form].name : form;
+      out.push({ name: "Items " + fname, rows: [head, ...rows] }, { name: "Item errors " + fname, rows: sum });
+    });
+    return out;
+  }
   async function exportExcel(name) {
     const view = $(".view.active"); if (!view) return;
     let X;
@@ -1744,6 +1766,7 @@
     const raw = lastLists[name];
     if (raw && raw.length && name !== "records") add(t("xlsx_evals"), recordRows(raw));
     if (name === "records" && raw) add(t("rec_title"), recordRows(raw));
+    if (raw && raw.length) itemSheets(raw).forEach((sh) => add(sh.name, sh.rows));
     if (lang === "ar") wb.Workbook = { Views: [{ RTL: true }] };
     X.writeFile(wb, "QA_" + name + "_" + fileStamp() + ".xlsx");
   }
