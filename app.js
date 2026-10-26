@@ -91,7 +91,9 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
+  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "outlookweb" }, store(LS_SETTINGS) || {});
+  // Result emails go out from each evaluator's own mailbox; the automatic Gmail send is kept for the owner only (moved over once).
+  if (!settings.mailV2) { if (settings.mail === "auto") settings.mail = "outlookweb"; settings.mailV2 = true; store(LS_SETTINGS, settings); }
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
     if (settings.key || settings.session) store(LS_SETTINGS, settings);
@@ -102,6 +104,7 @@
   // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
   // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
   const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
+  const mailMode = () => (settings.mail === "auto" && !isOwner() ? "outlookweb" : settings.mail || "outlookweb");
   const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
   let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
@@ -671,7 +674,7 @@
       evalDate: current.edit ? a.header.evalDate || today() : today(),
       kbVersion: kbFor(a.header.interactionDate) || a.header.kbVersion || "",
       kbUpdate: (kbInForce(a.header.interactionDate) || {}).no || "",
-      mailMode: settings.mail || "auto",
+      mailMode: mailMode(),
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
       sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),
@@ -786,7 +789,7 @@
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
-        else if (!edit && how === "saved" && settings.mail === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
+        else if (!edit && how === "saved" && mailMode() === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
         msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message });
         toast("err", msg.textContent);
@@ -801,7 +804,7 @@
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
     if (cls.includes("ok")) toast("ok", "✓ " + keep);
-    if (!edit && settings.mail !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
+    if (!edit && mailMode() !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
   }
 
   // Same interaction already evaluated (any evaluator, not a calibration sample or test):
@@ -937,7 +940,7 @@
   }
   function composeMail(to, subject, body) {
     const q = (o) => Object.entries(o).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
-    if (settings.mail === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, subject, body }), "_blank");
+    if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, subject, body }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ subject, body });
   }
   // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
@@ -2146,7 +2149,10 @@
 
   function renderSettings() {
     $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
-    const mm = $("#setMail"); mm.value = settings.mail || "auto";
+    const mm = $("#setMail");
+    mm.querySelector('option[value="auto"]').hidden = !isOwner();
+    if (!isOwner() && settings.mail === "auto") { settings.mail = "outlookweb"; store(LS_SETTINGS, settings); }
+    mm.value = settings.mail || "outlookweb";
     mm.onchange = () => { settings.mail = mm.value; store(LS_SETTINGS, settings); };
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
