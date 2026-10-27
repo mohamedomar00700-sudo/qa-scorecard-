@@ -338,20 +338,29 @@
   }
 
   // Random call picker: a random working day in the last week and a random time in working hours; the evaluator takes
-  // the agent's first answered call after that time. Days the center is closed (team setting, Friday by default) and the
-  // agent's weekly days off (Roster column E) are never picked; "the agent was off" skips a day for a one-off leave.
+  // the agent's first answered call after that time. Days the center is closed (team setting, Friday by default) are never
+  // picked. Once a call is picked, the evaluator can only pick again by giving a reason (the agent was off, or no answered
+  // calls that day); every pick and its reason is saved with the evaluation (pickLog) so re-picks can be checked later.
   const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const dayIdx = (v) => String(v || "").split(/[,\s]+/).map((d) => WEEK.indexOf(d)).filter((i) => i >= 0);
   const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const wdOf = (day) => t("wd_" + WEEK[new Date(day + "T12:00:00").getDay()]);
+  // "Picked 3 times: Mon 2026-10-20 14:10 (agent was off) → …" for records, Excel and the agent check.
+  function pickTrail(r) {
+    const log = r.pickLog || [];
+    if (log.length < 2) return "";
+    return t("pick_trail", { n: log.length }) + " " + log.map((e) => wdOf(e.p.slice(0, 10)) + " " + e.p + (e.why ? " (" + t("pick_why_" + e.why) + ")" : "")).join(" → ");
+  }
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
-    const pick = () => {
+    const pick = (why) => {
       const agent = a.header.agent;
-      if (a.header.pickAgent !== agent) delete a.header.pickSkip;
+      const log = (a.header.pickLog || []).slice();
+      if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
       const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
       const days = Math.max(1, Number(teamCfg.pickDays) || 7);
-      const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
-      const skip = a.header.pickSkip || [], ok = [];
+      const off = new Set(dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays));
+      const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
       for (let i = 1; i <= days; i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
         if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) ok.push(ymdOf(d));
@@ -359,23 +368,26 @@
       if (!ok.length) { alert(t("pick_none", { n: days })); return; }
       const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
       a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-      a.header.pickAgent = agent; saveDraft(); show();
+      a.header.pickAgent = agent;
+      log.push({ p: a.header.pick, ag: agent, at: new Date().toISOString() });
+      a.header.pickLog = log; saveDraft(); show();
     };
     const show = () => {
       box.innerHTML = "";
-      box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
+      const picked = a.header.pick && a.header.pickAgent === a.header.agent;
+      if (!picked) box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
         if (!a.header.agent) { alert(t("pick_need_agent")); return; }
-        pick();
+        pick("");
       } }));
-      if (a.header.pick) {
-        const day = a.header.pick.slice(0, 10), wd = WEEK[new Date(day + "T12:00:00").getDay()];
-        box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: t("wd_" + wd) + " " + day, t: a.header.pick.slice(11) })),
-          h("button", { type: "button", class: "ghost", text: t("pick_off_btn"), onclick: () => {
-            a.header.pickSkip = [...new Set([...(a.header.pickSkip || []), day])]; pick();
-          } }));
+      if (picked) {
+        const day = a.header.pick.slice(0, 10);
+        box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent, d: wdOf(day) + " " + day, t: a.header.pick.slice(11) })),
+          h("div", { class: "hint", text: t("pick_again_hint") }),
+          h("button", { type: "button", class: "ghost", text: t("pick_off_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("off"); } }),
+          h("button", { type: "button", class: "ghost", text: t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }));
+        const tr = pickTrail(a.header);
+        if (tr) box.append(h("div", { class: "hint", text: tr }));
       }
-      const offTxt = (roster.daysOff || {})[a.header.agent];
-      if (a.header.agent) box.append(h("div", { class: "hint", text: offTxt ? t("pick_off_known", { d: dayIdx(offTxt).map((i) => t("wd_" + WEEK[i])).join("، ") }) : t("pick_off_unknown") }));
     };
     show();
     return box;
@@ -1042,7 +1054,7 @@
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -1952,13 +1964,13 @@
   }
   function recordRows(list) {
     const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
-      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by"];
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
       r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
-      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
   }
   // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
   const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;
@@ -2256,9 +2268,8 @@
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
         h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
           own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null,
-          own && role === "agents" ? h("small", { class: "meta", text: t("off_tag") + ": " + (dayIdx((roster.daysOff || {})[name]).map((i) => t("wd_" + WEEK[i])).join("، ") || t("off_none")) }) : null),
+          null),
         own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
-        own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("off_btn"), onclick: () => setDaysOff(name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
     }
@@ -2299,19 +2310,6 @@
     const k = role === "agents" ? "emails" : "evalEmails";
     roster[k] = Object.assign({}, roster[k]);
     if (email) roster[k][name] = email; else delete roster[k][name];
-    store(LS_ROSTER, roster); renderSettings();
-  }
-
-  // Agent's weekly days off (Roster column E), so the random picker never lands on them.
-  async function setDaysOff(name) {
-    const v = prompt(t("off_prompt", { n: name }), (roster.daysOff || {})[name] || "");
-    if (v === null) return;
-    if (!connected()) { alert(t("email_needs_sheet")); return; }
-    let j;
-    try { j = await apiPostJson({ action: "setDaysOff", name, days: v }); }
-    catch (e) { alert(t("name_failed", { e: e.message })); return; }
-    roster.daysOff = Object.assign({}, roster.daysOff);
-    if (j.days) roster.daysOff[name] = j.days; else delete roster.daysOff[name];
     store(LS_ROSTER, roster); renderSettings();
   }
 
