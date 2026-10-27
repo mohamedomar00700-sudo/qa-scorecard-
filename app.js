@@ -771,6 +771,8 @@
       return;
     }
     const rec = buildRecord();
+    // "Test" hides an evaluation everywhere; people have ticked it on real certifications, so ask once more.
+    if (rec.test && !confirm(t("test_confirm"))) return;
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
     else {
@@ -969,6 +971,19 @@
   // The day of the call (falls back to the evaluation day for role-plays and old records).
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
+  // Turn "test" evaluations back into real ones (saved through the normal update, so the sheet and item tabs follow).
+  async function unmarkTest(list, btn) {
+    btn.disabled = true; let ok = 0;
+    for (const r of list) {
+      const rec = Object.assign({}, r, { test: false, editedAt: new Date().toISOString(), editedBy: settings.evaluator || r.evaluator });
+      try { await apiPost({ action: "updateRecord", record: rec }); } catch (e) { toast("err", t("save_failed", { e: e.message })); break; }
+      loaded.set(rec.id, rec);
+      const local = (store(LS_EVALS) || []).filter((x) => x.id !== rec.id); local.push(rec); store(LS_EVALS, local);
+      ok++; btn.textContent = ok + " / " + list.length;
+    }
+    if (ok) toast("ok", "✓ " + t("test_fix_done", { n: ok }));
+    refreshViews();
+  }
   function renderRecords() {
     const out = $("#recOut"); if (!out) return;
     const all = allRecords();
@@ -982,10 +997,14 @@
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
+    const fixable = f.p === "test" && connected() ? recs.filter((r) => r.test && canChange(r)) : [];
+    if (fixable.length) out.append(h("div", { class: "msg" }, t("test_fix_hint", { n: fixable.length }), " ",
+      h("button", { type: "button", text: t("test_fix_btn", { n: fixable.length }), onclick: (e) => { if (confirm(t("test_fix_confirm", { n: fixable.length }))) unmarkTest(fixable, e.currentTarget); } })));
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
+        r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
