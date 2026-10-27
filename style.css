@@ -246,3 +246,4 @@ tr.muted td { color: var(--muted); }
 .picker { display: flex; flex-direction: column; gap: 6px; align-self: end; }
 .pick-out { background: var(--brand-soft); border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }
 .meta.warn { color: #b45309; cursor: help; }
+.mail-cta { margin-top: 10px; padding: 12px 14px; border: 2px solid #f59e0b; border-radius: 12px; background: rgba(245, 158, 11, 0.08); display: flex; flex-direction: column; gap: 6px; }

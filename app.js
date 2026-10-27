@@ -840,7 +840,11 @@
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
     if (cls.includes("ok")) toast("ok", "✓ " + keep);
-    if (!edit && mailMode() !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
+    if (!edit && mailMode() !== "auto" && mailable(rec)) {
+      const cta = h("div", { class: "mail-cta" }, h("b", { text: "📧 " + t("mail_cta", { n: rec.agent || "" }) }), h("div", { class: "hint", text: t("mail_cta_hint") }), outlookButton(rec));
+      msg.after(cta);
+      cta.querySelector("button").addEventListener("click", () => setTimeout(() => cta.remove(), 400));
+    }
   }
 
   // Same interaction already evaluated (any evaluator, not a calibration sample or test):
@@ -1009,6 +1013,19 @@
   function openOutlook(r) {
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
+    markMailed(r);
+  }
+  // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
+  // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
+  const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
+  async function markMailed(r) {
+    if (r.mailedAt) return;
+    const rec = Object.assign({}, r, { mailedAt: new Date().toISOString() });
+    loaded.set(rec.id, rec);
+    const local = store(LS_EVALS) || [];
+    if (local.some((x) => x.id === rec.id)) store(LS_EVALS, local.map((x) => (x.id === rec.id ? rec : x)));
+    if (connected() && canChange(rec)) { try { await apiPost({ action: "updateRecord", record: rec }); } catch (e) { /* stays flagged on other devices */ } }
+    refreshViews();
   }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
@@ -1038,10 +1055,13 @@
     const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || selectionOf(r) === f.sel) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : selectionOf(r) === f.sel)) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
+    const unsent = all.filter((r) => mailPending(r) && (isOwner() || r.evaluator === settings.evaluator));
+    if (unsent.length && f.sel !== "unsent") out.append(h("div", { class: "msg err" }, t("mail_unsent_banner", { n: unsent.length }), " ",
+      h("button", { type: "button", text: t("mail_unsent_show"), onclick: () => { $("#recSel").value = "unsent"; renderRecords(); } })));
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
     const fixable = f.p === "test" && connected() ? recs.filter((r) => r.test && canChange(r)) : [];
     if (fixable.length) out.append(h("div", { class: "msg" }, t("test_fix_hint", { n: fixable.length }), " ",
@@ -1050,11 +1070,12 @@
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
+        mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
