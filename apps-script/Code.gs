@@ -265,6 +265,21 @@ function emailAgent_(r) {
   }
 }
 
+// Send (or send again) an evaluation's result email automatically, e.g. one saved while results went out by hand.
+function sendResult_(id) {
+  const sh = sheet_();
+  const at = findRow_(sh, id);
+  if (at === -1) return { ok: false, error: 'Not found' };
+  let r;
+  try { r = JSON.parse(sh.getRange(at, JSON_COL).getValue()); } catch (err) { return { ok: false, error: 'Bad record' }; }
+  r.mailMode = 'auto';
+  const note = emailAgent_(r);
+  if (!note) return { ok: false, error: readRoster_().emails[r.agent] ? 'This evaluation type gets no result email' : 'No email for ' + r.agent + ' in the Names list' };
+  sh.getRange(at, COLUMNS.length).setValue(note);
+  if (note.indexOf('Not sent') === 0) return { ok: false, error: note };
+  return { ok: true, emailed: true, emailNote: note };
+}
+
 function row_(r, savedAt) {
   const missed = r.items.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
     .map(function (i) { return i.id + ' ' + i.text; }).join(' | ');
@@ -601,6 +616,10 @@ function doPost(e) {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
       if (!me.owner) body.record.editedBy = me.name;
       return reply_(updateRecord_(body.record));
+    }
+    if (body.action === 'sendResult') {
+      if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });
+      return reply_(sendResult_(body.id));
     }
     if (body.action === 'deleteRecord') {
       if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });

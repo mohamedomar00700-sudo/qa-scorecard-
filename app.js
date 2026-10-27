@@ -92,8 +92,10 @@
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
   const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "outlookweb" }, store(LS_SETTINGS) || {});
-  // Result emails go out from each evaluator's own mailbox; the automatic Gmail send is kept for the owner only (moved over once).
-  if (!settings.mailV2) { if (settings.mail === "auto") settings.mail = "outlookweb"; settings.mailV2 = true; store(LS_SETTINGS, settings); }
+  // Result emails go out automatically from the tool for everyone (under the evaluator's name, replies to them).
+  // settings.mail only picks where emails opened by hand go (resend, calibration): the Outlook app by default,
+  // Outlook on the web for whoever chooses it (the owner keeps web, moved over once).
+  if (!settings.mailV3) { settings.mail = settings.owner && settings.mail !== "outlook" ? "outlookweb" : "outlook"; settings.mailV2 = settings.mailV3 = true; store(LS_SETTINGS, settings); }
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
     if (settings.key || settings.session) store(LS_SETTINGS, settings);
@@ -104,7 +106,8 @@
   // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
   // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
   const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
-  const mailMode = () => (settings.mail === "auto" && !isOwner() ? "outlookweb" : settings.mail || "outlookweb");
+  const mailMode = () => (connected() ? "auto" : mailApp());
+  const mailApp = () => (settings.mail === "outlookweb" ? "outlookweb" : "outlook");
   const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
   let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
@@ -992,7 +995,7 @@
   }
   function composeMail(to, subject, body, cc) {
     const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
-    if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, cc, subject, body }), "_blank");
+    if (mailApp() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, cc, subject, body }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc, subject, body });
   }
   // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
@@ -1018,6 +1021,12 @@
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
   const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
+  // Email a result that was never sent, automatically from the tool (same email as on save).
+  async function sendNow(r, btn) {
+    btn.disabled = true;
+    try { await apiPostJson({ action: "sendResult", id: r.id }); toast("ok", "✓ " + t("emailed_agent", { n: r.agent })); markMailed(r); }
+    catch (e) { btn.disabled = false; toast("err", t("email_failed", { e: e.message })); }
+  }
   async function markMailed(r) {
     if (r.mailedAt) return;
     const rec = Object.assign({}, r, { mailedAt: new Date().toISOString() });
@@ -1070,6 +1079,7 @@
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
+        mailPending(r) && canChange(r) && connected() ? h("button", { type: "button", text: t("mail_send_now"), onclick: (e) => sendNow(r, e.currentTarget) }) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
@@ -2235,9 +2245,7 @@
   function renderSettings() {
     $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
     const mm = $("#setMail");
-    mm.querySelector('option[value="auto"]').hidden = !isOwner();
-    if (!isOwner() && settings.mail === "auto") { settings.mail = "outlookweb"; store(LS_SETTINGS, settings); }
-    mm.value = settings.mail || "outlookweb";
+    mm.value = mailApp();
     mm.onchange = () => { settings.mail = mm.value; store(LS_SETTINGS, settings); };
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
