@@ -170,6 +170,19 @@ function pct_(x) {
   return x === null || x === undefined || x === '' ? '–' : Math.round(Number(x) * 1000) / 10 + '%';
 }
 
+// Score split by category for the result email: Part A met/applicable, then each critical bucket.
+function catRows_(r, row) {
+  const its = r.items || [];
+  const nc = its.filter(function (i) { return i.kind === 'NC' && i.result && i.result !== 'N/A'; });
+  let out = row('البنود العادية (NC)', pct_(r.ncScore) + ' (' + nc.filter(function (i) { return i.result === 'Met'; }).length + ' من ' + nc.length + ')');
+  [['CC', 'الكومبلاينس الحرجة (CC)'], ['EU', 'الحرجة للعميل (EU)'], ['BC', 'الحرجة للبيزنس (BC)']].forEach(function (b) {
+    const list = its.filter(function (i) { return i.kind === b[0] && i.result && i.result !== 'N/A'; });
+    const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
+    out += row(b[1], !list.length ? 'مش منطبق' : errs ? '<span style="color:#c62828">✗ ' + errs + ' غلطة</span>' : '<span style="color:#1a7f37">✓ مفيش أخطاء</span>');
+  });
+  return out;
+}
+
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
@@ -193,8 +206,8 @@ function emailAgent_(r) {
       '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
-      row('درجة البنود العادية', pct_(r.ncScore)) +
       row('أخطاء حرجة', esc_(r.critical || 0)) +
+      catRows_(r, row) +
       row('المقيّم', esc_(r.evaluator)) + '</table>';
     if (r.callTag === 'wow') html += '<p style="background:#fff4d6;padding:8px 12px;border-radius:6px">🌟 <b>مكالمة Wow!</b> المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.</p>';
     if (r.callTag === 'good') html += '<p style="background:#e3f4e8;padding:8px 12px;border-radius:6px">👍 <b>مكالمة كويسة جداً</b> واتحطت كمثال في مكتبة التدريب. استمر.</p>';
@@ -206,7 +219,9 @@ function emailAgent_(r) {
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const mail = { to: to, subject: (coaching ? 'فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + (coaching ? '' : ' – ' + pct_(r.final)),
       htmlBody: html, name: (r.evaluator ? r.evaluator + ' – ' : '') + 'Quality' };
-    if (evEmail) { mail.replyTo = evEmail; mail.cc = evEmail; }
+    const cc = [evEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
+    if (evEmail) mail.replyTo = evEmail;
+    if (cc.length) mail.cc = cc.join(',');
     MailApp.sendEmail(mail);
     return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + to;
   } catch (err) {
@@ -494,7 +509,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, ccResults: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -505,6 +520,11 @@ function setConfig_(c) {
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
   if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
   const d = Number(c.pickDays); if (d >= 1 && d <= 31) cur.pickDays = Math.round(d);
+  if (c.ccResults !== undefined) {
+    const cc = String(c.ccResults).split(/[,;\s]+/).filter(String);
+    if (cc.length > 10 || cc.some(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); })) return { ok: false, error: 'Bad CC' };
+    cur.ccResults = cc.join(', ');
+  }
   PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
   return { ok: true, config: cur };
 }

@@ -914,6 +914,18 @@
   const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
+  // Score split by category for result emails: Part A (non-critical) met/applicable, then each critical bucket.
+  function catBreakdown(r) {
+    const its = r.items || [];
+    const nc = its.filter((i) => i.kind === "NC" && i.result && i.result !== "N/A");
+    const lines = [tx("- البنود العادية (NC): ", "- Non-critical (NC): ") + pct(r.ncScore) + " (" + nc.filter((i) => i.result === "Met").length + tx(" من ", " of ") + nc.length + ")"];
+    [["CC", "الكومبلاينس الحرجة (CC)", "Compliance critical (CC)"], ["EU", "الحرجة للعميل (EU)", "End-user critical (EU)"], ["BC", "الحرجة للبيزنس (BC)", "Business critical (BC)"]].forEach(([k, ar, en]) => {
+      const list = its.filter((i) => i.kind === k && i.result && i.result !== "N/A"), errs = list.filter((i) => i.result === "Error").length;
+      lines.push("- " + tx(ar, en) + ": " + (list.length ? (errs ? "✗ " + errs + tx(" غلطة", errs > 1 ? " errors" : " error") : "✓ " + tx("مفيش أخطاء", "no errors")) + " (" + list.length + tx(" بند", " items") + ")" : tx("مش منطبق", "not applicable")));
+    });
+    return lines;
+  }
+  const resultCc = () => String(teamCfg.ccResults || "").split(/[,;\s]+/).filter((x) => /@/.test(x));
   function mailText(r) {
     const coaching = purposeOf(r) === "coaching";
     const form = r.form === "whatsapp" ? tx("واتساب", "WhatsApp chat") : tx("مكالمة", "call");
@@ -930,7 +942,7 @@
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
-      tx("درجة البنود العادية: ", "Non-critical score: ") + pct(r.ncScore), tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0)];
+      tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0), "", tx("تقسيم التقييم:", "Score by category:"), ...catBreakdown(r)];
     if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
     if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
     if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
@@ -940,14 +952,14 @@
     lines.push("", tx("لو عندك أي سؤال على التقييم كلّمني.", "If you have any question about this evaluation, let me know."), "", r.evaluator || "");
     return { subject, body: lines.join("\n") };
   }
-  function composeMail(to, subject, body) {
-    const q = (o) => Object.entries(o).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
-    if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, subject, body }), "_blank");
-    else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ subject, body });
+  function composeMail(to, subject, body, cc) {
+    const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+    if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, cc, subject, body }), "_blank");
+    else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc, subject, body });
   }
   // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
   async function copyMail(m, btn) {
-    const text = tx("الموضوع: ", "Subject: ") + m.subject + "\n\n" + m.body;
+    const text = (m.cc ? "CC: " + m.cc + "\n" : "") + tx("الموضوع: ", "Subject: ") + m.subject + "\n\n" + m.body;
     let ok = false;
     try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
       const ta = h("textarea", { style: "position:fixed;opacity:0" }); ta.value = text; document.body.append(ta); ta.select();
@@ -962,11 +974,11 @@
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(make(), e.currentTarget) })];
   function openOutlook(r) {
     const { subject, body } = mailText(r);
-    composeMail((roster.emails || {})[r.agent] || "", subject, body);
+    composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
   }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
-    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(mailText(r), e.currentTarget) }));
+    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(Object.assign(mailText(r), { cc: resultCc().join(", ") }), e.currentTarget) }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   // The day of the call (falls back to the evaluation day for role-plays and old records).
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
@@ -2203,12 +2215,15 @@
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
+    $("#setCcResults").value = teamCfg.ccResults || "";
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const pf = $("#setPickFrom").value || "10:00", pt = $("#setPickTo").value || "21:30", pd = Math.round(Number($("#setPickDays").value) || 7);
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
+      if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
