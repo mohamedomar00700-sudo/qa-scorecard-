@@ -156,7 +156,7 @@
 
   // ---------- names (one shared list so reports group correctly) ----------
   const LS_ROSTER = "qa_roster";
-  let roster = Object.assign({ agents: [], evaluators: [], emails: {} }, store(LS_ROSTER) || {});
+  let roster = Object.assign({ agents: [], evaluators: [], emails: {}, daysOff: {} }, store(LS_ROSTER) || {});
   const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)([a-z])/g, (m, a, b) => a + b.toUpperCase());
   const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
   function lev(a, b) {
@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -337,23 +337,57 @@
     }
   }
 
-  // Random call picker: a random day in the last week and a random time in working hours; the evaluator takes
-  // the agent's first answered call after that time. The pick is saved with the evaluation so it can be checked.
+  // Random call picker: a random working day in the last week and a random time in working hours; the evaluator takes
+  // the agent's first answered call after that time. Days the center is closed (team setting, Friday by default) are never
+  // picked. Once a call is picked, the evaluator can only pick again by giving a reason (the agent was off, or no answered
+  // calls that day); every pick and its reason is saved with the evaluation (pickLog) so re-picks can be checked later.
+  const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayIdx = (v) => String(v || "").split(/[,\s]+/).map((d) => WEEK.indexOf(d)).filter((i) => i >= 0);
+  const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const wdOf = (day) => t("wd_" + WEEK[new Date(day + "T12:00:00").getDay()]);
+  // "Picked 3 times: Mon 2026-10-20 14:10 (agent was off) → …" for records, Excel and the agent check.
+  function pickTrail(r) {
+    const log = r.pickLog || [];
+    if (log.length < 2) return "";
+    return t("pick_trail", { n: log.length }) + " " + log.map((e) => wdOf(e.p.slice(0, 10)) + " " + e.p + (e.why ? " (" + t("pick_why_" + e.why) + ")" : "")).join(" → ");
+  }
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
+    const pick = (why) => {
+      const agent = a.header.agent;
+      const log = (a.header.pickLog || []).slice();
+      if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
+      const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
+      const days = Math.max(1, Number(teamCfg.pickDays) || 7);
+      const off = new Set(dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays));
+      const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
+      for (let i = 1; i <= days; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) ok.push(ymdOf(d));
+      }
+      if (!ok.length) { alert(t("pick_none", { n: days })); return; }
+      const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
+      a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+      a.header.pickAgent = agent;
+      log.push({ p: a.header.pick, ag: agent, at: new Date().toISOString() });
+      a.header.pickLog = log; saveDraft(); show();
+    };
     const show = () => {
       box.innerHTML = "";
-      box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
+      const picked = a.header.pick && a.header.pickAgent === a.header.agent;
+      if (!picked) box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
         if (!a.header.agent) { alert(t("pick_need_agent")); return; }
-        const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
-        const days = Math.max(1, Number(teamCfg.pickDays) || 7);
-        const d = new Date(); d.setDate(d.getDate() - 1 - Math.floor(Math.random() * days));
-        const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
-        const day = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-        a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-        a.header.pickAgent = a.header.agent; saveDraft(); show();
+        pick("");
       } }));
-      if (a.header.pick) box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: a.header.pick.slice(0, 10), t: a.header.pick.slice(11) })));
+      if (picked) {
+        const day = a.header.pick.slice(0, 10);
+        box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent, d: wdOf(day) + " " + day, t: a.header.pick.slice(11) })),
+          h("div", { class: "hint", text: t("pick_again_hint") }),
+          h("button", { type: "button", class: "ghost", text: t("pick_off_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("off"); } }),
+          h("button", { type: "button", class: "ghost", text: t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }));
+        const tr = pickTrail(a.header);
+        if (tr) box.append(h("div", { class: "hint", text: tr }));
+      }
     };
     show();
     return box;
@@ -806,7 +840,11 @@
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
     if (cls.includes("ok")) toast("ok", "✓ " + keep);
-    if (!edit && mailMode() !== "auto" && mailable(rec)) msg.append(" ", outlookButton(rec));
+    if (!edit && mailMode() !== "auto" && mailable(rec)) {
+      const cta = h("div", { class: "mail-cta" }, h("b", { text: "📧 " + t("mail_cta", { n: rec.agent || "" }) }), h("div", { class: "hint", text: t("mail_cta_hint") }), outlookButton(rec));
+      msg.after(cta);
+      cta.querySelector("button").addEventListener("click", () => setTimeout(() => cta.remove(), 400));
+    }
   }
 
   // Same interaction already evaluated (any evaluator, not a calibration sample or test):
@@ -975,6 +1013,19 @@
   function openOutlook(r) {
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
+    markMailed(r);
+  }
+  // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
+  // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
+  const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
+  async function markMailed(r) {
+    if (r.mailedAt) return;
+    const rec = Object.assign({}, r, { mailedAt: new Date().toISOString() });
+    loaded.set(rec.id, rec);
+    const local = store(LS_EVALS) || [];
+    if (local.some((x) => x.id === rec.id)) store(LS_EVALS, local.map((x) => (x.id === rec.id ? rec : x)));
+    if (connected() && canChange(rec)) { try { await apiPost({ action: "updateRecord", record: rec }); } catch (e) { /* stays flagged on other devices */ } }
+    refreshViews();
   }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
@@ -1004,10 +1055,13 @@
     const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || selectionOf(r) === f.sel) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : selectionOf(r) === f.sel)) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
+    const unsent = all.filter((r) => mailPending(r) && (isOwner() || r.evaluator === settings.evaluator));
+    if (unsent.length && f.sel !== "unsent") out.append(h("div", { class: "msg err" }, t("mail_unsent_banner", { n: unsent.length }), " ",
+      h("button", { type: "button", text: t("mail_unsent_show"), onclick: () => { $("#recSel").value = "unsent"; renderRecords(); } })));
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
     const fixable = f.p === "test" && connected() ? recs.filter((r) => r.test && canChange(r)) : [];
     if (fixable.length) out.append(h("div", { class: "msg" }, t("test_fix_hint", { n: fixable.length }), " ",
@@ -1016,11 +1070,12 @@
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
+        mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -1595,7 +1650,6 @@
   const rpSheetNames = () => { const n = { summary: "Summary", pareto: "Most missed (Pareto)", categories: "By category", agents: "Agents", matrix: "Agent x attribute", trend: "Weekly trend", types: "By type & outcome", critlog: "Critical errors", evaluators: "Evaluators", coaching: "Coaching focus" };
     RP_SECTIONS.forEach((k) => (RP_SHEET[t("rp_s_" + k)] = n[k])); };
   const isMiss = (i) => i.result === "Not met" || i.result === "Error";
-  const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   function rpRange(p) {
     const d = new Date();
     if (p === "lastweek") { const s = new Date(weekStart(ymdOf(d)) + "T00:00:00"); s.setDate(s.getDate() - 7); const e = new Date(s); e.setDate(e.getDate() + 6); return [ymdOf(s), ymdOf(e)]; }
@@ -1848,7 +1902,7 @@
       const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("sel_targeted"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
       const rows = [head];
       const tt = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
-      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([, w]) => w.n || (roster.evaluators || []).includes(ev))
+      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([ev, w]) => w.n || (roster.evaluators || []).includes(ev))
         .sort((a, b) => b[1].n - a[1].n).forEach(([ev, w]) => {
           const g = w.avg === null || team.avg === null ? "–" : ((w.avg - team.avg) >= 0 ? "+" : "") + (Math.round((w.avg - team.avg) * 1000) / 10) + " " + t("pts");
           const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.targeted, w.agents, pct(w.avg), g];
@@ -1931,13 +1985,13 @@
   }
   function recordRows(list) {
     const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
-      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by"];
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
       r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
-      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || ""])];
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
   }
   // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
   const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;
@@ -2215,7 +2269,7 @@
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
-    $("#setCcResults").value = teamCfg.ccResults || "";
+    $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
@@ -2223,7 +2277,7 @@
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
       if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -2234,7 +2288,8 @@
       const own = isOwner();
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
         h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
-          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null),
+          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null,
+          null),
         own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
