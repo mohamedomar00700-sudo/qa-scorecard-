@@ -156,7 +156,7 @@
 
   // ---------- names (one shared list so reports group correctly) ----------
   const LS_ROSTER = "qa_roster";
-  let roster = Object.assign({ agents: [], evaluators: [], emails: {} }, store(LS_ROSTER) || {});
+  let roster = Object.assign({ agents: [], evaluators: [], emails: {}, daysOff: {} }, store(LS_ROSTER) || {});
   const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)([a-z])/g, (m, a, b) => a + b.toUpperCase());
   const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
   function lev(a, b) {
@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -337,23 +337,45 @@
     }
   }
 
-  // Random call picker: a random day in the last week and a random time in working hours; the evaluator takes
-  // the agent's first answered call after that time. The pick is saved with the evaluation so it can be checked.
+  // Random call picker: a random working day in the last week and a random time in working hours; the evaluator takes
+  // the agent's first answered call after that time. Days the center is closed (team setting, Friday by default) and the
+  // agent's weekly days off (Roster column E) are never picked; "the agent was off" skips a day for a one-off leave.
+  const WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayIdx = (v) => String(v || "").split(/[,\s]+/).map((d) => WEEK.indexOf(d)).filter((i) => i >= 0);
+  const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
+    const pick = () => {
+      const agent = a.header.agent;
+      if (a.header.pickAgent !== agent) delete a.header.pickSkip;
+      const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
+      const days = Math.max(1, Number(teamCfg.pickDays) || 7);
+      const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
+      const skip = a.header.pickSkip || [], ok = [];
+      for (let i = 1; i <= days; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) ok.push(ymdOf(d));
+      }
+      if (!ok.length) { alert(t("pick_none", { n: days })); return; }
+      const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
+      a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+      a.header.pickAgent = agent; saveDraft(); show();
+    };
     const show = () => {
       box.innerHTML = "";
       box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
         if (!a.header.agent) { alert(t("pick_need_agent")); return; }
-        const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
-        const days = Math.max(1, Number(teamCfg.pickDays) || 7);
-        const d = new Date(); d.setDate(d.getDate() - 1 - Math.floor(Math.random() * days));
-        const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
-        const day = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-        a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-        a.header.pickAgent = a.header.agent; saveDraft(); show();
+        pick();
       } }));
-      if (a.header.pick) box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: a.header.pick.slice(0, 10), t: a.header.pick.slice(11) })));
+      if (a.header.pick) {
+        const day = a.header.pick.slice(0, 10), wd = WEEK[new Date(day + "T12:00:00").getDay()];
+        box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent || a.header.agent, d: t("wd_" + wd) + " " + day, t: a.header.pick.slice(11) })),
+          h("button", { type: "button", class: "ghost", text: t("pick_off_btn"), onclick: () => {
+            a.header.pickSkip = [...new Set([...(a.header.pickSkip || []), day])]; pick();
+          } }));
+      }
+      const offTxt = (roster.daysOff || {})[a.header.agent];
+      if (a.header.agent) box.append(h("div", { class: "hint", text: offTxt ? t("pick_off_known", { d: dayIdx(offTxt).map((i) => t("wd_" + WEEK[i])).join("، ") }) : t("pick_off_unknown") }));
     };
     show();
     return box;
@@ -1595,7 +1617,6 @@
   const rpSheetNames = () => { const n = { summary: "Summary", pareto: "Most missed (Pareto)", categories: "By category", agents: "Agents", matrix: "Agent x attribute", trend: "Weekly trend", types: "By type & outcome", critlog: "Critical errors", evaluators: "Evaluators", coaching: "Coaching focus" };
     RP_SECTIONS.forEach((k) => (RP_SHEET[t("rp_s_" + k)] = n[k])); };
   const isMiss = (i) => i.result === "Not met" || i.result === "Error";
-  const ymdOf = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   function rpRange(p) {
     const d = new Date();
     if (p === "lastweek") { const s = new Date(weekStart(ymdOf(d)) + "T00:00:00"); s.setDate(s.getDate() - 7); const e = new Date(s); e.setDate(e.getDate() + 6); return [ymdOf(s), ymdOf(e)]; }
@@ -1848,7 +1869,7 @@
       const head = [t("evaluator"), t("c_evals"), ...PURPOSE_KEYS.map((k) => t("p_" + k).replace(/\s*\(.*\)$/, "")), t("m_recording"), t("m_sidebyside"), t("sel_targeted"), t("mw_k_agents"), t("e_avg"), t("e_gap")];
       const rows = [head];
       const tt = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
-      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([, w]) => w.n || (roster.evaluators || []).includes(ev))
+      evaluators.map((ev) => [ev, workStats(inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(ev)))]).filter(([ev, w]) => w.n || (roster.evaluators || []).includes(ev))
         .sort((a, b) => b[1].n - a[1].n).forEach(([ev, w]) => {
           const g = w.avg === null || team.avg === null ? "–" : ((w.avg - team.avg) >= 0 ? "+" : "") + (Math.round((w.avg - team.avg) * 1000) / 10) + " " + t("pts");
           const row = [ev, w.n, ...PURPOSE_KEYS.map((k) => w.by[k]), w.rec, w.sbs, w.targeted, w.agents, pct(w.avg), g];
@@ -2215,7 +2236,7 @@
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
-    $("#setCcResults").value = teamCfg.ccResults || "";
+    $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
@@ -2223,7 +2244,7 @@
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
       if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -2234,8 +2255,10 @@
       const own = isOwner();
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
         h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
-          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null),
+          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null,
+          own && role === "agents" ? h("small", { class: "meta", text: t("off_tag") + ": " + (dayIdx((roster.daysOff || {})[name]).map((i) => t("wd_" + WEEK[i])).join("، ") || t("off_none")) }) : null),
         own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
+        own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("off_btn"), onclick: () => setDaysOff(name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
     }
@@ -2276,6 +2299,19 @@
     const k = role === "agents" ? "emails" : "evalEmails";
     roster[k] = Object.assign({}, roster[k]);
     if (email) roster[k][name] = email; else delete roster[k][name];
+    store(LS_ROSTER, roster); renderSettings();
+  }
+
+  // Agent's weekly days off (Roster column E), so the random picker never lands on them.
+  async function setDaysOff(name) {
+    const v = prompt(t("off_prompt", { n: name }), (roster.daysOff || {})[name] || "");
+    if (v === null) return;
+    if (!connected()) { alert(t("email_needs_sheet")); return; }
+    let j;
+    try { j = await apiPostJson({ action: "setDaysOff", name, days: v }); }
+    catch (e) { alert(t("name_failed", { e: e.message })); return; }
+    roster.daysOff = Object.assign({}, roster.daysOff);
+    if (j.days) roster.daysOff[name] = j.days; else delete roster.daysOff[name];
     store(LS_ROSTER, roster); renderSettings();
   }
 

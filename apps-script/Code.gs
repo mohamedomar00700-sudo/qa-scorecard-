@@ -46,6 +46,7 @@ function roster_() {
     sh.getRange(1, 1, 1, 4).setFontWeight('bold');
   }
   if (!sh.getRange(1, 4).getValue()) sh.getRange(1, 4).setValue('Email').setFontWeight('bold');
+  if (!sh.getRange(1, 5).getValue()) sh.getRange(1, 5).setValue('Days off (e.g. Fri, Sat)').setFontWeight('bold');
   return sh;
 }
 
@@ -59,14 +60,18 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {} };
+  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {}, daysOff: {} };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
     if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
-    else { out.agents.push(name); if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim(); }
+    else {
+      out.agents.push(name);
+      if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim();
+      if (String(r[4] || '').trim()) out.daysOff[name] = String(r[4]).trim();
+    }
   });
   out.agents.sort(); out.evaluators.sort();
   return out;
@@ -160,6 +165,37 @@ function setEmail_(role, name, email) {
   }
   ro.appendRow([String(name || '').trim(), role === 'evaluators' ? 'Evaluator' : 'Agent', 'Yes', email]);
   return { ok: true };
+}
+
+// Weekly days off: 'Fri, Sat' or Arabic day names. Stored as short English names in Roster column E.
+const DAY_NAMES_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_AR_ = [['احد', 'حد'], ['اثنين', 'اتنين', 'تنين'], ['ثلاث', 'تلات', 'ثلاثاء'], ['اربع', 'ربع'], ['خميس'], ['جمع'], ['سبت']];
+function daysList_(v) {
+  const out = [];
+  String(v || '').split(/[,،;\s]+/).filter(String).forEach(function (w) {
+    const k = w.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/^و/, '').replace(/^ال/, '');
+    if (!k || k === 'and' || k === '&') return;
+    let i = DAY_NAMES_.findIndex(function (d) { return k.indexOf(d.toLowerCase()) === 0; });
+    if (i < 0) i = DAY_AR_.findIndex(function (ds) { return ds.some(function (d) { return k.indexOf(d) === 0; }); });
+    if (i < 0) throw new Error('Bad day: ' + w);
+    if (out.indexOf(DAY_NAMES_[i]) < 0) out.push(DAY_NAMES_[i]);
+  });
+  return out.join(', ');
+}
+function setDaysOff_(name, days) {
+  let v;
+  try { v = daysList_(days); } catch (err) { return { ok: false, error: err.message }; }
+  const ro = roster_();
+  if (ro.getLastRow() > 1) {
+    const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (roleMatches_(rows[i][1], 'agents') && nameKey_(rows[i][0]) === nameKey_(name)) {
+        ro.getRange(i + 2, 5).setValue(v);
+        return { ok: true, days: v };
+      }
+    }
+  }
+  return { ok: false, error: 'Agent not found' };
 }
 
 function esc_(s) {
@@ -509,7 +545,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, ccResults: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -520,6 +556,9 @@ function setConfig_(c) {
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
   if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
   const d = Number(c.pickDays); if (d >= 1 && d <= 31) cur.pickDays = Math.round(d);
+  if (c.closedDays !== undefined) {
+    try { cur.closedDays = daysList_(c.closedDays); } catch (err) { return { ok: false, error: err.message }; }
+  }
   if (c.ccResults !== undefined) {
     const cc = String(c.ccResults).split(/[,;\s]+/).filter(String);
     if (cc.length > 10 || cc.some(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); })) return { ok: false, error: 'Bad CC' };
@@ -549,12 +588,13 @@ function doPost(e) {
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
     if (!me) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
-    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setConfig: 1 };
+    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setDaysOff: 1, setConfig: 1 };
     if ((ownerOnly[body.action] || (body.action === 'addPerson' && body.role === 'evaluators')) && !me.owner) return reply_({ ok: false, error: 'not_owner' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
+    if (body.action === 'setDaysOff') return reply_(setDaysOff_(body.name, body.days));
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'updateRecord') {
@@ -599,7 +639,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
