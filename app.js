@@ -979,24 +979,28 @@
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
-    const pass = r.result === "Pass";
-    const statusTag = coaching ? "" : (pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
-    const subject = (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
-      form + " – " + when.slice(0, 10) + statusTag;
-    const topBanner = coaching
-      ? tx("💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)", "💡 Coaching feedback (not counted in your score)")
-      : pass
-        ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء ممتاز والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Great job, keep it up!")
-        : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
+    const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
+    const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
+      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+    const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
+    const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag;
+    const topBanner = isWow
+      ? tx("🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (" + pct(r.final) + ")\n🎉 Congratulations! المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ \"مكالمة Wow\" ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏", "🌟🏆 WOW CALL! Outstanding Performance (" + pct(r.final) + ")\n🎉 Congratulations! This call was selected as a standout \"Wow Call\" for the team's training library. Proud of your great work! 👏")
+      : coaching
+        ? tx("💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)", "💡 Coaching feedback (not counted in your score)")
+        : pass && isGood
+          ? tx("🎉👍 Congratulations! مكالمة كويسة جداً وعدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — المكالمة دي اتضافت كمثال كويس في مكتبة التدريب، استمر على نفس المستوى!", "🎉👍 Congratulations! Very good call & passed (PASSED – " + pct(r.final) + ") — Added as a good example to the training library, keep it up!")
+          : pass
+            ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
+            : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
       (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
+      ...(isWow ? [tx("تصنيف المكالمة: 🌟🏆 مكالمة Wow (مثال مميز في مكتبة التدريب)", "Call tag: 🌟🏆 Wow call (training library standout)")] : isGood ? [tx("تصنيف المكالمة: 👍 مكالمة كويسة جداً (مكتبة التدريب)", "Call tag: 👍 Very good call (training library)")] : []),
       ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
       tx("دقة البنود الحرجة: ", "Critical accuracy: ") + (r.critical ? tx("0% (" + r.critical + (r.critical === 1 ? " غلطة)" : " أخطاء)"), "0% (" + r.critical + (r.critical === 1 ? " error)" : " errors)")) : tx("100% (مفيش أخطاء)", "100% (no errors)")), "",
       tx("تقسيم التقييم:", "Score by category:"), ...catBreakdown(r)];
-    if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
-    if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
     if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
     if (fb.strengths) lines.push("", tx("نقاط القوة:", "Strengths:"), fb.strengths);
     if (fb.improve) lines.push("", tx("محتاج تحسين:", "Areas to improve:"), fb.improve);

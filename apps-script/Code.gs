@@ -250,21 +250,30 @@ function emailAgent_(r) {
     const fb = r.feedback || {};
     const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
     const critPct = r.critical ? '<span style="color:#c62828">0% (' + r.critical + ' ' + (r.critical === 1 ? 'غلطة' : 'أخطاء') + ')</span>' : '<span style="color:#1a7f37">100% (مفيش أخطاء)</span>';
-    const banner = coaching
-      ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)</div></div>'
-      : pass
-        ? '<div style="background:#e6f4ea;border:1px solid #a8dab5;border-right:5px solid #1a7f37;color:#135c27;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء ممتاز والتزام بمعايير الجودة — كمّل على نفس المستوى!</div></div>'
-        : '<div style="background:#fce8e6;border:1px solid #f5c2c7;border-right:5px solid #c62828;color:#842029;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">⚠️ التقييم لم يجتز الحد المطلوب (FAILED – ' + pct_(r.final) + ')</div><div style="font-size:13px">' + (r.critical ? 'بسبب وجود خطأ حرج (Critical Error) في التقييم. راجع النقاط بالأسفل عشان تتفاداها المرة الجاية.' : 'السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل.') + '</div></div>';
+    const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
+    const banner = isWow
+      ? '<div style="background:linear-gradient(135deg,#fff8e1,#ffecb3);background-color:#fff8e1;border:2px solid #f59e0b;border-right:6px solid #d97706;color:#78350f;padding:14px 18px;border-radius:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:bold;margin-bottom:6px">🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (' + pct_(r.final) + ')</div><div style="font-size:14px">🎉 <b>Congratulations!</b> المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ <b>"مكالمة Wow"</b> ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏</div></div>'
+      : coaching
+        ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)</div></div>'
+        : pass && isGood
+          ? '<div style="background:#e6f4ea;border:1.5px solid #34a853;border-right:6px solid #1a7f37;color:#135c27;padding:13px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉👍 Congratulations! مكالمة كويسة جداً وعدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء ممتاز! المكالمة دي اتضافت كمثال كويس في مكتبة التدريب — استمر على نفس المستوى!</div></div>'
+          : pass
+            ? '<div style="background:#e6f4ea;border:1px solid #a8dab5;border-right:5px solid #1a7f37;color:#135c27;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء كويس والتزام بمعايير الجودة — كمّل على نفس المستوى!</div></div>'
+            : '<div style="background:#fce8e6;border:1px solid #f5c2c7;border-right:5px solid #c62828;color:#842029;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">⚠️ التقييم لم يجتز الحد المطلوب (FAILED – ' + pct_(r.final) + ')</div><div style="font-size:13px">' + (r.critical ? 'بسبب وجود خطأ حرج (Critical Error) في التقييم. راجع النقاط بالأسفل عشان تتفاداها المرة الجاية.' : 'السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل.') + '</div></div>';
+    const tagRow = isWow
+      ? row('تصنيف المكالمة', '<span style="color:#b45309">🌟🏆 مكالمة Wow (مثال مميز في مكتبة التدريب)</span>')
+      : isGood
+        ? row('تصنيف المكالمة', '<span style="color:#1a7f37">👍 مكالمة كويسة جداً (مكتبة التدريب)</span>')
+        : '';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       banner +
       '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
+      tagRow +
       row('دقة البنود الحرجة', critPct) +
       catRows_(r, row) +
       row('المقيّم', esc_(r.evaluator)) + '</table>';
-    if (r.callTag === 'wow') html += '<p style="background:#fff4d6;padding:8px 12px;border-radius:6px">🌟 <b>مكالمة Wow!</b> المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.</p>';
-    if (r.callTag === 'good') html += '<p style="background:#e3f4e8;padding:8px 12px;border-radius:6px">👍 <b>مكالمة كويسة جداً</b> واتحطت كمثال في مكتبة التدريب. استمر.</p>';
     if (missed.length) html += '<p><b>البنود اللي محتاجة تتظبط:</b></p><ul>' + missed.map(function (i) {
       return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
     if (fb.strengths) html += '<p><b>نقاط القوة:</b><br><span dir="auto">' + esc_(fb.strengths) + '</span></p>';
@@ -272,8 +281,9 @@ function emailAgent_(r) {
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const statusTag = coaching ? '' : (pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
-    const mail = { to: to, subject: (coaching ? '💡 فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + statusTag,
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
+    const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag,
       htmlBody: html, name: senderName };
     const cc = [evEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
     if (evEmail) mail.replyTo = evEmail;
