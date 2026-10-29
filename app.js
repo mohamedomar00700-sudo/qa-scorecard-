@@ -706,11 +706,32 @@
     } catch (e) { m.className = "msg err"; m.textContent = t("save_failed_plain", { e: e.message }); }
   }
   const normPhone = (p) => String(p || "").replace(/[^\d+]/g, "");
+  function makeEvalId(ymd) {
+    const d = String(ymd || today()).replace(/\D/g, "").slice(2, 8) || "000000";
+    const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    for (let tries = 0; tries < 20; tries++) {
+      let s = "";
+      for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+      const code = "QA-" + d + "-" + s;
+      if (!loaded.has(code)) return code;
+    }
+    return "QA-" + d + "-" + Date.now().toString(36).slice(-4).toUpperCase();
+  }
+  function evalIdOf(r) {
+    if (!r) return "";
+    if (r.evalId) return r.evalId;
+    const id = String(r.id || "");
+    if (/^QA-\d{6}-[A-Z0-9]{4,}$/i.test(id)) return id.toUpperCase();
+    const d = String(r.evalDate || r.savedAt || r.interactionDate || "").replace(/\D/g, "").slice(2, 8) || "000000";
+    const suf = id.replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase().padStart(4, "0");
+    return "QA-" + d + "-" + suf;
+  }
 
   function buildRecord() {
     const a = current.answers, d = F.forms[current.form], s = score(current.form, a);
     return {
-      id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(16).slice(2)),
+      id: current.edit && current.edit.id ? current.edit.id : makeEvalId(current.edit ? a.header.evalDate || today() : today()),
+      evalId: current.edit && current.edit.evalId ? current.edit.evalId : undefined,
       savedAt: new Date().toISOString(),
       formsVersion: F.version, form: current.form,
       ...a.header,
@@ -754,7 +775,7 @@
   }
 
   function recordCsv(rec) {
-    const rows = [["Field", "Value"]];
+    const rows = [["Field", "Value"], ["Evaluation ID", evalIdOf(rec)]];
     for (const [k, label] of HEADER) rows.push([label ? I.en[label] : "Duration", rec[k] || ""]);
     rows.push(["Form", F.forms[rec.form].name], ["NC score", pct(rec.ncScore)], ["CC accuracy", pct(rec.cc)], ["EU accuracy", pct(rec.eu)], ["BC accuracy", pct(rec.bc)], ["Critical errors", rec.critical], ["Final score", pct(rec.final)], ["Result", rec.result], []);
     rows.push(["#", "Bucket", "Item", "Weight", "Result", "Evidence", "Comment"]);
@@ -833,7 +854,7 @@
       try {
         const how = edit ? await apiPost({ action: "updateRecord", record: rec }) : await postRecord(rec);
         markSynced(rec.id);
-        msg.className = "msg ok"; msg.textContent = edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet");
+        msg.className = "msg ok"; msg.textContent = (edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet")) + " [" + evalIdOf(rec) + "]";
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
@@ -845,7 +866,7 @@
       }
     } else {
       download(fileName(rec, "json"), JSON.stringify(rec, null, 1), "application/json");
-      msg.className = "msg ok"; msg.textContent = t("saved_local");
+      msg.className = "msg ok"; msg.textContent = t("saved_local") + " [" + evalIdOf(rec) + "]";
     }
     current = { form: current.form, answers: blankAnswers(current.form) };
     store(LS_DRAFT, null);
@@ -995,7 +1016,7 @@
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
       (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
-    const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag;
+    const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
       ? tx("🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (" + pct(r.final) + ")\n🎉 Congratulations! المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ \"مكالمة Wow\" ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏", "🌟🏆 WOW CALL! Outstanding Performance (" + pct(r.final) + ")\n🎉 Congratulations! This call was selected as a standout \"Wow Call\" for the team's training library. Proud of your great work! 👏")
       : coaching
@@ -1008,6 +1029,7 @@
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
       (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
+      tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       ...(isWow ? [tx("تصنيف المكالمة: 🌟🏆 مكالمة Wow (مثال مميز في مكتبة التدريب)", "Call tag: 🌟🏆 Wow call (training library standout)")] : isGood ? [tx("تصنيف المكالمة: 👍 مكالمة كويسة جداً (مكتبة التدريب)", "Call tag: 👍 Very good call (training library)")] : []),
       ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
@@ -1115,7 +1137,7 @@
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
       (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
-      (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
+      (!f.q || [evalIdOf(r), r.id, r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
     const unsent = all.filter((r) => mailPending(r) && (isOwner() || r.evaluator === settings.evaluator));
@@ -1133,7 +1155,7 @@
         !isCoached(r) && !r.test && ["live", "certcall", "coaching"].includes(purposeOf(r)) && canChange(r) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => markCoached(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
-      h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
+      h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", title: t("c_eval_id"), text: evalIdOf(r), onclick: () => { navigator.clipboard && navigator.clipboard.writeText(evalIdOf(r)); toast("ok", t("eval_id_copied", { id: evalIdOf(r) })); } })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
       h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
@@ -1153,7 +1175,7 @@
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
-    current = { form: r.form, edit: { id: r.id, savedAt: r.savedAt },
+    current = { form: r.form, edit: { id: r.id, evalId: evalIdOf(r), savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "", coached: !!(r.coached || (r.feedback && r.feedback.coached)), coachedAt: r.coachedAt || (r.feedback && r.feedback.coachedAt) || "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
     current.edit.orig = JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback);
     saveDraft(); renderEvaluate();
@@ -1175,7 +1197,7 @@
     const b = $("#editBanner"); if (!b) return;
     b.hidden = !current.edit; b.innerHTML = "";
     if (!current.edit) return;
-    b.append(h("span", { text: t("editing_banner", { a: current.answers.header.agent || "–", d: whenText(current.answers.header) }) }),
+    b.append(h("span", { text: t("editing_banner", { a: current.answers.header.agent || "–", d: whenText(current.answers.header) }) + " · [" + evalIdOf(current.edit) + "]" }),
       h("button", { type: "button", class: "ghost", text: t("cancel_edit"), onclick: () => {
         if (editChanged() && !confirm(t("discard_edit"))) return;
         current = { form: current.form, answers: blankAnswers(current.form) }; store(LS_DRAFT, null); renderEvaluate(); } }));
@@ -1633,7 +1655,7 @@
         const fCell = h("td", {}, nextEval
           ? h("span", { class: "pill good", text: t("copc_followup_done", { d: callDay(nextEval) }) })
           : h("span", { class: "pill warn", text: t("copc_followup_need") }));
-        tb.append(h("tr", {}, h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
+        tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
           h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
       });
       kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb));
@@ -2054,7 +2076,7 @@
     // Recent evaluations
     const recent = mine.slice().sort((a, b) => whenText(b).localeCompare(whenText(a))).slice(0, 8);
     const rt = h("table", {}, h("tr", {}, ["c_when", "c_agent", who ? null : "evaluator", "c_purpose", "final", ""].filter(Boolean).map((k) => h("th", { text: k ? t(k) : "" }))));
-    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
+    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
       h("td", {}, h("span", { class: "pill " + (purposeOf(r) === "live" ? "good" : "info"), text: t("p_" + purposeOf(r)).replace(/\s*\(.*\)$/, "") }), r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside").replace(/\s*\(.*\)$/, "") }) : null),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null))));
@@ -2077,7 +2099,7 @@
   async function exportPdf(name) {
     const view = $(".view.active"); if (!view) return;
     const head = $("#printHead");
-    const title = view.id === "view-evaluate" ? t("nav_evaluate") + " · " + (current.answers.header.agent || "") : t(EXPORT_VIEWS[name] || (name === "guide" ? "nav_guide" : "nav_dashboard"));
+    const title = view.id === "view-evaluate" ? t("nav_evaluate") + " · " + (current.answers.header.agent || "") + (current.edit ? " · " + evalIdOf(current.edit) : "") : t(EXPORT_VIEWS[name] || (name === "guide" ? "nav_guide" : "nav_dashboard"));
     head.innerHTML = "";
     head.append(h("div", { class: "ph-logos" }, h("img", { src: "img/techsource.png", alt: "" }), h("img", { src: "img/tresjolie.png", alt: "", class: "acct" })),
       h("div", {}, h("div", { class: "ph-title", text: "QA Scorecard · " + title }),
@@ -2122,9 +2144,9 @@
     return out;
   }
   function recordRows(list) {
-    const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
+    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "KB version", "Evaluation date", "Edited by", "Random pick history"];
-    return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
+    return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
       r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
@@ -2139,9 +2161,9 @@
     [...new Set(list.map((r) => r.form))].forEach((form) => {
       const recs = list.filter((r) => r.form === form), cols = [];
       [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
-      const head = ["Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
+      const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
       const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
-        return [whenText(r), r.agent || "", r.evaluator || "", purposeOf(r) + (r.test ? " (test)" : ""), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", purposeOf(r) + (r.test ? " (test)" : ""), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
           r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
           ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
       const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {

@@ -254,3 +254,5 @@ tr.muted td { color: var(--muted); }
 .copc-pass-stat { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--ok); }
 .meta.ok-txt { color: var(--ok); font-weight: 600; }
 .meta.bad-txt { color: var(--bad); font-weight: 600; }
+.eval-id-tag { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--brand); cursor: pointer; user-select: all; }
+.eval-id-tag:hover { text-decoration: underline; }
