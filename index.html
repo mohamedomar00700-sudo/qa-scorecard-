@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1794000000">
+<link rel="stylesheet" href="style.css?v=1794000003">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -80,6 +80,7 @@
             <label><span data-i18n="fb_improve"></span><textarea id="fb_improve" rows="4"></textarea></label>
             <label><span data-i18n="fb_coaching"></span><textarea id="fb_coaching" rows="4"></textarea></label>
           </div>
+          <label class="check"><input type="checkbox" id="fb_coached"> <span data-i18n="fb_coached_chk"></span></label>
           <button id="btnRegen" type="button" data-i18n="regen"></button>
           <button id="btnCopyFb" type="button" data-i18n="copy_fb"></button>
           <span class="msg" id="fbMsg"></span>
@@ -137,6 +138,7 @@
       </div>
     </div>
     <div class="card" id="mwKpis"></div>
+    <div class="card" id="mwAlerts" hidden></div>
     <div class="card" id="mwCoverage"></div>
     <div class="card" id="mwTypes"></div>
     <div class="card" id="mwTeam"></div>
@@ -158,6 +160,7 @@
       </div>
     </div>
     <div class="card" id="dbKpis"></div>
+    <div class="card" id="dbAlerts" hidden></div>
     <div class="dash-grid">
       <div class="card" id="dbItems"></div>
       <div class="card" id="dbCrit"></div>
@@ -199,6 +202,10 @@
       <p class="hint" data-i18n="cert_hint"></p>
       <div class="toolbar" data-loader></div>
       <div class="grid">
+        <label><span data-i18n="ct_mode"></span><select id="ctMode">
+          <option value="initial" data-i18n="ct_mode_initial"></option>
+          <option value="annual" data-i18n="ct_mode_annual"></option>
+        </select></label>
         <label><span data-i18n="f_form"></span><select id="ctForm"></select></label>
         <label><span data-i18n="f_from"></span><input type="date" id="ctFrom"></label>
         <label><span data-i18n="f_to"></span><input type="date" id="ctTo"></label>
@@ -239,7 +246,7 @@
         <label><span data-i18n="h_method"></span><select id="recMethod">
           <option value="" data-i18n="f_all"></option><option value="recording" data-i18n="m_recording"></option><option value="sidebyside" data-i18n="m_sidebyside"></option></select></label>
         <label><span data-i18n="h_selection"></span><select id="recSel">
-          <option value="" data-i18n="f_all"></option><option value="random" data-i18n="sel_random"></option><option value="targeted" data-i18n="sel_targeted"></option><option value="unsent" data-i18n="mail_pending"></option></select></label>
+          <option value="" data-i18n="f_all"></option><option value="random" data-i18n="sel_random"></option><option value="targeted" data-i18n="sel_targeted"></option><option value="unsent" data-i18n="mail_pending"></option><option value="uncoached" data-i18n="coach_pending_opt"></option><option value="coached" data-i18n="coach_done_opt"></option></select></label>
       </div>
     </div>
     <div class="card" id="recOut"></div>
@@ -311,7 +318,10 @@
     <div class="card" id="ownerCard">
       <h2 data-i18n="own_head"></h2>
       <p class="hint" data-i18n="own_hint"></p>
-      <label><span data-i18n="own_target"></span><input id="setTarget" type="number" min="0" max="100" step="1" dir="ltr"></label>
+      <div class="grid">
+        <label><span data-i18n="own_target"></span><input id="setTarget" type="number" min="0" max="100" step="1" dir="ltr"></label>
+        <label><span data-i18n="own_coach_sla"></span><input id="setCoachSla" type="number" min="1" max="720" step="1" dir="ltr"></label>
+      </div>
       <div class="grid">
         <label><span data-i18n="own_pick_from"></span><input id="setPickFrom" type="time" dir="ltr"></label>
         <label><span data-i18n="own_pick_to"></span><input id="setPickTo" type="time" dir="ltr"></label>
@@ -345,9 +355,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1794000000"></script>
-<script src="i18n.js?v=1794000000"></script>
-<script src="forms.js?v=1794000000"></script>
-<script src="app.js?v=1794000000"></script>
+<script src="config.js?v=1794000003"></script>
+<script src="i18n.js?v=1794000003"></script>
+<script src="forms.js?v=1794000003"></script>
+<script src="app.js?v=1794000003"></script>
 </body>
 </html>

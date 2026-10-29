@@ -156,7 +156,7 @@
 
   // ---------- names (one shared list so reports group correctly) ----------
   const LS_ROSTER = "qa_roster";
-  let roster = Object.assign({ agents: [], evaluators: [], emails: {}, daysOff: {} }, store(LS_ROSTER) || {});
+  let roster = Object.assign({ agents: [], evaluators: [], emails: {}, daysOff: {}, certDates: {} }, store(LS_ROSTER) || {});
   const normName = (s) => String(s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)([a-z])/g, (m, a, b) => a + b.toUpperCase());
   const nameKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
   function lev(a, b) {
@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -359,7 +359,7 @@
       if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
       const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
       const days = Math.max(1, Number(teamCfg.pickDays) || 7);
-      const off = new Set(dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays));
+      const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
       const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
       for (let i = 1; i <= days; i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
@@ -602,6 +602,15 @@
         saveDraft();
       };
     }
+    const cbCoach = $("#fb_coached");
+    if (cbCoach) {
+      cbCoach.checked = !!(current.answers.feedback && current.answers.feedback.coached);
+      cbCoach.onchange = () => {
+        current.answers.feedback.coached = cbCoach.checked;
+        current.answers.feedback.coachedAt = cbCoach.checked ? (current.answers.feedback.coachedAt || new Date().toISOString()) : "";
+        saveDraft();
+      };
+    }
     $("#btnRegen").onclick = () => {
       if (Object.values(current.answers.feedbackEdited || {}).some(Boolean) && !confirm(t("regen_confirm"))) return;
       autoFeedback(true); saveDraft();
@@ -717,7 +726,10 @@
         ...d.nc.map((it, i) => ({ id: String(i + 1), kind: "NC", text: it.item, weight: it.weight, result: a.nc[i].result, evidence: a.nc[i].evidence, comment: a.nc[i].comment })),
         ...d.crit.map((it, i) => ({ id: "C" + (i + 1), kind: it.bucket, text: it.item, result: a.crit[i].result, evidence: a.crit[i].evidence, comment: a.crit[i].comment })),
       ],
-      feedback: { strengths: a.feedback.strengths, improve: a.feedback.improve, coaching: a.feedback.coaching },
+      coached: !!(a.feedback && a.feedback.coached),
+      coachedAt: a.feedback && a.feedback.coached ? (a.feedback.coachedAt || (current.edit && current.edit.coachedAt) || new Date().toISOString()) : "",
+      coachedBy: a.feedback && a.feedback.coached ? (settings.who || settings.evaluator || a.header.evaluator || "") : "",
+      feedback: { strengths: a.feedback.strengths, improve: a.feedback.improve, coaching: a.feedback.coaching, coached: !!(a.feedback && a.feedback.coached), coachedAt: a.feedback && a.feedback.coached ? (a.feedback.coachedAt || (current.edit && current.edit.coachedAt) || new Date().toISOString()) : "" },
     };
   }
 
@@ -747,7 +759,7 @@
     rows.push(["Form", F.forms[rec.form].name], ["NC score", pct(rec.ncScore)], ["CC accuracy", pct(rec.cc)], ["EU accuracy", pct(rec.eu)], ["BC accuracy", pct(rec.bc)], ["Critical errors", rec.critical], ["Final score", pct(rec.final)], ["Result", rec.result], []);
     rows.push(["#", "Bucket", "Item", "Weight", "Result", "Evidence", "Comment"]);
     rec.items.forEach((it) => rows.push([it.id, it.kind, it.text, it.weight || "", it.result, it.evidence, it.comment]));
-    rows.push([], ["Strengths", rec.feedback.strengths], ["Areas to improve", rec.feedback.improve], ["Coaching", rec.feedback.coaching]);
+    rows.push([], ["Strengths", rec.feedback.strengths], ["Areas to improve", rec.feedback.improve], ["Coaching", rec.feedback.coaching], ["Coached 1-on-1", isCoached(rec) ? "Yes" : "No"], ["Coached at", rec.coachedAt || ""], ["Coached by", rec.coachedBy || ""]);
     return toCsv(rows);
   }
 
@@ -1045,6 +1057,35 @@
     if (connected() && canChange(rec)) { try { await apiPost({ action: "updateRecord", record: rec }); } catch (e) { /* stays flagged on other devices */ } }
     refreshViews();
   }
+  const isCoached = (r) => !!(r && (r.coached || (r.feedback && r.feedback.coached) || r.coachedAt));
+  const needsCoaching = (r) => !!(r && !r.test && ["live", "certcall"].includes(purposeOf(r)) && r.result === "Fail");
+  const coachSlaHours = () => Number(teamCfg.coachingSlaHours) || 48;
+  function coachHours(r) {
+    const start = new Date(r.savedAt || (r.evalDate ? r.evalDate + "T12:00:00" : "")).getTime();
+    const end = isCoached(r) && (r.coachedAt || (r.feedback && r.feedback.coachedAt)) ? new Date(r.coachedAt || r.feedback.coachedAt).getTime() : Date.now();
+    return isNaN(start) || isNaN(end) ? null : Math.max(0, Math.round((end - start) / 36e5));
+  }
+  async function markCoached(r) {
+    if (isCoached(r)) return;
+    const now = new Date().toISOString(), by = settings.who || settings.evaluator || r.evaluator || "";
+    const fb = Object.assign({}, r.feedback || {}, { coached: true, coachedAt: now });
+    const rec = Object.assign({}, r, { coached: true, coachedAt: now, coachedBy: by, feedback: fb, editedAt: now, editedBy: by });
+    loaded.set(rec.id, rec);
+    const local = store(LS_EVALS) || [];
+    if (local.some((x) => x.id === rec.id)) store(LS_EVALS, local.map((x) => (x.id === rec.id ? rec : x)));
+    if (connected() && canChange(rec)) { try { await apiPost({ action: "updateRecord", record: rec }); } catch (e) { /* stays local until synced */ } }
+    refreshViews();
+  }
+  function coachBadge(r) {
+    const sla = coachSlaHours(), hrs = coachHours(r);
+    if (isCoached(r)) {
+      const slaTxt = needsCoaching(r) && hrs !== null ? " · " + t(hrs <= sla ? "coach_within_sla" : "coach_late_sla", { h: hrs }) : "";
+      return h("div", { class: "meta ok-txt", text: t("coach_done_tag") + slaTxt });
+    }
+    if (!needsCoaching(r)) return null;
+    const over = hrs !== null && hrs > sla;
+    return h("div", { class: "meta " + (over ? "bad-txt" : "warn"), text: over ? t("coach_overdue_tag", { h: sla }) : t("coach_pending_tag") });
+  }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(Object.assign(mailText(r), { cc: resultCc().join(", ") }), e.currentTarget) }));
@@ -1073,7 +1114,7 @@
     const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : selectionOf(r) === f.sel)) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
       (!f.q || [r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
@@ -1089,11 +1130,12 @@
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
+        !isCoached(r) && !r.test && ["live", "certcall", "coaching"].includes(purposeOf(r)) && canChange(r) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => markCoached(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -1112,7 +1154,7 @@
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, savedAt: r.savedAt },
-      answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
+      answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "", coached: !!(r.coached || (r.feedback && r.feedback.coached)), coachedAt: r.coachedAt || (r.feedback && r.feedback.coachedAt) || "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
     current.edit.orig = JSON.stringify(current.answers.header) + JSON.stringify(current.answers.nc) + JSON.stringify(current.answers.crit) + JSON.stringify(current.answers.feedback);
     saveDraft(); renderEvaluate();
     $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
@@ -1549,6 +1591,58 @@
     box.append(...[h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...content].filter(Boolean));
   }
 
+  // COPC R8.0 (Item 3.4.2) Mandatory Action Alerts:
+  // (a/c) 100% of failed evaluations must receive 1-on-1 coaching within SLA + increased monitoring frequency;
+  // (b) a sample of passing evaluations must receive 1-on-1 coaching;
+  // (d) repeat critical error offenders must be temporarily removed from handling transactions until corrective action is completed.
+  function renderCopcAlerts(boxId, recs, allLive) {
+    const box = $(boxId); if (!box) return;
+    box.innerHTML = "";
+    const valid = (recs || []).filter((r) => !r.test && ["live", "certcall"].includes(purposeOf(r)));
+    if (!valid.length) { box.hidden = true; return; }
+    const sla = coachSlaHours();
+    const byAgCrit = new Map();
+    valid.filter((r) => r.critical > 0).forEach((r) => {
+      const a = r.agent || "–"; if (!byAgCrit.has(a)) byAgCrit.set(a, []);
+      byAgCrit.get(a).push(r);
+    });
+    const repeatCrit = [...byAgCrit.entries()].filter(([, l]) => l.length >= 2).sort((a, b) => b[1].length - a[1].length);
+    const failed = valid.filter((r) => r.result === "Fail").sort((a, b) => whenText(b).localeCompare(whenText(a)));
+    const passed = valid.filter((r) => r.result === "Pass");
+    const passedCoached = passed.filter(isCoached).length;
+
+    const kids = [h("h2", { text: t("copc_alerts_title") }), h("p", { class: "hint", text: t("copc_alerts_hint", { h: sla }) })];
+    if (repeatCrit.length) {
+      kids.push(h("div", { class: "copc-crit-box" },
+        h("h3", { text: t("copc_repeat_crit_head") }),
+        h("ul", {}, repeatCrit.map(([a, l]) => {
+          const items = [...new Set(l.flatMap((r) => (r.items || []).filter((i) => i.kind !== "NC" && i.result === "Error").map((i) => "[" + i.kind + "] " + i.id)))].join("، ");
+          return h("li", { text: t("copc_repeat_crit_row", { a, n: l.length, items: items || "Critical" }) });
+        }))));
+    }
+    if (failed.length) {
+      const tb = h("table", {}, h("tr", {}, [t("c_when"), t("c_agent"), t("evaluator"), t("final"), t("copc_col_coaching", { h: sla }), t("copc_col_followup")].map((x, i) => h("th", { class: i === 3 ? "num" : "", text: x }))));
+      failed.slice(0, 25).forEach((r) => {
+        const hrs = coachHours(r), done = isCoached(r);
+        const nextEval = (allLive || []).filter((x) => x.id !== r.id && !x.test && ["live", "certcall"].includes(purposeOf(x)) && x.agent === r.agent && callDay(x) > callDay(r))
+          .sort((a, b) => callDay(a).localeCompare(callDay(b)))[0];
+        const cCell = h("td", {},
+          done ? h("span", { class: "pill " + (hrs !== null && hrs > sla ? "warn" : "good"), text: t("coach_done_tag") + (hrs !== null ? " · " + t(hrs <= sla ? "coach_within_sla" : "coach_late_sla", { h: hrs }) : "") })
+            : h("span", { class: "pill " + (hrs !== null && hrs > sla ? "bad" : "warn"), text: hrs !== null && hrs > sla ? t("coach_overdue_tag", { h: sla }) : t("coach_pending_tag") }),
+          !done && canChange(r) ? h("button", { type: "button", class: "ghost", style: "margin-inline-start:6px;padding:2px 8px;font-size:12px", text: t("coach_btn"), onclick: () => markCoached(r) }) : null);
+        const fCell = h("td", {}, nextEval
+          ? h("span", { class: "pill good", text: t("copc_followup_done", { d: callDay(nextEval) }) })
+          : h("span", { class: "pill warn", text: t("copc_followup_need") }));
+        tb.append(h("tr", {}, h("td", { dir: "ltr", text: whenText(r) }), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
+          h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
+      });
+      kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb));
+    }
+    kids.push(h("p", { class: "copc-pass-stat", text: t("copc_pass_coached_stat", { a: passedCoached, b: passed.length, p: passed.length ? pct(passedCoached / passed.length) : "0%" }) }));
+    box.append(...kids);
+    box.hidden = false;
+  }
+
   function renderDashboard() {
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
@@ -1564,6 +1658,7 @@
     if (!recs.length) {
       ids.forEach((i) => ($(i).innerHTML = ""));
       $("#dbKpis").append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") }));
+      if ($("#dbAlerts")) $("#dbAlerts").hidden = true;
       ids.slice(1).forEach((i) => ($(i).style.display = "none"));
       return;
     }
@@ -1584,6 +1679,7 @@
       [t("bc_acc"), pct(avg(recs.map((r) => r.bc))), t("k_bc")],
     ];
     section("#dbKpis", t("overview"), null, h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))));
+    renderCopcAlerts("#dbAlerts", recs, all);
 
     // Weekly trend
     const weeks = new Map();
@@ -1893,20 +1989,44 @@
     ];
     section("#mwKpis", t("overview"), null, s.n ? h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub }))))
       : h("div", { class: "empty", text: all.length ? t("mw_none") : t("db_empty") }));
+    renderCopcAlerts("#mwAlerts", mine, all);
 
     // Agent coverage against the monthly target (agent-level evaluations by anyone, so the team sees who is still missing).
     const target = Number(teamCfg.monthlyTarget) || 0;
     const [mFrom, mTo] = periodRange(per === "lastmonth" ? "lastmonth" : "month");
+    const refD = new Date((mTo || today()) + "T12:00:00");
+    const qStart = ymdOf(new Date(refD.getFullYear(), Math.floor(refD.getMonth() / 3) * 3, 1));
+    const qEnd = ymdOf(new Date(refD.getFullYear(), Math.floor(refD.getMonth() / 3) * 3 + 3, 0));
+    const wStart = weekStart(ymdOf(refD)), wEnd = ymdOf(refD);
+    const qLive = all.filter((r) => ["live", "certcall"].includes(purposeOf(r)) && (r.evalDate || "") >= qStart && (r.evalDate || "") <= qEnd);
+    const wLive = all.filter((r) => ["live", "certcall"].includes(purposeOf(r)) && (r.evalDate || "") >= wStart && (r.evalDate || "") <= wEnd);
+    const activeForms = [...new Set([...Object.keys(F.forms), ...qLive.map((r) => r.form).filter(Boolean)])];
     const monthLive = all.filter((r) => purposeOf(r) === "live" && selectionOf(r) === "random" && (r.evalDate || "") >= mFrom && (r.evalDate || "") <= mTo);
     const agents = [...new Set([...(roster.agents || []), ...monthLive.map((r) => r.agent).filter(Boolean)])];
     const cov = agents.map((a) => {
       const l = monthLive.filter((r) => r.agent === a);
-      return { a, team: l.length, mine: who ? l.filter((r) => nameKey(r.evaluator) === nameKey(who)).length : l.length, last: l.map((r) => r.evalDate).sort().pop() || "" };
+      const ql = qLive.filter((r) => r.agent === a), wl = wLive.filter((r) => r.agent === a);
+      const ci = agentCertInfo(a, all, ymdOf(refD)), isNew = ci.isNew;
+      const qRec = ql.filter((r) => (r.method || "recording") === "recording").length;
+      const qSbs = ql.filter((r) => r.method === "sidebyside").length;
+      const qChans = [...new Set(ql.map((r) => r.form).filter(Boolean))];
+      return { a, isNew, ci, team: l.length, mine: who ? l.filter((r) => nameKey(r.evaluator) === nameKey(who)).length : l.length, wk: wl.length, qRec, qSbs, qChans, last: l.map((r) => r.evalDate).sort().pop() || "" };
     }).sort((x, y) => x.team - y.team || x.a.localeCompare(y.a));
-    const ct = h("table", {}, h("tr", {}, [t("c_agent"), who ? t("mw_by_me") : null, t("mw_team_month"), t("mw_last")].filter(Boolean).map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
-    cov.forEach((c) => ct.append(h("tr", {}, h("td", { text: c.a }), who ? h("td", { class: "num", text: c.mine }) : null,
+    const ct = h("table", {}, h("tr", {}, [t("c_agent"), who ? t("mw_by_me") : null, t("mw_team_month"), t("mw_wk_this"), t("mw_q_rec"), t("mw_q_sbs"), t("mw_q_chan"), t("mw_last")].filter(Boolean).map((x, i) => h("th", { class: i ? "num" : "", text: x }))));
+    cov.forEach((c) => ct.append(h("tr", {},
+      h("td", {}, c.a, c.isNew ? h("span", { class: "pill info", style: "margin-inline-start:6px", title: t("newhire_tip", { d: c.ci.certDate }), text: t("newhire_days_tag", { n: c.ci.newDaysLeft }) }) : null),
+      who ? h("td", { class: "num", text: c.mine }) : null,
+
       h("td", { class: "num" }, h("span", { class: "pill " + (target && c.team >= target ? "good" : c.team ? "info" : "bad"), dir: "ltr", text: target ? c.team + " / " + target : String(c.team) })),
-      h("td", { class: "num", dir: "ltr", text: c.last || "–" }))));
+      h("td", { class: "num" }, c.isNew ? h("span", { class: "pill " + (c.wk >= 1 ? "good" : "bad"), dir: "ltr", text: c.wk + " / 1" }) : h("span", { class: "meta", dir: "ltr", text: String(c.wk) })),
+      h("td", { class: "num" }, h("span", { class: "pill " + (c.qRec >= 1 ? "good" : "bad"), dir: "ltr", text: (c.qRec >= 1 ? "✓ " : "✗ ") + c.qRec })),
+      h("td", { class: "num" }, h("span", { class: "pill " + (c.qSbs >= 1 ? "good" : "bad"), dir: "ltr", text: (c.qSbs >= 1 ? "✓ " : "✗ ") + c.qSbs })),
+      h("td", { class: "num" }, h("span", { class: "pill " + (c.qChans.length >= activeForms.length ? "good" : c.qChans.length ? "warn" : "bad"), text: c.qChans.length ? c.qChans.map(formName).join(" + ") : "0 / " + activeForms.length })),
+      h("td", { class: "num", dir: "ltr", text: c.last || "-" }))));
+
+
+
+
     const missing = target ? cov.filter((c) => c.team < target).length : 0;
     section("#mwCoverage", t("mw_cov_title", { m: (per === "lastmonth" ? t("mw_last_month") : t("mw_this_month")) }),
       target ? t("mw_cov_hint", { n: target, k: missing }) : t("mw_cov_hint0"), cov.length ? ct : h("div", { class: "empty", text: t("none_yet") }));
@@ -2003,13 +2123,13 @@
   }
   function recordRows(list) {
     const head = ["Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
-      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "KB version", "Evaluation date", "Edited by", "Random pick history"];
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
       r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
-      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", isCoached(r) ? "Yes" : (needsCoaching(r) ? "Pending" : ""), r.coachedAt || "", r.coachedBy || "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
   }
   // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
   const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;
@@ -2087,6 +2207,65 @@
     return "Certified";
   }
 
+  // Evaluate an agent's certification attempt on a list of calls and role-plays.
+  // If the agent failed an earlier certification attempt and did a recertification (more than CERT.minCalls calls),
+  // the latest CERT.minCalls calls are evaluated so the old failed attempt doesn't block passing recertification.
+  function evalAgentCert(agent, rawCalls, rawRps) {
+    const sortChron = (a, b) => (callDay(a) || a.evalDate || "").localeCompare(callDay(b) || b.evalDate || "") || String(a.savedAt || "").localeCompare(String(b.savedAt || ""));
+    const callsAll = (rawCalls || []).slice().sort(sortChron);
+    const rpsAll = (rawRps || []).slice().sort(sortChron);
+    const rps = CERT.rolePlays ? rpsAll.slice(-CERT.rolePlays) : [];
+    const calc = (list, recert) => {
+      const fin = list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined);
+      let ok = 0, n = 0;
+      list.forEach((r) => (r.items || []).forEach((it) => {
+        if (!it.result || it.result === "N/A" || !isOdoo(itemDef(r.form, it), it)) return;
+        n++; if (it.result === "Met" || it.result === "No error") ok++;
+      }));
+      const c = { agent, calls: list.length, avg: avg(fin), crit: list.filter((r) => r.critical > 0).length,
+        odoo: n ? ok / n : null, odooN: n, rps, recert: !!recert, usedCalls: list };
+      c.decision = certDecision(c);
+      return c;
+    };
+    let c = calc(callsAll, false);
+    if (callsAll.length > CERT.minCalls && c.decision !== "Certified") {
+      const latest = calc(callsAll.slice(-CERT.minCalls), true);
+      const rank = { Certified: 3, Conditional: 2, "Not certified": 1, Pending: 0 };
+      if (rank[latest.decision] >= rank[c.decision]) c = latest;
+    }
+    // Passed certification date: ONLY when decision === "Certified" (Passed!).
+    const passItems = c.decision === "Certified" ? [...c.usedCalls.slice(-CERT.minCalls), ...rps] : [];
+    c.passedDate = passItems.length ? passItems.map((r) => r.evalDate || callDay(r)).filter(Boolean).sort().pop() || "" : "";
+    return c;
+  }
+
+  // Automatic 30-day New Hire & 365-day Annual Reverification tracker from PASSED Certification date.
+  // An agent is only counted as certified once they PASS certification (decision === "Certified", or manual certDates override).
+  function agentCertInfo(agent, allRecs, refYmd, formFilter) {
+    const recs = (allRecs || allRecords()).filter((r) => !r.test && !r.sampleRef && r.agent === agent && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random");
+    const forms = formFilter ? [formFilter] : Object.keys(F.forms);
+    let autoDate = "";
+    forms.forEach((f) => {
+      const fRecs = recs.filter((r) => r.form === f);
+      const certCalls = fRecs.filter((r) => !r.rolePlay && purposeOf(r) === "certcall");
+      const rps = fRecs.filter((r) => r.rolePlay);
+      // Only auto-derive certification from records if the agent has certification evaluations (certcall or roleplay).
+      if (!certCalls.length && !rps.length) return;
+      const calls = certCalls.length ? certCalls : fRecs.filter((r) => !r.rolePlay);
+      const res = evalAgentCert(agent, calls, rps);
+      if (res.decision === "Certified" && res.passedDate > autoDate) autoDate = res.passedDate;
+    });
+    const manualDate = (roster.certDates || {})[agent] || "";
+    const certDate = [autoDate, manualDate].filter(Boolean).sort().pop() || "";
+    const ref = refYmd || today();
+    const daysSince = certDate ? Math.floor((new Date(ref + "T12:00:00") - new Date(certDate + "T12:00:00")) / 864e5) : null;
+    const isNew = !!(certDate && daysSince !== null && daysSince >= 0 && daysSince <= 30);
+    const newDaysLeft = isNew ? 30 - daysSince : 0;
+    const expDate = certDate ? addDays(certDate, 365) : "";
+    const annualDaysLeft = expDate ? Math.ceil((new Date(expDate + "T12:00:00") - new Date(today() + "T12:00:00")) / 864e5) : null;
+    return { certified: !!certDate, certDate, autoDate, manualDate, daysSince, isNew, newDaysLeft, expDate, annualDaysLeft };
+  }
+
   function renderCertification() {
     const out = $("#ctOut"); if (!out) return;
     const sel = $("#ctForm");
@@ -2105,7 +2284,8 @@
       });
       box.append(h("label", {}, t(label), i));
     });
-    const from = $("#ctFrom").value, to = $("#ctTo").value;
+    const from = $("#ctFrom").value, to = $("#ctTo").value, mode = ($("#ctMode") && $("#ctMode").value) || "initial";
+    const allForm = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent);
     const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent &&
       (!from || callDay(r) >= from) && (!to || callDay(r) <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
@@ -2127,8 +2307,19 @@
         n++; if (it.result === "Met" || it.result === "No error") ok++;
       }));
       const rps = CERT.rolePlays ? rpAll.filter((r) => r.agent === agent).sort((a, b) => (a.savedAt || "").localeCompare(b.savedAt || "")).slice(-CERT.rolePlays) : [];
-      const c = { agent, calls: list.length, avg: avg(fin), crit: list.filter((r) => r.critical > 0).length,
-        odoo: n ? ok / n : null, odooN: n, rps, notes: (certInputs[agent] || {}).notes || "" };
+      const evCert = evalAgentCert(agent, list, rpAll.filter((r) => r.agent === agent));
+      const ci = agentCertInfo(agent, allForm, today(), sel.value);
+      const lastCert = [ci.certDate, evCert.passedDate].filter(Boolean).sort().pop() || "";
+      const expDate = lastCert ? addDays(lastCert, 365) : "";
+      const daysLeft = expDate ? Math.ceil((new Date(expDate + "T12:00:00") - new Date(today() + "T12:00:00")) / 864e5) : null;
+
+
+      const c = Object.assign(evCert, { lastCert, expDate, daysLeft, notes: (certInputs[agent] || {}).notes || "" });
+
+
+
+
+
       c.decision = certDecision(c);
       return c;
     });
@@ -2139,17 +2330,19 @@
     const useOdoo = CERT.odoo > 0;
     const th = (text, num) => h("th", { class: num ? "num" : "", text });
     const tbl = h("table", { class: "cert" }, h("tr", {}, th(t("c_agent")), th(t("c_calls"), 1), th(t("c_live"), 1), th(t("c_crit_live"), 1),
-      useOdoo ? th(t("c_odoo"), 1) : null, rpIdx.map((i) => th(t("c_rp", { n: i + 1 }), 1)), th(t("c_decision")), th(t("c_notes"))));
+      useOdoo ? th(t("c_odoo"), 1) : null, rpIdx.map((i) => th(t("c_rp", { n: i + 1 }), 1)), mode === "annual" ? th(t("c_last_cert")) : null, mode === "annual" ? th(t("c_annual_status")) : null, th(t("c_decision")), th(t("c_notes"))));
     rows.forEach((c) => {
       const notes = h("input", { value: c.notes, placeholder: t("c_notes_ph"), "aria-label": t("c_notes") + " · " + c.agent });
       notes.addEventListener("change", () => { (certInputs[c.agent] = certInputs[c.agent] || {}).notes = notes.value; store(LS_CERT, certInputs); });
       tbl.append(h("tr", {},
         h("td", { text: c.agent }),
-        h("td", { class: "num" + (c.calls < CERT.minCalls ? " short" : ""), dir: "ltr", text: c.calls + " / " + CERT.minCalls }),
+        h("td", { class: "num" + (c.calls < CERT.minCalls ? " short" : ""), dir: "ltr", text: c.calls + " / " + CERT.minCalls + (c.recert ? t("recert_note", { n: CERT.minCalls }) : "") }),
         h("td", { class: "num", text: pct(c.avg) }),
         h("td", { class: "num", text: c.crit }),
         useOdoo ? h("td", { class: "num", title: t("c_odoo_tip", { n: c.odooN }), text: pct(c.odoo) }) : null,
         rpIdx.map((i) => h("td", { class: "num" }, rpCell(c.rps[i]))),
+        mode === "annual" ? h("td", { dir: "ltr", text: c.lastCert || "–" }) : null,
+        mode === "annual" ? h("td", {}, !c.lastCert ? h("span", { class: "pill na", text: t("annual_none") }) : c.daysLeft >= 0 ? h("span", { class: "pill " + (c.daysLeft <= 30 ? "warn" : "good"), text: t("annual_valid", { d: c.expDate, n: c.daysLeft }) }) : h("span", { class: "pill bad", text: t("annual_due", { d: c.expDate }) })) : null,
         h("td", {}, h("span", { class: "pill " + cls[c.decision], text: t("d_" + c.decision) })),
         h("td", {}, notes)));
     });
@@ -2284,6 +2477,7 @@
     };
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
+    if ($("#setCoachSla")) $("#setCoachSla").value = teamCfg.coachingSlaHours || 48;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#setSenderName").value = teamCfg.senderName || "Quality Team";
@@ -2294,8 +2488,11 @@
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
       if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
+
+
       const sn = $("#setSenderName").value.trim() || "Quality Team";
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -2305,9 +2502,14 @@
       if (!roster[role].length) rl.append(h("div", { class: "hint", text: t("none_yet") }));
       const own = isOwner();
       rl.append(h("ul", { class: "names" }, roster[role].map((name) => h("li", {},
+
+
         h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
-          own ? h("small", { class: "meta email", dir: "ltr", text: emailsFor(role)[name] || t("no_email") }) : null,
+          role === "agents" && agentCertInfo(name).isNew ? h("span", { class: "pill info", style: "margin-inline-start:4px", title: t("newhire_tip", { d: agentCertInfo(name).certDate }), text: t("newhire_days_tag", { n: agentCertInfo(name).newDaysLeft }) }) : null,
+          own ? h("small", { class: "meta email", dir: "ltr", text: (emailsFor(role)[name] || t("no_email")) + (role === "agents" ? " · " + t("off_tag") + ": " + ((roster.daysOff || {})[name] || t("off_none")) + (agentCertInfo(name).certDate ? " · ✓ " + t("certdate_tag") + ": " + agentCertInfo(name).certDate : "") : "") }) : null,
           null),
+        own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("newhire_btn"), onclick: () => setCertDate(name) }) : null,
+        own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("off_btn"), onclick: () => setDaysOff(name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("remove"), onclick: () => removePerson(role, name) }) : null))));
@@ -2336,6 +2538,33 @@
   }
 
   // Agent's email for the automatic result email (stored in the Roster tab, column D).
+  async function setDaysOff(name) {
+    const cur = (roster.daysOff || {})[name] || "";
+    const v = prompt(t("off_prompt", { n: name }), cur);
+    if (v === null) return;
+    if (!connected()) { alert(t("email_needs_sheet")); return; }
+    try {
+      const j = await apiPostJson({ action: "setDaysOff", name, days: v.trim() });
+      roster.daysOff = Object.assign({}, roster.daysOff);
+      if (j.days) roster.daysOff[name] = j.days; else delete roster.daysOff[name];
+      store(LS_ROSTER, roster); renderSettings();
+    } catch (e) { alert(t("name_failed", { e: e.message })); }
+  }
+  async function setCertDate(name) {
+    if (!connected()) { alert(t("email_needs_sheet")); return; }
+    const ci = agentCertInfo(name);
+    const cur = (roster.certDates || {})[name] || ci.autoDate || "";
+    const v = prompt(t("certdate_prompt", { n: name }), cur);
+    if (v === null) return;
+    const cd = v.trim().slice(0, 10);
+    if (cd && !/^\d{4}-\d{2}-\d{2}$/.test(cd)) { alert("YYYY-MM-DD"); return; }
+    try {
+      await apiPostJson({ action: "setCertDate", name, certDate: cd });
+      roster.certDates = Object.assign({}, roster.certDates);
+      if (cd) roster.certDates[name] = cd; else delete roster.certDates[name];
+      store(LS_ROSTER, roster); renderSettings(); renderMyWork(); renderCertification();
+    } catch (e) { alert(t("name_failed", { e: e.message })); }
+  }
   const emailsFor = (role) => (role === "agents" ? roster.emails : roster.evalEmails) || {};
   async function setEmail(role, name) {
     const cur = emailsFor(role)[name] || "";
@@ -2398,7 +2627,7 @@
     $("#kbAdd").onclick = addKbUpdate;
     ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
-    ["#ctForm", "#ctFrom", "#ctTo"].forEach((s) => $(s).addEventListener("input", renderCertification));
+    ["#ctMode", "#ctForm", "#ctFrom", "#ctTo"].forEach((s) => { if ($(s)) $(s).addEventListener("input", renderCertification); });
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
     $("#btnPrintGuide").onclick = () => exportPdf("guide");
     $("#calAgreed").addEventListener("input", renderCalibration);

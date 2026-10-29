@@ -247,3 +247,10 @@ tr.muted td { color: var(--muted); }
 .pick-out { background: var(--brand-soft); border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }
 .meta.warn { color: #b45309; cursor: help; }
 .mail-cta { margin-top: 10px; padding: 12px 14px; border: 2px solid #f59e0b; border-radius: 12px; background: rgba(245, 158, 11, 0.08); display: flex; flex-direction: column; gap: 6px; }
+#dbAlerts[hidden], #mwAlerts[hidden] { display: none; }
+.copc-crit-box { background: var(--bad-soft); border: 1.5px solid var(--bad); border-radius: 8px; padding: 10px 14px; margin: 10px 0; color: var(--bad); }
+.copc-crit-box h3 { margin: 0 0 6px; font-size: 14px; color: var(--bad); }
+.copc-crit-box ul { margin: 0; padding-inline-start: 20px; font-size: 13px; font-weight: 600; }
+.copc-pass-stat { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--ok); }
+.meta.ok-txt { color: var(--ok); font-weight: 600; }
+.meta.bad-txt { color: var(--bad); font-weight: 600; }

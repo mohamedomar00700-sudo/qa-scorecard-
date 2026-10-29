@@ -47,6 +47,7 @@ function roster_() {
   }
   if (!sh.getRange(1, 4).getValue()) sh.getRange(1, 4).setValue('Email').setFontWeight('bold');
   if (!sh.getRange(1, 5).getValue()) sh.getRange(1, 5).setValue('Days off (e.g. Fri, Sat)').setFontWeight('bold');
+  if (!sh.getRange(1, 6).getValue() || sh.getRange(1, 6).getValue() === 'New hire (Yes / No)') sh.getRange(1, 6).setValue('Certified date (YYYY-MM-DD)').setFontWeight('bold');
   return sh;
 }
 
@@ -60,9 +61,9 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {}, daysOff: {} };
+  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {} };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
@@ -71,6 +72,8 @@ function readRoster_() {
       out.agents.push(name);
       if (String(r[3] || '').trim()) out.emails[name] = String(r[3]).trim();
       if (String(r[4] || '').trim()) out.daysOff[name] = String(r[4]).trim();
+      const cd = r[5] instanceof Date ? Utilities.formatDate(r[5], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(r[5] || '').trim().slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cd)) out.certDates[name] = cd;
     }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -192,6 +195,23 @@ function setDaysOff_(name, days) {
       if (roleMatches_(rows[i][1], 'agents') && nameKey_(rows[i][0]) === nameKey_(name)) {
         ro.getRange(i + 2, 5).setValue(v);
         return { ok: true, days: v };
+      }
+    }
+  }
+  return { ok: false, error: 'Agent not found' };
+}
+
+function setCertDate_(name, certDate) {
+  const cd = String(certDate || '').trim().slice(0, 10);
+  if (cd && !/^\d{4}-\d{2}-\d{2}$/.test(cd)) return { ok: false, error: 'Bad date (use YYYY-MM-DD)' };
+  const ro = roster_();
+  if (ro.getLastRow() > 1) {
+    const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (roleMatches_(rows[i][1], 'agents') && nameKey_(rows[i][0]) === nameKey_(name)) {
+        ro.getRange(i + 2, 6).setValue(cd ? "'" + cd : '');
+        return { ok: true, certDate: cd };
+
       }
     }
   }
@@ -575,13 +595,17 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
   const n = Number(c && c.monthlyTarget);
   if (!(n >= 0 && n <= 100)) return { ok: false, error: 'Bad target' };
   cur.monthlyTarget = Math.round(n);
+  if (c.coachingSlaHours !== undefined) {
+    const sla = Number(c.coachingSlaHours);
+    if (sla >= 1 && sla <= 720) cur.coachingSlaHours = Math.round(sla);
+  }
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
   if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
@@ -622,13 +646,14 @@ function doPost(e) {
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
     if (!me) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
-    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setDaysOff: 1, setConfig: 1 };
+    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setDaysOff: 1, setCertDate: 1, setConfig: 1 };
     if ((ownerOnly[body.action] || (body.action === 'addPerson' && body.role === 'evaluators')) && !me.owner) return reply_({ ok: false, error: 'not_owner' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
     if (body.action === 'removePerson') return reply_(removePerson_(body.role, body.name));
     if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
     if (body.action === 'setDaysOff') return reply_(setDaysOff_(body.name, body.days));
+    if (body.action === 'setCertDate') return reply_(setCertDate_(body.name, body.certDate));
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'updateRecord') {
@@ -673,7 +698,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
