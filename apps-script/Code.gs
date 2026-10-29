@@ -206,15 +206,26 @@ function pct_(x) {
   return x === null || x === undefined || x === '' ? '–' : Math.round(Number(x) * 1000) / 10 + '%';
 }
 
-// Score split by category for the result email: Part A met/applicable, then each critical bucket.
+// Score split by category for the result email: Part A met/applicable, then each critical bucket with % view.
 function catRows_(r, row) {
   const its = r.items || [];
   const nc = its.filter(function (i) { return i.kind === 'NC' && i.result && i.result !== 'N/A'; });
   let out = row('البنود العادية (NC)', pct_(r.ncScore) + ' (' + nc.filter(function (i) { return i.result === 'Met'; }).length + ' من ' + nc.length + ')');
-  [['CC', 'الكومبلاينس الحرجة (CC)'], ['EU', 'الحرجة للعميل (EU)'], ['BC', 'الحرجة للبيزنس (BC)']].forEach(function (b) {
+  const buckets = [
+    ['CC', 'دقة الكومبلاينس (CC)', r.cc],
+    ['EU', 'دقة العميل (EU)', r.eu],
+    ['BC', 'دقة البيزنس (BC)', r.bc]
+  ];
+  buckets.forEach(function (b) {
     const list = its.filter(function (i) { return i.kind === b[0] && i.result && i.result !== 'N/A'; });
     const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
-    out += row(b[1], !list.length ? 'مش منطبق' : errs ? '<span style="color:#c62828">✗ ' + errs + ' غلطة</span>' : '<span style="color:#1a7f37">✓ مفيش أخطاء</span>');
+    if (!list.length) {
+      out += row(b[1], 'مش منطبق');
+    } else {
+      const scorePct = pct_(b[2] !== undefined && b[2] !== null && b[2] !== '' ? b[2] : (errs ? 0 : 1));
+      const status = errs ? '<span style="color:#c62828">' + scorePct + ' (✗ ' + errs + ' ' + (errs === 1 ? 'غلطة' : 'أخطاء') + ')</span>' : '<span style="color:#1a7f37">' + scorePct + ' (✓ مفيش أخطاء)</span>';
+      out += row(b[1], status);
+    }
   });
   return out;
 }
@@ -238,11 +249,12 @@ function emailAgent_(r) {
     const missed = (r.items || []).filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; });
     const fb = r.feedback || {};
     const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
+    const critPct = r.critical ? '<span style="color:#c62828">0% (' + r.critical + ' ' + (r.critical === 1 ? 'غلطة' : 'أخطاء') + ')</span>' : '<span style="color:#1a7f37">100% (مفيش أخطاء)</span>';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
-      row('أخطاء حرجة', esc_(r.critical || 0)) +
+      row('دقة البنود الحرجة', critPct) +
       catRows_(r, row) +
       row('المقيّم', esc_(r.evaluator)) + '</table>';
     if (r.callTag === 'wow') html += '<p style="background:#fff4d6;padding:8px 12px;border-radius:6px">🌟 <b>مكالمة Wow!</b> المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.</p>';
@@ -253,8 +265,9 @@ function emailAgent_(r) {
     if (fb.improve) html += '<p><b>محتاج تحسين:</b><br><span dir="auto">' + esc_(fb.improve) + '</span></p>';
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
+    const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
     const mail = { to: to, subject: (coaching ? 'فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ') + form + ' – ' + when.slice(0, 10) + (coaching ? '' : ' – ' + pct_(r.final)),
-      htmlBody: html, name: (r.evaluator ? r.evaluator + ' – ' : '') + 'Quality' };
+      htmlBody: html, name: senderName };
     const cc = [evEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
     if (evEmail) mail.replyTo = evEmail;
     if (cc.length) mail.cc = cc.join(',');
@@ -545,7 +558,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -563,6 +576,10 @@ function setConfig_(c) {
     const cc = String(c.ccResults).split(/[,;\s]+/).filter(String);
     if (cc.length > 10 || cc.some(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); })) return { ok: false, error: 'Bad CC' };
     cur.ccResults = cc.join(', ');
+  }
+  if (c.senderName !== undefined) {
+    const sn = String(c.senderName).trim().slice(0, 60);
+    cur.senderName = sn || 'Quality Team';
   }
   PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
   return { ok: true, config: cur };

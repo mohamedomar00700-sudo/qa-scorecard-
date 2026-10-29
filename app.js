@@ -91,9 +91,9 @@
 
   // ---------- settings ----------
   const CFG = window.QA_CONFIG || {};
-  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "outlookweb" }, store(LS_SETTINGS) || {});
-  // Result emails go out from each evaluator's own mailbox; the automatic Gmail send is kept for the owner only (moved over once).
-  if (!settings.mailV2) { if (settings.mail === "auto") settings.mail = "outlookweb"; settings.mailV2 = true; store(LS_SETTINGS, settings); }
+  const settings = Object.assign({ url: "", key: "", session: "", email: "", who: "", owner: false, evaluator: "", mail: "auto" }, store(LS_SETTINGS) || {});
+  // Result emails default to unified automatic sending from the tool (Quality Team) for all evaluators.
+  if (!settings.mailV3) { settings.mail = "auto"; settings.mailV3 = true; store(LS_SETTINGS, settings); }
   if (CFG.sheetUrl && (!settings.url || (CFG.oldSheetUrls || []).includes(settings.url))) {
     settings.url = CFG.sheetUrl;
     if (settings.key || settings.session) store(LS_SETTINGS, settings);
@@ -104,7 +104,7 @@
   // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
   // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
   const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
-  const mailMode = () => (settings.mail === "auto" && !isOwner() ? "outlookweb" : settings.mail || "outlookweb");
+  const mailMode = () => settings.mail || "auto";
   const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
   let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
@@ -952,14 +952,20 @@
   const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
-  // Score split by category for result emails: Part A (non-critical) met/applicable, then each critical bucket.
+  // Score split by category for result emails: Part A (non-critical) met/applicable, then each critical bucket with % view.
   function catBreakdown(r) {
     const its = r.items || [];
     const nc = its.filter((i) => i.kind === "NC" && i.result && i.result !== "N/A");
     const lines = [tx("- البنود العادية (NC): ", "- Non-critical (NC): ") + pct(r.ncScore) + " (" + nc.filter((i) => i.result === "Met").length + tx(" من ", " of ") + nc.length + ")"];
-    [["CC", "الكومبلاينس الحرجة (CC)", "Compliance critical (CC)"], ["EU", "الحرجة للعميل (EU)", "End-user critical (EU)"], ["BC", "الحرجة للبيزنس (BC)", "Business critical (BC)"]].forEach(([k, ar, en]) => {
+    [["CC", "دقة الكومبلاينس (CC)", "Compliance accuracy (CC)", r.cc], ["EU", "دقة العميل (EU)", "End-user accuracy (EU)", r.eu], ["BC", "دقة البيزنس (BC)", "Business critical accuracy (BC)", r.bc]].forEach(([k, ar, en, scoreVal]) => {
       const list = its.filter((i) => i.kind === k && i.result && i.result !== "N/A"), errs = list.filter((i) => i.result === "Error").length;
-      lines.push("- " + tx(ar, en) + ": " + (list.length ? (errs ? "✗ " + errs + tx(" غلطة", errs > 1 ? " errors" : " error") : "✓ " + tx("مفيش أخطاء", "no errors")) + " (" + list.length + tx(" بند", " items") + ")" : tx("مش منطبق", "not applicable")));
+      if (!list.length) {
+        lines.push("- " + tx(ar, en) + ": " + tx("مش منطبق", "not applicable"));
+      } else {
+        const scorePct = pct(scoreVal !== undefined && scoreVal !== null && scoreVal !== "" ? scoreVal : (errs ? 0 : 1));
+        const detail = errs ? (tx("✗ ", "✗ ") + errs + tx(errs === 1 ? " غلطة" : " أخطاء", errs === 1 ? " error" : " errors")) : (tx("✓ مفيش أخطاء", "✓ no errors"));
+        lines.push("- " + tx(ar, en) + ": " + scorePct + " (" + detail + ")");
+      }
     });
     return lines;
   }
@@ -980,14 +986,15 @@
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
-      tx("أخطاء حرجة: ", "Critical errors: ") + (r.critical || 0), "", tx("تقسيم التقييم:", "Score by category:"), ...catBreakdown(r)];
+      tx("دقة البنود الحرجة: ", "Critical accuracy: ") + (r.critical ? tx("0% (" + r.critical + (r.critical === 1 ? " غلطة)" : " أخطاء)"), "0% (" + r.critical + (r.critical === 1 ? " error)" : " errors)")) : tx("100% (مفيش أخطاء)", "100% (no errors)")), "",
+      tx("تقسيم التقييم:", "Score by category:"), ...catBreakdown(r)];
     if (r.callTag === "wow") lines.push("", tx("🌟 مكالمة Wow! المكالمة دي اتختارت كمثال مميز في مكتبة التدريب. برافو عليك.", "🌟 Wow call! This call was picked as a standout example for the training library. Well done."));
     if (r.callTag === "good") lines.push("", tx("👍 مكالمة كويسة جداً واتحطت كمثال في مكتبة التدريب. استمر.", "👍 A very good call, added as an example to the training library. Keep it up."));
     if (missed.length) lines.push("", tx("البنود اللي محتاجة تتظبط:", "Items to work on:"), ...missed.map((i) => "- " + i.text + (i.comment ? " – " + i.comment : "")));
     if (fb.strengths) lines.push("", tx("نقاط القوة:", "Strengths:"), fb.strengths);
     if (fb.improve) lines.push("", tx("محتاج تحسين:", "Areas to improve:"), fb.improve);
     if (fb.coaching) lines.push("", tx("نصيحة للمرة الجاية:", "Tip for next time:"), fb.coaching);
-    lines.push("", tx("لو عندك أي سؤال على التقييم كلّمني.", "If you have any question about this evaluation, let me know."), "", r.evaluator || "");
+    lines.push("", tx("لو عندك أي سؤال على التقييم كلّمني.", "If you have any question about this evaluation, let me know."), "", (r.evaluator ? r.evaluator + " – " : "") + tx("فريق الجودة", "Quality Team"));
     return { subject, body: lines.join("\n") };
   }
   function composeMail(to, subject, body, cc) {
@@ -2235,9 +2242,7 @@
   function renderSettings() {
     $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
     const mm = $("#setMail");
-    mm.querySelector('option[value="auto"]').hidden = !isOwner();
-    if (!isOwner() && settings.mail === "auto") { settings.mail = "outlookweb"; store(LS_SETTINGS, settings); }
-    mm.value = settings.mail || "outlookweb";
+    mm.value = settings.mail || "auto";
     mm.onchange = () => { settings.mail = mm.value; store(LS_SETTINGS, settings); };
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
@@ -2270,6 +2275,7 @@
     $("#setTarget").value = teamCfg.monthlyTarget;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
+    $("#setSenderName").value = teamCfg.senderName || "Quality Team";
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
@@ -2277,7 +2283,8 @@
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
       if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", ") } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
+      const sn = $("#setSenderName").value.trim() || "Quality Team";
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
