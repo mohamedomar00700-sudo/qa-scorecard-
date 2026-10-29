@@ -979,9 +979,16 @@
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
-    const subject = (coaching ? tx("فيدباك – ", "Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
-      form + " – " + when.slice(0, 10) + (coaching ? "" : " – " + pct(r.final));
-    const lines = [tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
+    const pass = r.result === "Pass";
+    const statusTag = coaching ? "" : (pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
+    const subject = (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – ")) +
+      form + " – " + when.slice(0, 10) + statusTag;
+    const topBanner = coaching
+      ? tx("💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)", "💡 Coaching feedback (not counted in your score)")
+      : pass
+        ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء ممتاز والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Great job, keep it up!")
+        : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
+    const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
       (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
