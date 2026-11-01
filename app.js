@@ -1842,7 +1842,8 @@
         tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
           h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
       });
-      kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb));
+      kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb),
+        h("button", { type: "button", class: "ghost", text: t("co_open_page"), onclick: () => { $('nav button[data-view="coaching"]').click(); window.scrollTo(0, 0); } }));
     }
     kids.push(h("p", { class: "copc-pass-stat", text: t("copc_pass_coached_stat", { a: passedCoached, b: passed.length, p: passed.length ? pct(passedCoached / passed.length) : "0%" }) }));
     box.append(...kids);
