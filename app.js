@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -327,6 +327,7 @@
         if (key === "evaluator" && input.value) { settings.evaluator = input.value; store(LS_SETTINGS, settings); }
         a.header[key] = input.value;
         if (key === "type") { applyType(); renderItems(); }
+        if (key === "evaluator") { saveDraft(); renderHeader(); return; } // the evaluation level depends on who scores (Quality vs operations)
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
         if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; } saveDraft(); renderHeader(); return; }
@@ -396,6 +397,7 @@
 
   // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
   // plus a "test" switch. Tests are kept apart from the dashboard and certification.
+  const isQualityName = (n) => !!n && (roster.quality || []).some((q) => nameKey(q) === nameKey(n));
   const purposeOf = (hd) => hd.purpose || (hd.rolePlay ? "roleplay" : hd.sampleRef ? "calibration" : "live");
   const ymd = (d) => d.replace(/-/g, "");
   function sampleRefs() {
@@ -440,7 +442,13 @@
       if (p === "postcoach") { hd.selection = "targeted"; delete hd.pick; delete hd.pickAgent; } else { delete hd.followOf; delete hd.followOfId; }
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    // Quality scores Program level, operations score Agent level (the owner can pick either).
+    const evName = hd.evaluator || settings.evaluator || "";
+    const isQ = isQualityName(evName), isOwn = (roster.owners || []).some((n) => nameKey(n) === nameKey(evName));
+    const levels = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"]
+      .filter((p) => !(p === "live" && isQ) && !(p === "program" && !isQ && !isOwn && evName));
+    if (!levels.includes(hd.purpose)) { hd.purpose = isQ ? "program" : "live"; saveDraft(); }
+    const sel = h("select", { id: "hd_purpose" }, levels.map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
