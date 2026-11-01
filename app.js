@@ -853,7 +853,20 @@
     if (kind === "ok") toast.timer = setTimeout(() => (b.hidden = true), 6000);
   }
 
+  // One save at a time: a second click while the first is still saving used to store the same evaluation twice.
   async function onSave() {
+    if (onSave.busy) return;
+    const btn = $("#btnSave");
+    onSave.busy = true; if (btn) btn.disabled = true;
+    try { await saveOnce(); } finally { onSave.busy = false; if (btn) btn.disabled = false; }
+  }
+  // The same evaluator already saved this exact interaction (same agent, same call time, same form): a double save.
+  function sameEvaluatorDup(rec) {
+    if (rec.test || rec.sampleRef || !rec.agent || !rec.interactionDate) return null;
+    return allRecords().find((r) => r.id !== rec.id && !r.test && !r.sampleRef && r.form === rec.form && r.agent === rec.agent &&
+      (r.evaluator || "") === (rec.evaluator || "") && String(r.interactionDate) === String(rec.interactionDate) && purposeOf(r) === purposeOf(rec)) || null;
+  }
+  async function saveOnce() {
     const msg = $("#saveMsg"); msg.className = "msg";
     $("#toast").hidden = true;
     const problems = validate();
@@ -870,6 +883,12 @@
     const edit = current.edit;
     if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
     else {
+      const mine = sameEvaluatorDup(rec);
+      if (mine) {
+        msg.className = "msg err"; msg.textContent = t("dup_mine", { id: evalIdOf(mine) });
+        toast("err", msg.textContent);
+        return;
+      }
       const dup = findDuplicate(rec);
       if (dup && !confirm(t("dup_confirm", { e: dup.evaluator || "–", d: (dup.evalDate || "") }))) return;
     }
@@ -881,6 +900,13 @@
       try {
         const how = edit ? await apiPost({ action: "updateRecord", record: rec }) : await postRecord(rec);
         markSynced(rec.id);
+        // The server refused it as a double save of an evaluation it already has: keep only that one.
+        const dupOf = !edit && (apiPost.last || {}).duplicateOf;
+        if (dupOf) {
+          loaded.delete(rec.id); store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => r.id !== rec.id));
+          msg.className = "msg err"; msg.textContent = t("dup_mine", { id: dupOf }); toast("err", msg.textContent);
+          refreshViews(); return;
+        }
         msg.className = "msg ok"; msg.textContent = (edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet")) + " [" + evalIdOf(rec) + "]";
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });

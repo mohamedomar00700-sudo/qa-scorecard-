@@ -753,6 +753,8 @@ function doPost(e) {
       const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
       if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
       if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
+      const twin = sameEvaluatorTwin_(sh, r);
+      if (twin) return reply_({ ok: true, duplicateOf: twin });
       sh.appendRow(row_(r, new Date()));
       format_(sh, sh.getLastRow());
       syncItems_(r, new Date());
@@ -809,4 +811,21 @@ function purposeLabel_(r) {
   if (p === 'calibration' && /(^|-)RECAL-/.test(r.sampleRef || '')) return 'Recalibration';
   return ({ live: 'Agent level', certcall: 'Certification call', program: 'Program level', coaching: 'Extra target',
     postcoach: 'Passed call', calibration: 'Calibration', roleplay: 'Certification role-play' })[p] || p;
+}
+
+// A double save: the same evaluator already saved this interaction (same form, agent, call time and purpose).
+// Checks the newest 300 rows' Record JSON. Tests and calibration samples are never treated as doubles.
+function sameEvaluatorTwin_(sh, r) {
+  if (r.test || r.sampleRef || !r.agent || !r.interactionDate) return '';
+  const last = sh.getLastRow(); if (last < 2) return '';
+  const from = Math.max(2, last - 299);
+  const json = sh.getRange(from, JSON_COL, last - from + 1, 1).getValues();
+  const purpose = function (x) { return x.purpose || (x.rolePlay ? 'roleplay' : x.sampleRef ? 'calibration' : 'live'); };
+  for (let i = json.length - 1; i >= 0; i--) {
+    let x; try { x = JSON.parse(json[i][0]); } catch (e) { continue; }
+    if (!x || x.id === r.id || x.test || x.sampleRef) continue;
+    if (x.form === r.form && x.agent === r.agent && (x.evaluator || '') === (r.evaluator || '') &&
+        String(x.interactionDate) === String(r.interactionDate) && purpose(x) === purpose(r)) return x.id;
+  }
+  return '';
 }
