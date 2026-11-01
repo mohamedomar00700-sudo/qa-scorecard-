@@ -51,8 +51,20 @@ function roster_() {
   return sh;
 }
 
-// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
+// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator (Quality)', 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
+// Quality evaluators score Program level (never Agent level); the other evaluators (operations) score Agent level (never Program level).
 function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
+function isQualityRole_(v) { return /quality|\bqa\b|كواليتي|جودة/i.test(String(v || '')); }
+// Program level is for Quality, Agent level for operations: fix the level from who scored it.
+function levelFix_(r, ro) {
+  if (!r || r.test || r.sampleRef || r.rolePlay) return r;
+  const p = r.purpose || 'live', ev = nameKey_(r.evaluator);
+  const isQ = (ro.quality || []).some(function (n) { return nameKey_(n) === ev; });
+  const isOwner = (ro.owners || []).some(function (n) { return nameKey_(n) === ev; });
+  if (isQ && p === 'live') r.purpose = 'program';
+  else if (!isQ && !isOwner && p === 'program') r.purpose = 'live';
+  return r;
+}
 function roleMatches_(v, role) { return role === 'evaluators' ? isEvalRole_(v) : /^a/i.test(String(v || '').trim()); }
 
 function nameKey_(s) {
@@ -61,12 +73,13 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {} };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {} };
   if (sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
+    if (isEvalRole_(r[1]) && isQualityRole_(r[1])) out.quality.push(name);
     if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else {
       out.agents.push(name);
@@ -732,6 +745,7 @@ function doPost(e) {
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
       if (!me.owner) body.record.editedBy = me.name;
+      levelFix_(body.record, readRoster_());
       return reply_(updateRecord_(body.record));
     }
     if (body.action === 'sendCoaching') {
@@ -745,6 +759,8 @@ function doPost(e) {
     const r = body.record;
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     if (!me.owner) r.evaluator = me.name; // a signed-in evaluator always saves under their own name
+    const fixedFrom = r.purpose || 'live';
+    levelFix_(r, readRoster_());
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     const sh = sheet_();
@@ -763,7 +779,7 @@ function doPost(e) {
     }
     const note = emailAgent_(r);
     if (note) { const at = findRow_(sh, r.id); if (at !== -1) sh.getRange(at, COLUMNS.length).setValue(note); }
-    return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note });
+    return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note, purpose: (r.purpose || 'live') !== fixedFrom ? r.purpose : undefined });
   } catch (err) {
     return reply_({ ok: false, error: String(err) });
   }
@@ -777,7 +793,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
