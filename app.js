@@ -1931,6 +1931,58 @@
     box.hidden = false;
   }
 
+  // COPC 3.4.1 monitoring coverage per agent:
+  //   (a) every agent monitored at least once a month;
+  //   (b) every quarter at least one side-by-side and one remote (recording) session;
+  //   (c) new agents monitored at least once a week for their first month on the task (counted from the certification date).
+  // Calibration copies, role plays and test evaluations are not monitoring of real interactions, so they don't count.
+  function renderCoverage(boxId, allRecs, onlyAgent) {
+    const box = $(boxId); if (!box) return;
+    box.innerHTML = "";
+    const mon = (allRecs || []).filter((r) => !r.test && r.agent && !["calibration", "roleplay"].includes(purposeOf(r)) && callDay(r));
+    const agents = [...new Set([...(roster.agents || []), ...mon.map((r) => r.agent)])].filter((a) => !onlyAgent || a === onlyAgent).sort((a, b) => a.localeCompare(b));
+    if (!agents.length) { box.hidden = true; return; }
+    const now = today(), month = now.slice(0, 7);
+    const qStartM = Math.floor((+now.slice(5, 7) - 1) / 3) * 3 + 1, qStart = now.slice(0, 4) + "-" + String(qStartM).padStart(2, "0") + "-01";
+    const qName = "Q" + ((qStartM + 2) / 3) + " " + now.slice(0, 4);
+    const ok = (x) => h("span", { class: "pill good", text: "✓ " + x }), bad = (x) => h("span", { class: "pill bad", text: "✗ " + x }), wait = (x) => h("span", { class: "pill warn", text: "⏳ " + x });
+    let gaps = 0, todo = 0;
+    const tbl = h("table", {}, h("tr", {}, [tx("الإيجنت", "Agent"), tx("الشهر ده", "This month"), tx("ريكوردنج (", "Recording (") + qName + ")", tx("سايد باي سايد (", "Side by side (") + qName + ")", tx("أول شهر بعد السيرتيفيكيشن: كل أسبوع", "First month after certification: weekly")].map((x) => h("th", { text: x }))));
+    agents.forEach((a) => {
+      const mine = mon.filter((r) => r.agent === a);
+      const m = mine.filter((r) => callDay(r).slice(0, 7) === month).length;
+      const q = mine.filter((r) => callDay(r) >= qStart);
+      const rec = q.filter((r) => (r.method || "recording") === "recording").length, sbs = q.filter((r) => r.method === "sidebyside").length;
+      // Weekly in the first 4 weeks after the certification date.
+      const ci = agentCertInfo(a, allRecs), start = ci.certDate;
+      let weekCell = h("span", { class: "meta", text: start ? tx("خلص أول شهر", "First month done") : tx("مفيش تاريخ سيرتيفيكيشن", "No certification date") });
+      if (start && start <= now && now < addDays(start, 28)) {
+        const marks = [];
+        for (let i = 0; i < 4; i++) {
+          const from = addDays(start, 7 * i), to = addDays(start, 7 * i + 7);
+          if (from > now) { marks.push(h("span", { class: "pill na", text: tx("أسبوع ", "W") + (i + 1) })); continue; }
+          const n = mine.filter((r) => callDay(r) >= from && callDay(r) < to).length;
+          if (n) marks.push(ok(tx("أسبوع ", "W") + (i + 1)));
+          else if (now < to) marks.push(wait(tx("أسبوع ", "W") + (i + 1)));
+          else { marks.push(bad(tx("أسبوع ", "W") + (i + 1))); gaps++; }
+        }
+        weekCell = h("div", {}, ...marks, h("div", { class: "meta", text: tx("من ", "from ") + start }));
+      }
+      if (!m) todo++; if (!rec) todo++; if (!sbs) todo++;
+      tbl.append(h("tr", {}, h("td", {}, h("b", { text: a })),
+        h("td", {}, m ? ok(m) : wait(tx("لسه متقيّمش", "Not yet"))),
+        h("td", {}, rec ? ok(rec) : wait(tx("لسه", "Not yet"))),
+        h("td", {}, sbs ? ok(sbs) : wait(tx("لسه", "Not yet"))),
+        h("td", {}, weekCell)));
+    });
+    box.append(h("h2", { text: tx("تغطية المونيتورنج (COPC 3.4.1)", "Monitoring coverage (COPC 3.4.1)") }),
+      h("p", { class: "hint", text: tx("COPC بيطلب: كل إيجنت يتقيّم مرة في الشهر على الأقل، وكل ربع سنة جلسة سايد باي سايد وجلسة ريكوردنج على الأقل، والإيجنت الجديد يتقيّم كل أسبوع في أول شهر (من تاريخ السيرتيفيكيشن). الكاليبريشن والرول بلاي والتجريبي مش محسوبين. ⏳ = لسه مطلوب والفترة لسه شغالة، ✗ = أسبوع فات من غير تقييم.",
+        "COPC requires: every agent monitored at least monthly; each quarter at least one side-by-side and one recording session; new agents monitored weekly in their first month (from the certification date). Calibration, role plays and test evaluations don't count. ⏳ = still needed, period running; ✗ = a week passed with no evaluation.") }),
+      h("p", { class: gaps ? "msg err" : "msg", text: (gaps ? tx("✗ فيه ", "✗ ") + gaps + tx(" أسبوع فات من غير تقييم لإيجنت جديد. ", " missed weeks for new agents. ") : "") +
+        (todo ? tx("⏳ فيه ", "⏳ ") + todo + tx(" حاجة لسه مطلوبة في الشهر أو الربع ده.", " still needed this month or quarter.") : tx("✓ الشهر والربع متغطيين.", "✓ Month and quarter covered.")) }),
+      h("div", { class: "table-wrap" }, tbl));
+    box.hidden = false;
+  }
   function renderDashboard() {
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
@@ -1968,6 +2020,7 @@
     ];
     section("#dbKpis", t("overview"), null, h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))));
     renderCopcAlerts("#dbAlerts", recs, all);
+    renderCoverage("#dbCoverage", all, ($("#dbAgent") || {}).value || "");
 
     // Weekly trend
     const weeks = new Map();
