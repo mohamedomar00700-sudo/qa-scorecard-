@@ -1104,7 +1104,9 @@
     refreshViews();
   }
   const isCoached = (r) => !!(r && (r.coached || (r.feedback && r.feedback.coached) || r.coachedAt));
-  const needsCoaching = (r) => !!(r && !r.test && ["live", "certcall", "postcoach"].includes(purposeOf(r)) && r.result === "Fail");
+  // Every failed evaluation needs coaching (Agent level, program level, feedback-only, certification, role play, passed call);
+  // only calibration copies are left out, since those test the evaluator, not the agent.
+  const needsCoaching = (r) => !!(r && !r.test && purposeOf(r) !== "calibration" && r.result === "Fail");
   const coachTime = (r) => new Date(r.coachedAt || (r.feedback && r.feedback.coachedAt) || 0).getTime() || 0;
   // The post-coaching evaluation linked to a coached evaluation (the newest one if there are several).
   const followUpOf = (r) => allRecords().filter((x) => x.followOf === r.id && !x.test).sort((a, b) => whenText(b).localeCompare(whenText(a)))[0];
@@ -1561,7 +1563,67 @@
     }
     return [...best.values()].sort((a, b) => b.score - a.score || stamp(b.x).localeCompare(stamp(a.x))).slice(0, 5);
   }
+  // Recalibration tracker: every sample where an evaluator came out "needs recalibration" against the reference,
+  // and the next sample they scored with the same reference (the recalibration) with its result.
+  function renderCalTrack() {
+    const box = $("#calTrack"); if (!box) return;
+    const recs = allRecords().filter((r) => r.sampleRef);
+    const sg = sampleRefs();
+    const samples = [...sg.values()].filter((g) => !/^TEST/i.test(g.ref) && !g.list.every((r) => r.test))
+      .sort((x, y) => sampleStart(x).localeCompare(sampleStart(y)) || x.ref.localeCompare(y.ref, undefined, { numeric: true }));
+    const count = new Map();
+    samples.forEach((g) => new Set(g.list.map((r) => r.evaluator).filter(Boolean)).forEach((n) => count.set(n, (count.get(n) || 0) + 1)));
+    const names = [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || a.localeCompare(b));
+    const prevSel = $("#calTrackRef"), prev = prevSel ? prevSel.value : "";
+    const refName = names.includes(prev) ? prev : names.includes(settings.evaluator) ? settings.evaluator : names[0] || "";
+    box.innerHTML = "";
+    box.append(h("h2", { text: tx("🔁 متابعة الريكاليبريشن", "🔁 Recalibration follow-up") }),
+      h("p", { class: "hint", text: tx("كل مقيّم وقع في كاليبريشن (محتاج إعادة كاليبريشن) قدام المرجع، وأول عينة قيّمها بعدها مع نفس المرجع بتتحسب ريكاليبريشن ليه، ونتيجتها جنبها. العينات التجريبية (TEST) مش محسوبة.",
+        "Every evaluator who came out \"needs recalibration\" against the reference, and the first sample they scored after it with the same reference counts as their recalibration, with its result. TEST samples are left out.") }));
+    if (!names.length) { box.append(h("div", { class: "empty", text: t("cal_none") })); return; }
+    const sel = h("select", { id: "calTrackRef" }, names.map((n) => h("option", { value: n, text: n })));
+    sel.value = refName; sel.addEventListener("change", renderCalTrack);
+    box.append(h("div", { class: "grid" }, h("label", {}, h("span", { text: tx("المرجع", "Reference") }), sel)));
+    // Each evaluator's result on every sample the reference scored, oldest first.
+    const per = new Map();
+    samples.forEach((sgp) => {
+      const c = calGroup(recs, sgp.ref); if (!c) return;
+      const rf = c.g.find((r) => r.evaluator === refName); if (!rf) return;
+      c.g.filter((r) => r !== rf && r.evaluator).forEach((r) => {
+        const s = calStats(r, rf, rf.ncScore);
+        (per.get(r.evaluator) || per.set(r.evaluator, []).get(r.evaluator)).push({ sample: sgp.ref, day: sampleStart(sgp), r, level: s.level, gap: s.gap });
+      });
+    });
+    const W = { ok: t("cal_ok"), watch: t("cal_watch"), fail: t("cal_not_ok") }, P = { ok: "good", watch: "warn", fail: "bad" };
+    const rows = [];
+    per.forEach((list, n) => list.forEach((x, i) => { if (x.level === "fail") rows.push({ n, x, next: list[i + 1] || null }); }));
+    const open = rows.filter((z) => !z.next || z.next.level === "fail").length;
+    box.append(h("div", { class: "tiles" },
+      [[tx("وقعوا في الكاليبريشن", "Failed a calibration"), rows.length, tx("مرة", "times")],
+        [tx("اتعملهم ريكاليبريشن", "Recalibrated"), rows.filter((z) => z.next).length, tx("ونجحوا فيه: ", "passed: ") + rows.filter((z) => z.next && z.next.level !== "fail").length],
+        [tx("لسه مفتوحين", "Still open"), open, tx("مستنيين ريكاليبريشن أو وقعوا تاني", "waiting, or failed again")]]
+        .map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: String(v) }), h("div", { class: "tile-s", text: sub })))));
+    if (!rows.length) { box.append(h("p", { class: "msg", text: tx("مفيش حد وقع في كاليبريشن قدام المرجع ده.", "Nobody failed a calibration against this reference.") })); return; }
+    const tbl = h("table", {}, h("tr", {}, [tx("المقيّم", "Evaluator"), tx("الكاليبريشن اللي وقع فيه", "Failed calibration"), tx("الريكاليبريشن", "Recalibration"), tx("الحالة", "Status")].map((x) => h("th", { text: x }))));
+    const isOpen = (z) => (!z.next || z.next.level === "fail" ? 0 : 1);
+    rows.sort((a, b) => isOpen(a) - isOpen(b) || b.x.day.localeCompare(a.x.day));
+    const gapTxt = (g) => (g === null || g === undefined ? "" : " · " + tx("فرق ", "gap ") + Math.round(g * 1000) / 10 + " " + t("pts"));
+    rows.forEach(({ n, x, next }) => {
+      const status = !next ? h("span", { class: "pill bad", text: tx("لسه متعملوش ريكاليبريشن", "No recalibration yet") })
+        : next.level === "fail" ? h("span", { class: "pill bad", text: tx("وقع تاني، محتاج ريكاليبريشن تاني", "Failed again, needs another") })
+        : h("span", { class: "pill good", text: tx("✓ اتقفلت", "✓ Closed") });
+      const days = next && x.day && next.day ? Math.round((new Date(next.day) - new Date(x.day)) / 864e5) : null;
+      tbl.append(h("tr", {}, h("td", {}, h("b", { text: n })),
+        h("td", {}, h("div", { dir: "ltr", text: x.sample }), h("div", { class: "meta", text: (x.day || "") + gapTxt(x.gap) })),
+        h("td", {}, next ? [h("div", { dir: "ltr", text: next.sample }), h("span", { class: "pill " + P[next.level], text: W[next.level] }),
+          h("div", { class: "meta", text: (next.day || "") + (days !== null ? " · " + tx("بعد ", "after ") + days + tx(" يوم", " days") : "") + gapTxt(next.gap) })]
+          : h("span", { class: "meta", text: "–" })),
+        h("td", {}, status)));
+    });
+    box.append(h("div", { class: "table-wrap" }, tbl));
+  }
   function renderCalibration() {
+    renderCalTrack();
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
     const sg = sampleRefs();
@@ -1733,6 +1795,20 @@
     saveDraft(); renderEvaluate();
     $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
   }
+  // One row per failed evaluation: the coaching tracker as a sheet (Excel export of the Coaching page).
+  function coachTrackerRows(list) {
+    const stWord = { c_due: "co_s_c_due", c_late: "co_s_c_late", p_due: "co_s_p_due", p_late: "co_s_p_late", closed: "co_s_closed", refail: "co_s_refail" };
+    const head = ["Evaluation ID", "Agent", "Type", "Evaluator", "Call time", "Evaluation saved", "Final", "Critical errors",
+      "Coaching due by", "Coaching call at", "Coached by", "Hours to coaching", "Within SLA", "Coaching points", "Agent agreed",
+      "Passed call ID", "Passed call time", "Passed call final", "Passed call result", "Status"];
+    return [head, ...list.map((r) => {
+      const c = coachState(r), due = failStart(r) ? new Date(new Date(failStart(r)).getTime() + c.sla * 36e5) : null;
+      return [evalIdOf(r), r.agent || "", t("p_" + purposeOf(r)), r.evaluator || "", whenText(r), dtText(failStart(r)), pct(r.final), r.critical || 0,
+        due && !isNaN(due) ? dtText(due.toISOString()) : "", c.coached ? dtText(c.cAt) : "", r.coachedBy || "", c.coached ? c.toCoach : "",
+        c.coached ? (c.coachOnTime ? "Yes" : "No") : "", (r.coachPoints || []).join(", "), c.coached ? (r.coachAck === false ? "No" : "Yes") : "",
+        c.fu ? evalIdOf(c.fu) : "", c.fu ? whenText(c.fu) : "", c.fu ? pct(c.fu.final) : "", c.fu ? c.fu.result : "", t(stWord[c.step])];
+    })];
+  }
   function renderCoachingView() {
     const out = $("#coOut"); if (!out) return;
     const all = allRecords().filter((r) => !r.test);
@@ -1745,13 +1821,17 @@
       return h("option", { value: a, text: a + (n ? " (" + t("co_open_n", { n }) + ")" : "") });
     }));
     ag.value = agents.includes(prev) ? prev : "";
+    const ty = $("#coType"), prevTy = ty.value, types = [...new Set(failed.map(purposeOf))];
+    ty.innerHTML = ""; ty.append(h("option", { value: "", text: t("f_all") }), ...types.map((p) => h("option", { value: p, text: t("p_" + p) })));
+    ty.value = types.includes(prevTy) ? prevTy : "";
     const st = $("#coStatus").value;
-    const rows = failed.map((r) => [r, coachState(r)]).filter(([r, c]) => (!ag.value || r.agent === ag.value) &&
+    const rows = failed.map((r) => [r, coachState(r)]).filter(([r, c]) => (!ag.value || r.agent === ag.value) && (!ty.value || purposeOf(r) === ty.value) &&
       (st === "all" || (st === "open" && c.open) || (st === "late" && (c.step === "c_late" || c.step === "p_late")) || (st === "closed" && !c.open)))
       .sort((a, b) => (a[1].open === b[1].open ? String(failStart(b[0])).localeCompare(String(failStart(a[0]))) : a[1].open ? -1 : 1));
     out.innerHTML = "";
     // Tiles over the whole period (not the status filter), for the agent picked.
-    const scope = failed.filter((r) => !ag.value || r.agent === ag.value).map(coachState);
+    const scope = failed.filter((r) => (!ag.value || r.agent === ag.value) && (!ty.value || purposeOf(r) === ty.value)).map(coachState);
+    lastLists.coaching = rows.map(([r]) => r);
     const coached = scope.filter((c) => c.coached), withFu = scope.filter((c) => c.fu);
     const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
     const tiles = [
@@ -1766,6 +1846,7 @@
     rows.forEach(([r, c]) => {
       const crit = r.critical ? " · " + t("co_crit", { n: r.critical }) : "";
       const failCell = h("td", {}, h("div", {}, h("b", { text: r.agent || "–" }), " · ", h("span", { class: "pill bad", text: pct(r.final) }), crit),
+        h("span", { class: "pill na", style: "font-size:11px", text: t("p_" + purposeOf(r)).split(" (")[0] }),
         h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(r) }) }),
         h("div", { class: "meta", text: t("co_eval_by", { e: r.evaluator || "–", d: dtText(failStart(r)) }) }),
         h("div", { class: "meta eval-id-tag", text: evalIdOf(r) }));
@@ -2270,7 +2351,7 @@
 
   // ---------- PDF and Excel downloads for the main pages ----------
   const lastLists = {};
-  const EXPORT_VIEWS = { mywork: "mw_title", dashboard: "db_title", reports: "rp_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
+  const EXPORT_VIEWS = { coaching: "nav_coaching", mywork: "mw_title", dashboard: "db_title", reports: "rp_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
   const fileStamp = () => today() + "_" + new Date().toTimeString().slice(0, 5).replace(":", "");
   function filterSummary(view) {
     const first = $(".card", view); if (!first) return "";
@@ -2374,6 +2455,7 @@
     };
     const info = [["QA Scorecard · " + t(EXPORT_VIEWS[name] || "nav_dashboard")], [filterSummary(view)], [t("pdf_made", { d: new Date().toLocaleString("en-GB"), n: settings.who || settings.evaluator || "" })]];
     add(t("xlsx_info"), info);
+    if (name === "coaching") add(t("co_sheet"), coachTrackerRows(lastLists.coaching || []));
     viewSheets(view).forEach((sh) => add(sh.name, sh.rows));
     const raw = lastLists[name];
     if (raw && raw.length && name !== "records") add(t("xlsx_evals"), recordRows(raw));
@@ -2833,7 +2915,7 @@
     wireReports();
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
-    ["#coAgent", "#coStatus", "#coPeriod"].forEach((x) => $(x) && $(x).addEventListener("input", renderCoachingView));
+    ["#coAgent", "#coType", "#coStatus", "#coPeriod"].forEach((x) => $(x) && $(x).addEventListener("input", renderCoachingView));
     ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctMode", "#ctForm", "#ctFrom", "#ctTo"].forEach((s) => { if ($(s)) $(s).addEventListener("input", renderCertification); });
