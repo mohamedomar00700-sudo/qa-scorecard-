@@ -728,7 +728,9 @@ function reply_(obj) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.action === 'quiz') return reply_(saveQuiz_(body)); // public: agents' knowledge base quiz
+    if (body.action === 'quiz') return reply_(saveQuiz_(body)); // knowledge base quiz (needs a KB sign-in)
+    if (body.action === 'kbOtpRequest') return reply_(kbOtpRequest_(body.email, body.via));
+    if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
@@ -860,21 +862,107 @@ function quizSheet_() {
   if (!sh) { sh = ss.insertSheet(QUIZ_NAME); sh.getRange(1, 1, 1, QUIZ_COLS.length).setValues([QUIZ_COLS]).setFontWeight('bold'); sh.setFrozenRows(1); }
   return sh;
 }
-function quizWho_(name, email) {
-  const ro = readRoster_(), k = nameKey_(name), em = String(email || '').trim().toLowerCase();
-  for (let i = 0; i < ro.agents.length; i++) {
-    const a = ro.agents[i], ae = String(ro.emails[a] || '').toLowerCase();
-    if ((em && ae && ae === em) || nameKey_(a) === k) return a;
+// ---------- knowledge base sign-in (agents) ----------
+// Agents sign in to the quiz with their work email: a Roster agent's email, or any @techsource-gds.com address.
+// The name always comes from the email (Roster name when it matches), so nobody can save a score under someone else.
+// One sign-in lasts 180 days on that device, so the daily email quota is barely used.
+const KB_SESSION_DAYS = 180;
+const KB_DOMAIN = /^[^@\s]+@techsource-gds\.com$/i;
+function quizWhoEmail_(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return null;
+  const ro = readRoster_();
+  const pick = function (list, emails, staff) {
+    for (let i = 0; i < list.length; i++) if (String(emails[list[i]] || '').trim().toLowerCase() === em) return { name: list[i], email: em, staff: staff };
+    return null;
+  };
+  const hit = pick(ro.agents, ro.emails, false) || pick(ro.evaluators, ro.evalEmails || {}, true);
+  if (hit) return hit;
+  if (!KB_DOMAIN.test(em)) return null;
+  // Name from the address (Margret.Ebady → Margret Ebady), matched to a Roster name when one is the same.
+  const guess = em.split('@')[0].split(/[._-]+/).filter(Boolean).map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+  const same = ro.agents.filter(function (a) { return nameKey_(a) === nameKey_(guess); })[0];
+  return { name: same || guess, email: em, staff: false };
+}
+// via = 'lead': the agent's work email isn't working yet (new batch), so the code goes to the operations team leaders,
+// who read it to the agent in person. The score is still saved under the agent's own email.
+function kbLeadEmails_() {
+  const sh = roster_(), out = [], own = [];
+  if (sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+    const role = String(r[1] || ''), em = String(r[3] || '').trim();
+    if (!em || String(r[2]).toLowerCase() === 'no' || !isEvalRole_(role)) return;
+    if (/operation|اوبريشن|أوبريشن/i.test(role)) out.push(em); else if (/owner/i.test(role)) own.push(em);
+  });
+  return out.length ? out : own;
+}
+function kbOtpRequest_(email, via) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return { ok: false, error: 'bad_email' };
+  const who = quizWhoEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const cache = CacheService.getScriptCache();
+  const old = JSON.parse(cache.get('kotp_' + em) || 'null');
+  if (old && Date.now() - old.at < 45 * 1000 && via !== 'lead') return { ok: true, wait: true };
+  const props = PropertiesService.getScriptProperties();
+  const live = JSON.parse(props.getProperty('kotpc_' + hash_(em)) || 'null');
+  const code = live && live.exp > Date.now() + 60 * 1000 ? live.c : String(Math.floor(100000 + Math.random() * 900000));
+  if (!live || live.c !== code) props.setProperty('kotpc_' + hash_(em), JSON.stringify({ c: code, exp: Date.now() + OTP_MINUTES * 60 * 1000 }));
+  cache.put('kotp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: old && old.h === hash_(em + ':' + code) ? old.tries : 0 }), OTP_MINUTES * 60);
+  if (via === 'lead') {
+    const leads = kbLeadEmails_();
+    if (!leads.length) return { ok: false, error: 'no_leads' };
+    const nm = String(who.name).replace(/[<>&]/g, '');
+    MailApp.sendEmail({
+      to: leads.join(','), name: 'Knowledge Base', subject: 'كود دخول الكويز لـ ' + nm + ': ' + code,
+      htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">' + nm + ' (' + em + ') طالب يدخل كويز النولدج بيز، وإيميله لسه مش شغال.<br><br>' +
+        'الكود: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+        'قوله الكود بنفسك بعد ما تتأكد إنه هو. الكود شغال ' + OTP_MINUTES + ' دقايق، ولو محدش طلبه تجاهل الإيميل.</div>'
+    });
+    return { ok: true, via: 'lead' };
   }
-  if (/^[^@\s]+@techsource-gds\.com$/i.test(em) && k) return String(name).trim().slice(0, 60);
-  return '';
+  MailApp.sendEmail({
+    to: em, name: 'Knowledge Base', subject: 'Knowledge Base quiz code: ' + code,
+    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
+      'كود الدخول على كويز النولدج بيز: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+      'الكود شغال ' + OTP_MINUTES + ' دقايق. لو مش إنتي/إنت اللي طلبته تجاهل الإيميل ده.</div>' +
+      '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin-top:12px">Your Knowledge Base quiz code is ' + code + '. It works for ' + OTP_MINUTES + ' minutes.</div>'
+  });
+  return { ok: true };
+}
+function kbOtpVerify_(email, code) {
+  const em = String(email || '').trim().toLowerCase();
+  const cache = CacheService.getScriptCache();
+  const o = JSON.parse(cache.get('kotp_' + em) || 'null');
+  if (!o) return { ok: false, error: 'code_expired' };
+  if (o.tries >= 5) { cache.remove('kotp_' + em); return { ok: false, error: 'too_many_tries' }; }
+  if (hash_(em + ':' + String(code || '').replace(/\D/g, '')) !== o.h) {
+    o.tries++; cache.put('kotp_' + em, JSON.stringify(o), OTP_MINUTES * 60);
+    return { ok: false, error: 'wrong_code' };
+  }
+  cache.remove('kotp_' + em);
+  PropertiesService.getScriptProperties().deleteProperty('kotpc_' + hash_(em));
+  const who = quizWhoEmail_(em);
+  if (!who) return { ok: false, error: 'not_allowed' };
+  const session = Utilities.getUuid() + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty('kses_' + hash_(session), JSON.stringify({ email: em, exp: Date.now() + KB_SESSION_DAYS * 864e5 }));
+  return { ok: true, session: session, email: em, name: who.name };
+}
+function kbWho_(session) {
+  if (!session) return null;
+  const props = PropertiesService.getScriptProperties(), k = 'kses_' + hash_(session);
+  const s = JSON.parse(props.getProperty(k) || 'null');
+  const who = s && s.exp >= Date.now() ? quizWhoEmail_(s.email) : null;
+  if (!who) { if (s) props.deleteProperty(k); return null; }
+  return who;
 }
 function saveQuiz_(b) {
   const kind = b.kind === 'monthly' ? 'monthly' : 'daily';
   const total = Math.floor(Number(b.total)), score = Math.floor(Number(b.score));
   if (!(total >= 1 && total <= 30 && score >= 0 && score <= total)) return { ok: false, error: 'Bad score' };
-  const name = quizWho_(b.name, b.email);
-  if (!name) return { ok: false, error: 'unknown_name' };
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const name = who.name;
   const tz = Session.getScriptTimeZone(), now = new Date();
   const date = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), period = kind === 'monthly' ? date.slice(0, 7) : date;
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
@@ -885,30 +973,72 @@ function saveQuiz_(b) {
       for (let i = 0; i < rows.length; i++) if (rows[i][0] === kind && String(rows[i][1]) === period && nameKey_(rows[i][2]) === nameKey_(name)) return { ok: true, duplicate: true, name: name };
     }
     const wrong = (Array.isArray(b.wrong) ? b.wrong : []).slice(0, 30).map(function (x) { return String(x).slice(0, 40); }).join(', ');
-    sh.appendRow([now, date, kind, "'" + period, name, String(b.email || '').slice(0, 80), score, total, wrong]);
+    sh.appendRow([now, date, kind, "'" + period, name, who.email, score, total, wrong]);
   } finally { lock.releaseLock(); }
   return { ok: true, name: name };
+}
+// Streak: days in a row with the daily quiz. Fridays and Saturdays never break it (days off), and today
+// doesn't break it until the day is over.
+function streak_(dates, today) {
+  const set = {}; dates.forEach(function (d) { set[d] = 1; });
+  const d = new Date(today + 'T12:00:00Z');
+  let n = 0;
+  if (!set[today]) d.setUTCDate(d.getUTCDate() - 1);
+  for (let i = 0; i < 400; i++) {
+    const k = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd'), wd = d.getUTCDay();
+    if (set[k]) n++; else if (wd !== 5 && wd !== 6) break;
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  return n;
 }
 function pulse_(p) {
   const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : today.slice(0, 7);
-  // Leaderboard for the month: daily points + monthly quiz points.
-  const board = {}, doneToday = [];
+  const ro = readRoster_(), staff = {};
+  (ro.evaluators || []).concat(ro.owners || []).forEach(function (n) { staff[nameKey_(n)] = 1; });
+  const me = p.session ? kbWho_(p.session) : null, meK = me ? nameKey_(me.name) : '';
+  // Leaderboard for the month: daily points + monthly quiz points. Evaluators can try the quiz but aren't ranked.
+  const board = {}, doneToday = [], days = {}, mine = { points: 0, right: 0, asked: 0, perfect: 0, monthlies: 0, bestMonthly: 0, dates: [] };
   const qs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(QUIZ_NAME);
   if (qs && qs.getLastRow() > 1) {
     qs.getRange(2, 2, qs.getLastRow() - 1, 7).getValues().forEach(function (r) { // Date, Kind, Period, Name, Email, Score, Total
       const date = r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]);
-      const per = String(r[2]), name = String(r[3]);
+      const per = String(r[2]), name = String(r[3]), k = nameKey_(name), sc = Number(r[5]) || 0, tot = Number(r[6]) || 0;
+      if (r[1] === 'daily') (days[k] = days[k] || []).push(date);
+      if (k === meK) {
+        mine.points += sc; mine.right += sc; mine.asked += tot;
+        if (r[1] === 'daily') { mine.dates.push(date); if (tot && sc === tot) mine.perfect++; }
+        else { mine.monthlies++; mine.bestMonthly = Math.max(mine.bestMonthly, Math.round(100 * sc / (tot || 1))); }
+      }
+      if (staff[k]) return;
       if (r[1] === 'daily' && date === today) doneToday.push(name);
       if (per.slice(0, 7) !== month) return;
-      const k = nameKey_(name), b = board[k] || (board[k] = { name: name, points: 0, days: 0, right: 0, asked: 0, monthly: null });
-      b.points += Number(r[5]) || 0; b.right += Number(r[5]) || 0; b.asked += Number(r[6]) || 0;
-      if (r[1] === 'daily') b.days++; else b.monthly = Math.round(100 * (Number(r[5]) || 0) / (Number(r[6]) || 1));
+      const b = board[k] || (board[k] = { name: name, points: 0, days: 0, right: 0, asked: 0, monthly: null });
+      b.points += sc; b.right += sc; b.asked += tot;
+      if (r[1] === 'daily') b.days++; else b.monthly = Math.round(100 * sc / (tot || 1));
     });
   }
-  const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly }; })
+  const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly, streak: streak_(days[k] || [], today) }; })
     .sort(function (a, b) { return b.points - a.points || b.pct - a.pct || a.name.localeCompare(b.name); });
-  return { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14) };
+  const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14) };
+  if (p.session) {
+    if (!me) out.signedOut = true;
+    else {
+      // Best streak ever, for the badges.
+      const ds = mine.dates.slice().sort(), have = {}; let best = 0, run = 0;
+      ds.forEach(function (d) { have[d] = 1; });
+      if (ds.length) for (let d = new Date(ds[0] + 'T12:00:00Z'), i = 0; i < 800; i++, d.setUTCDate(d.getUTCDate() + 1)) {
+        const k = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+        if (have[k]) best = Math.max(best, ++run); else if (d.getUTCDay() !== 5 && d.getUTCDay() !== 6) run = 0;
+        if (k >= ds[ds.length - 1]) break;
+      }
+      const rank = list.findIndex(function (b) { return nameKey_(b.name) === meK; });
+      out.me = { name: me.name, staff: !!staff[meK], streak: streak_(mine.dates, today), best: best, points: mine.points, pct: mine.asked ? Math.round(100 * mine.right / mine.asked) : 0,
+        days: mine.dates.length, perfect: mine.perfect, monthlies: mine.monthlies, bestMonthly: mine.bestMonthly, rank: rank < 0 ? null : rank + 1,
+        week: mine.dates.filter(function (d) { return d > Utilities.formatDate(new Date(Date.now() - 14 * 864e5), tz, 'yyyy-MM-dd'); }), doneToday: mine.dates.indexOf(today) >= 0 };
+    }
+  }
+  return out;
 }
 // The team's most missed call items over the last N days (counted evaluations only: no tests, calibration or role play).
 function topMissed_(days) {
