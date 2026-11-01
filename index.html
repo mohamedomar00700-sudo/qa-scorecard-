@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QA Scorecard</title>
-<link rel="stylesheet" href="style.css?v=1794100005">
+<link rel="stylesheet" href="style.css?v=1794100008">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -35,6 +35,7 @@
     <button data-view="evaluate" class="active" data-i18n="nav_evaluate"></button>
     <button data-view="mywork" data-i18n="nav_mywork"></button>
     <button data-view="records" data-i18n="nav_records"></button>
+    <button data-view="coaching" data-i18n="nav_coaching"></button>
     <button data-view="calibration" data-i18n="nav_calibration"></button>
     <button data-view="dashboard" data-i18n="nav_dashboard"></button>
     <button data-view="reports" data-i18n="nav_reports"></button>
@@ -196,6 +197,22 @@
   </section>
 
   <!-- Certification -->
+  <section id="view-coaching" class="view">
+    <div class="card">
+      <h2 data-i18n="co_title"></h2>
+      <p class="hint" data-i18n="co_hint"></p>
+      <div class="toolbar" data-loader></div>
+      <div class="grid">
+        <label><span data-i18n="f_agent"></span><select id="coAgent"></select></label>
+        <label><span data-i18n="co_f_status"></span><select id="coStatus">
+          <option value="open" data-i18n="co_f_open"></option><option value="late" data-i18n="co_f_late"></option><option value="closed" data-i18n="co_f_closed"></option><option value="all" data-i18n="f_all"></option></select></label>
+        <label><span data-i18n="co_f_period"></span><select id="coPeriod">
+          <option value="7" data-i18n="co_f_7"></option><option value="30" selected data-i18n="co_f_30"></option><option value="90" data-i18n="co_f_90"></option></select></label>
+      </div>
+    </div>
+    <div class="card" id="coOut"></div>
+  </section>
+
   <section id="view-certification" class="view">
     <div class="card">
       <h2 data-i18n="cert_title"></h2>
@@ -321,6 +338,7 @@
       <div class="grid">
         <label><span data-i18n="own_target"></span><input id="setTarget" type="number" min="0" max="100" step="1" dir="ltr"></label>
         <label><span data-i18n="own_coach_sla"></span><input id="setCoachSla" type="number" min="1" max="720" step="1" dir="ltr"></label>
+        <label><span data-i18n="own_passed_sla"></span><input id="setPassedSla" type="number" min="1" max="720" step="1" dir="ltr"></label>
       </div>
       <div class="grid">
         <label><span data-i18n="own_pick_from"></span><input id="setPickFrom" type="time" dir="ltr"></label>
@@ -355,9 +373,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1794100005"></script>
-<script src="i18n.js?v=1794100005"></script>
-<script src="forms.js?v=1794100005"></script>
-<script src="app.js?v=1794100005"></script>
+<script src="config.js?v=1794100008"></script>
+<script src="i18n.js?v=1794100008"></script>
+<script src="forms.js?v=1794100008"></script>
+<script src="app.js?v=1794100008"></script>
 </body>
 </html>

@@ -999,7 +999,7 @@
     if (typing) return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { renderCoachingView(); renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -1038,7 +1038,7 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("متابعة بعد الكوتشينج – ", "Post-coaching evaluation – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
@@ -1051,7 +1051,7 @@
             ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? tx("ده تقييم أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
@@ -1178,6 +1178,7 @@
     return { subject: tx("📝 ملخص جلسة الكوتشينج – ", "📝 Coaching session summary – ") + dtText(r.coachedAt).slice(0, 10) + " [" + evalIdOf(r) + "]", body: lines.join("\n") };
   }
   const coachSlaHours = () => Number(teamCfg.coachingSlaHours) || 48;
+  const passedSlaHours = () => Number(teamCfg.passedSlaHours) || 48;
   function coachHours(r) {
     const start = new Date(r.savedAt || (r.evalDate ? r.evalDate + "T12:00:00" : "")).getTime();
     const end = isCoached(r) && (r.coachedAt || (r.feedback && r.feedback.coachedAt)) ? new Date(r.coachedAt || r.feedback.coachedAt).getTime() : Date.now();
@@ -1271,6 +1272,7 @@
     const header = {};
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
+    for (const k of ["followOf", "followOfId", "pick", "pickAgent", "pickLog"]) if (r[k] !== undefined) header[k] = r[k];
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, evalId: evalIdOf(r), savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "", coached: !!(r.coached || (r.feedback && r.feedback.coached)), coachedAt: r.coachedAt || (r.feedback && r.feedback.coachedAt) || "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
@@ -1710,6 +1712,88 @@
     box.append(...[h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...content].filter(Boolean));
   }
 
+  // ---------- coaching: failed call → coaching call (within the SLA) → passed call (first call after coaching) ----------
+  // Clocks: the coaching SLA starts when the failed evaluation is saved (that's when the failure is known); the passed
+  // call is the agent's first answered call after the coaching time and should be scored within its own SLA.
+  const hoursBetween = (a, b) => { const x = new Date(a).getTime(), y = new Date(b).getTime(); return isNaN(x) || isNaN(y) ? null : Math.max(0, Math.round((y - x) / 36e5)); };
+  const failStart = (r) => r.savedAt || (r.evalDate ? r.evalDate + "T12:00:00" : "");
+  function coachState(r) {
+    const sla = coachSlaHours(), psla = passedSlaHours(), fu = followUpOf(r), now = new Date().toISOString();
+    const coached = isCoached(r), cAt = r.coachedAt || (r.feedback && r.feedback.coachedAt) || "";
+    const toCoach = coached ? hoursBetween(failStart(r), cAt) : hoursBetween(failStart(r), now);
+    const toPassed = fu ? hoursBetween(cAt, fu.savedAt || fu.interactionDate) : coached ? hoursBetween(cAt, now) : null;
+    const step = !coached ? (toCoach > sla ? "c_late" : "c_due") : !fu ? (toPassed > psla ? "p_late" : "p_due") : fu.result === "Pass" ? "closed" : "refail";
+    return { sla, psla, fu, coached, cAt, toCoach, toPassed, step, coachOnTime: coached && toCoach !== null && toCoach <= sla, open: step !== "closed" };
+  }
+  // Start scoring the passed call for a coached evaluation: the form opens with the link, the agent and the rule filled in.
+  function startPassedCall(r) {
+    if ((dirty() || editChanged()) && !confirm(t("switch_confirm"))) return;
+    current = { form: r.form, answers: blankAnswers(r.form) };
+    Object.assign(current.answers.header, { purpose: "postcoach", selection: "targeted", followOf: r.id, followOfId: evalIdOf(r), agent: r.agent });
+    saveDraft(); renderEvaluate();
+    $('nav button[data-view="evaluate"]').click(); window.scrollTo(0, 0);
+  }
+  function renderCoachingView() {
+    const out = $("#coOut"); if (!out) return;
+    const all = allRecords().filter((r) => !r.test);
+    const days = Number($("#coPeriod").value) || 30, since = addDays(today(), -days);
+    const failed = all.filter((r) => needsCoaching(r) && String(failStart(r)).slice(0, 10) >= since);
+    const agents = [...new Set(failed.map((r) => r.agent).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const ag = $("#coAgent"), prev = ag.value;
+    ag.innerHTML = ""; ag.append(h("option", { value: "", text: t("f_all_agents") }), ...agents.map((a) => {
+      const n = failed.filter((r) => r.agent === a && coachState(r).open).length;
+      return h("option", { value: a, text: a + (n ? " (" + t("co_open_n", { n }) + ")" : "") });
+    }));
+    ag.value = agents.includes(prev) ? prev : "";
+    const st = $("#coStatus").value;
+    const rows = failed.map((r) => [r, coachState(r)]).filter(([r, c]) => (!ag.value || r.agent === ag.value) &&
+      (st === "all" || (st === "open" && c.open) || (st === "late" && (c.step === "c_late" || c.step === "p_late")) || (st === "closed" && !c.open)))
+      .sort((a, b) => (a[1].open === b[1].open ? String(failStart(b[0])).localeCompare(String(failStart(a[0]))) : a[1].open ? -1 : 1));
+    out.innerHTML = "";
+    // Tiles over the whole period (not the status filter), for the agent picked.
+    const scope = failed.filter((r) => !ag.value || r.agent === ag.value).map(coachState);
+    const coached = scope.filter((c) => c.coached), withFu = scope.filter((c) => c.fu);
+    const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+    const tiles = [
+      [t("co_k_failed"), scope.length, t("co_k_days", { n: days })],
+      [t("co_k_open"), scope.filter((c) => c.open).length, t("co_k_late", { n: scope.filter((c) => c.step === "c_late" || c.step === "p_late").length })],
+      [t("co_k_sla"), coached.length ? pct(coached.filter((c) => c.coachOnTime).length / coached.length) : "–", t("co_k_sla_s", { h: coachSlaHours(), a: avg(coached.map((c) => c.toCoach)) ?? "–" })],
+      [t("co_k_passed"), withFu.length ? pct(withFu.filter((c) => c.fu.result === "Pass").length / withFu.length) : "–", t("co_k_passed_s", { n: withFu.length, m: coached.length })]];
+    out.append(h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: String(v) }), h("div", { class: "tile-s", text: sub })))));
+    if (!rows.length) { out.append(h("div", { class: "empty", text: failed.length ? t("db_nomatch") : t("co_none") })); return; }
+    const hrs = (n) => (n === null ? "–" : n < 48 ? t("co_h", { n }) : t("co_d", { n: Math.round(n / 24) }));
+    const tbl = h("table", { class: "co-table" }, h("tr", {}, ["co_c_failed", "co_c_coach", "co_c_passed", "co_c_status", ""].map((k) => h("th", { text: k ? t(k) : "" }))));
+    rows.forEach(([r, c]) => {
+      const crit = r.critical ? " · " + t("co_crit", { n: r.critical }) : "";
+      const failCell = h("td", {}, h("div", {}, h("b", { text: r.agent || "–" }), " · ", h("span", { class: "pill bad", text: pct(r.final) }), crit),
+        h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(r) }) }),
+        h("div", { class: "meta", text: t("co_eval_by", { e: r.evaluator || "–", d: dtText(failStart(r)) }) }),
+        h("div", { class: "meta eval-id-tag", text: evalIdOf(r) }));
+      const coachCell = h("td", {}, c.coached
+        ? [h("span", { class: "pill " + (c.coachOnTime ? "good" : "warn"), text: (c.coachOnTime ? "✓ " : "⚠ ") + t(c.coachOnTime ? "co_on_time" : "co_late_by", { h: hrs(c.toCoach), sla: c.sla }) }),
+          h("div", { class: "meta", text: t("co_coached_at", { d: dtText(c.cAt), b: r.coachedBy || "–" }) }),
+          (r.coachPoints || []).length ? h("div", { class: "meta", text: t("co_points_n", { n: r.coachPoints.length }) }) : null]
+        : [h("span", { class: "pill " + (c.step === "c_late" ? "bad" : "warn"), text: c.step === "c_late" ? t("co_overdue", { h: hrs(c.toCoach - c.sla) }) : t("co_left", { h: hrs(c.sla - c.toCoach) }) })]);
+      const passedCell = h("td", {}, c.fu
+        ? [h("span", { class: "pill " + (c.fu.result === "Pass" ? "good" : "bad"), text: (c.fu.result === "Pass" ? "✓ " : "✗ ") + pct(c.fu.final) }),
+          h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(c.fu) }) + " · " + t("co_after", { h: hrs(hoursBetween(c.cAt, c.fu.interactionDate)) }) }),
+          h("div", { class: "meta eval-id-tag", text: evalIdOf(c.fu) })]
+        : c.coached ? [h("span", { class: "pill " + (c.step === "p_late" ? "bad" : "warn"), text: c.step === "p_late" ? t("co_p_overdue", { h: hrs(c.toPassed) }) : t("co_p_wait", { h: hrs(c.toPassed) }) }),
+          h("div", { class: "meta", text: t("co_p_rule", { d: dtText(c.cAt) }) })]
+        : h("span", { class: "meta", text: t("co_p_after") }));
+      const stTxt = { c_due: "co_s_c_due", c_late: "co_s_c_late", p_due: "co_s_p_due", p_late: "co_s_p_late", closed: "co_s_closed", refail: "co_s_refail" }[c.step];
+      const statusCell = h("td", {}, h("span", { class: "pill " + (c.step === "closed" ? "good" : /late|refail/.test(c.step) ? "bad" : "warn"), text: t(stTxt) }));
+      const act = h("td", { class: "actions" },
+        !c.coached && connected() ? h("button", { type: "button", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
+        c.coached && !c.fu ? h("button", { type: "button", text: t("co_btn_passed"), onclick: () => startPassedCall(r) }) : null,
+        c.coached ? h("button", { type: "button", class: "ghost", text: t("co_btn_edit"), onclick: () => openCoaching(r) }) : null,
+        c.step === "refail" && connected() ? h("button", { type: "button", text: t("coach_btn"), onclick: () => openCoaching(c.fu) }) : null,
+        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("open_edit"), onclick: () => openRecord(r) }) : null);
+      tbl.append(h("tr", { class: c.open ? "" : "muted" }, failCell, coachCell, passedCell, statusCell, act));
+    });
+    out.append(h("div", { class: "table-wrap" }, tbl));
+  }
+
   // COPC R8.0 (Item 3.4.2) Mandatory Action Alerts:
   // (a/c) 100% of failed evaluations must receive 1-on-1 coaching within SLA + increased monitoring frequency;
   // (b) a sample of passing evaluations must receive 1-on-1 coaching;
@@ -1758,7 +1842,8 @@
         tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
           h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
       });
-      kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb));
+      kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb),
+        h("button", { type: "button", class: "ghost", text: t("co_open_page"), onclick: () => { $('nav button[data-view="coaching"]').click(); window.scrollTo(0, 0); } }));
     }
     kids.push(h("p", { class: "copc-pass-stat", text: t("copc_pass_coached_stat", { a: passedCoached, b: passed.length, p: passed.length ? pct(passedCoached / passed.length) : "0%" }) }));
     box.append(...kids);
@@ -2600,6 +2685,7 @@
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
     if ($("#setCoachSla")) $("#setCoachSla").value = teamCfg.coachingSlaHours || 48;
+    if ($("#setPassedSla")) $("#setPassedSla").value = teamCfg.passedSlaHours || 48;
     $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#setSenderName").value = teamCfg.senderName || "Quality Team";
@@ -2614,7 +2700,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -2747,6 +2833,7 @@
     wireReports();
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
+    ["#coAgent", "#coStatus", "#coPeriod"].forEach((x) => $(x) && $(x).addEventListener("input", renderCoachingView));
     ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctMode", "#ctForm", "#ctFrom", "#ctTo"].forEach((s) => { if ($(s)) $(s).addEventListener("input", renderCertification); });

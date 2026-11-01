@@ -296,7 +296,7 @@ function emailAgent_(r) {
         : '';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       banner +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم أول مكالمة ليك بعد جلسة الكوتشينج على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
@@ -311,7 +311,7 @@ function emailAgent_(r) {
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : post ? 'متابعة بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
@@ -664,7 +664,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -674,6 +674,10 @@ function setConfig_(c) {
   if (c.coachingSlaHours !== undefined) {
     const sla = Number(c.coachingSlaHours);
     if (sla >= 1 && sla <= 720) cur.coachingSlaHours = Math.round(sla);
+  }
+  if (c.passedSlaHours !== undefined) {
+    const psla = Number(c.passedSlaHours);
+    if (psla >= 1 && psla <= 720) cur.passedSlaHours = Math.round(psla);
   }
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
