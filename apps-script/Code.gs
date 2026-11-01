@@ -51,8 +51,8 @@ function roster_() {
   return sh;
 }
 
-// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator (Quality)', 'Evaluator' or 'Agent'. Owners count as evaluators everywhere.
-// Quality evaluators score Program level (never Agent level); the other evaluators (operations) score Agent level (never Program level).
+// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator (Quality)', 'Evaluator (Operations)' or 'Agent'. Owners count as evaluators everywhere.
+// Quality evaluators score Program level (never Agent level); the other evaluators (Operations) score Agent level (never Program level).
 function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
 function isQualityRole_(v) { return /quality|\bqa\b|كواليتي|جودة/i.test(String(v || '')); }
 // Program level is for Quality, Agent level for operations: fix the level from who scored it.
@@ -728,6 +728,7 @@ function reply_(obj) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    if (body.action === 'quiz') return reply_(saveQuiz_(body)); // public: agents' knowledge base quiz
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
@@ -787,6 +788,7 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
+  if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
   const me = who_(p);
   if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
   if (p.action === 'config') return reply_({ ok: true, config: config_() });
@@ -844,4 +846,96 @@ function sameEvaluatorTwin_(sh, r) {
         String(x.interactionDate) === String(r.interactionDate) && purpose(x) === purpose(r)) return x.id;
   }
   return '';
+}
+
+
+// ---------- Knowledge base: daily / monthly quiz and the team pulse ----------
+// The knowledge base page (no access key) posts quiz scores and reads the leaderboard and the
+// team's most missed scorecard items. Only agents in the Roster, or a company email, can save.
+const QUIZ_NAME = 'Quiz';
+const QUIZ_COLS = ['Saved at', 'Date', 'Kind', 'Period', 'Name', 'Email', 'Score', 'Total', 'Wrong questions'];
+function quizSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(QUIZ_NAME);
+  if (!sh) { sh = ss.insertSheet(QUIZ_NAME); sh.getRange(1, 1, 1, QUIZ_COLS.length).setValues([QUIZ_COLS]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  return sh;
+}
+function quizWho_(name, email) {
+  const ro = readRoster_(), k = nameKey_(name), em = String(email || '').trim().toLowerCase();
+  for (let i = 0; i < ro.agents.length; i++) {
+    const a = ro.agents[i], ae = String(ro.emails[a] || '').toLowerCase();
+    if ((em && ae && ae === em) || nameKey_(a) === k) return a;
+  }
+  if (/^[^@\s]+@techsource-gds\.com$/i.test(em) && k) return String(name).trim().slice(0, 60);
+  return '';
+}
+function saveQuiz_(b) {
+  const kind = b.kind === 'monthly' ? 'monthly' : 'daily';
+  const total = Math.floor(Number(b.total)), score = Math.floor(Number(b.score));
+  if (!(total >= 1 && total <= 30 && score >= 0 && score <= total)) return { ok: false, error: 'Bad score' };
+  const name = quizWho_(b.name, b.email);
+  if (!name) return { ok: false, error: 'unknown_name' };
+  const tz = Session.getScriptTimeZone(), now = new Date();
+  const date = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), period = kind === 'monthly' ? date.slice(0, 7) : date;
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const sh = quizSheet_(), n = sh.getLastRow() - 1;
+    if (n > 0) {
+      const rows = sh.getRange(2, 3, n, 3).getValues(); // Kind, Period, Name
+      for (let i = 0; i < rows.length; i++) if (rows[i][0] === kind && String(rows[i][1]) === period && nameKey_(rows[i][2]) === nameKey_(name)) return { ok: true, duplicate: true, name: name };
+    }
+    const wrong = (Array.isArray(b.wrong) ? b.wrong : []).slice(0, 30).map(function (x) { return String(x).slice(0, 40); }).join(', ');
+    sh.appendRow([now, date, kind, "'" + period, name, String(b.email || '').slice(0, 80), score, total, wrong]);
+  } finally { lock.releaseLock(); }
+  return { ok: true, name: name };
+}
+function pulse_(p) {
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : today.slice(0, 7);
+  // Leaderboard for the month: daily points + monthly quiz points.
+  const board = {}, doneToday = [];
+  const qs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(QUIZ_NAME);
+  if (qs && qs.getLastRow() > 1) {
+    qs.getRange(2, 2, qs.getLastRow() - 1, 7).getValues().forEach(function (r) { // Date, Kind, Period, Name, Email, Score, Total
+      const date = r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]);
+      const per = String(r[2]), name = String(r[3]);
+      if (r[1] === 'daily' && date === today) doneToday.push(name);
+      if (per.slice(0, 7) !== month) return;
+      const k = nameKey_(name), b = board[k] || (board[k] = { name: name, points: 0, days: 0, right: 0, asked: 0, monthly: null });
+      b.points += Number(r[5]) || 0; b.right += Number(r[5]) || 0; b.asked += Number(r[6]) || 0;
+      if (r[1] === 'daily') b.days++; else b.monthly = Math.round(100 * (Number(r[5]) || 0) / (Number(r[6]) || 1));
+    });
+  }
+  const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly }; })
+    .sort(function (a, b) { return b.points - a.points || b.pct - a.pct || a.name.localeCompare(b.name); });
+  return { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14) };
+}
+// The team's most missed call items over the last N days (counted evaluations only: no tests, calibration or role play).
+function topMissed_(days) {
+  const cache = CacheService.getScriptCache(), hit = cache.get('topMissed' + days);
+  if (hit) return JSON.parse(hit);
+  const sh = sheet_(), n = sh.getLastRow() - 1, out = [];
+  if (n < 1) return { days: days, evals: 0, items: [] };
+  const from = Utilities.formatDate(new Date(Date.now() - days * 864e5), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const take = Math.min(n, 500), del = deletedIds_();
+  const json = sh.getRange(2 + n - take, JSON_COL, take, 1).getValues().flat();
+  const stat = {}; let evals = 0;
+  json.forEach(function (j) {
+    let r; try { r = JSON.parse(j); } catch (e) { return; }
+    if (!r || r.form !== 'calls' || r.test || r.sampleRef || r.rolePlay || del.indexOf(r.id) !== -1) return;
+    const purpose = r.purpose || 'live';
+    if (['live', 'program', 'certcall', 'coaching', 'postcoach'].indexOf(purpose) === -1) return;
+    if (String(r.evalDate || '').slice(0, 10) < from) return;
+    evals++;
+    (r.items || []).forEach(function (it) {
+      if (it.result === 'N/A' || !it.id) return;
+      const s = stat[it.id] || (stat[it.id] = { id: it.id, kind: it.kind, missed: 0, of: 0 });
+      s.of++; if (it.result === 'Not met' || it.result === 'Error') s.missed++;
+    });
+  });
+  Object.keys(stat).forEach(function (k) { if (stat[k].missed) out.push(stat[k]); });
+  out.sort(function (a, b) { return b.missed - a.missed || b.missed / b.of - a.missed / a.of; });
+  const res = { days: days, evals: evals, items: out.slice(0, 5) };
+  cache.put('topMissed' + days, JSON.stringify(res), 600);
+  return res;
 }
