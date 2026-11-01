@@ -363,11 +363,15 @@
       const days = Math.max(1, Number(teamCfg.pickDays) || 7);
       const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
       const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
-      for (let i = 1; i <= days; i++) {
+      // Look back over the set window; if every day there is closed or was already rejected (the agent was off, no
+      // calls), keep going back one day at a time (up to 31 days) instead of stopping the evaluator.
+      let wider = false;
+      for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) ok.push(ymdOf(d));
+        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) { ok.push(ymdOf(d)); if (i > days) wider = true; }
       }
-      if (!ok.length) { alert(t("pick_none", { n: days })); return; }
+      if (!ok.length) { alert(t("pick_none", { n: 31 })); return; }
+      if (wider) alert(t("pick_wider", { n: days }));
       const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
       a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
       a.header.pickAgent = agent;
