@@ -283,7 +283,7 @@ function emailAgent_(r) {
     const banner = isWow
       ? '<div style="background:linear-gradient(135deg,#fff8e1,#ffecb3);background-color:#fff8e1;border:2px solid #f59e0b;border-right:6px solid #d97706;color:#78350f;padding:14px 18px;border-radius:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:bold;margin-bottom:6px">🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (' + pct_(r.final) + ')</div><div style="font-size:14px">🎉 <b>Congratulations!</b> المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ <b>"مكالمة Wow"</b> ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏</div></div>'
       : coaching
-        ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)</div></div>'
+        ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 إكسترا تارجت (غير محسوب في السكور)</div></div>'
         : pass && isGood
           ? '<div style="background:#e6f4ea;border:1.5px solid #34a853;border-right:6px solid #1a7f37;color:#135c27;padding:13px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉👍 Congratulations! مكالمة كويسة جداً وعدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء ممتاز! المكالمة دي اتضافت كمثال كويس في مكتبة التدريب — استمر على نفس المستوى!</div></div>'
           : pass
@@ -296,7 +296,7 @@ function emailAgent_(r) {
         : '';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       banner +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
@@ -311,7 +311,7 @@ function emailAgent_(r) {
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 إكسترا تارجت – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
@@ -392,7 +392,7 @@ function row_(r, savedAt) {
   return [savedAt, r.id, r.form, r.agent, r.evaluator, r.evalDate, r.interactionDate, r.odooRef,
     r.type, r.outcome, r.duration, r.kbVersion, r.sampleRef, r.ncScore, r.cc, r.eu, r.bc, r.critical,
     r.final, r.result, missed, fb.strengths, fb.improve, fb.coaching, JSON.stringify(r),
-    r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'), r.test ? 'Yes' : 'No',
+    purposeLabel_(r), r.test ? 'Yes' : 'No',
     r.phone ? "'" + r.phone : '', r.editedAt || '', r.editedBy || '', ''];
 }
 
@@ -490,7 +490,7 @@ function itemRowValues_(sh, r, savedAt) {
   if (add.length) sh.getRange(1, lastCol + 1, 1, add.length).setValues([add]).setFontWeight('bold').setWrap(true);
   const row = new Array(head.length).fill('');
   const ncMissed = (r.items || []).filter(function (i) { return i.kind === 'NC' && i.result === 'Not met'; }).length;
-  [savedAt, r.id, r.agent, r.evaluator, r.interactionDate, r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live'),
+  [savedAt, r.id, r.agent, r.evaluator, r.interactionDate, purposeLabel_(r),
     r.test ? 'Yes' : 'No', r.final, r.result, r.critical || 0, ncMissed].forEach(function (v, n) { row[n] = v; });
   (r.items || []).forEach(function (i) {
     const at = keys.indexOf(i.kind === 'NC' ? 'N' + i.id : i.id);
@@ -801,4 +801,12 @@ function doGet(e) {
 // Run once from the editor (select it, then Run) if Google asks again for permission to send email.
 function authorizeMail() {
   MailApp.getRemainingDailyQuota();
+}
+
+// The evaluation type as the scorecard names it, for the sheet's Purpose column (the app reads the Record JSON, not this).
+function purposeLabel_(r) {
+  const p = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
+  if (p === 'calibration' && /(^|-)RECAL-/.test(r.sampleRef || '')) return 'Recalibration';
+  return ({ live: 'Agent level', certcall: 'Certification call', program: 'Program level', coaching: 'Extra target',
+    postcoach: 'Passed call', calibration: 'Calibration', roleplay: 'Certification role-play' })[p] || p;
 }

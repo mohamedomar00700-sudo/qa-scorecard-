@@ -423,8 +423,10 @@
     try { const j = await apiGet({}); forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; } catch (e) { /* use what we have */ }
   }
   // Next free code for today, e.g. CAL-20261011-2 (TEST-CAL-… for a test).
-  function newSampleRef(test) {
-    const prefix = (test ? "TEST-CAL-" : "CAL-") + ymd(today()) + "-";
+  // Calibration codes: CAL-YYYYMMDD-N; recalibration codes: RECAL-YYYYMMDD-N (new calls, scored by everyone who
+  // came out "needs recalibration"), so the two are told apart in every report.
+  function newSampleRef(test, recal) {
+    const prefix = (test ? "TEST-" : "") + (recal ? "RECAL-" : "CAL-") + ymd(today()) + "-";
     let n = 1;
     for (const ref of sampleRefs().keys()) if (ref.startsWith(prefix)) n = Math.max(n, (+ref.slice(prefix.length) || 0) + 1);
     return prefix + n;
@@ -462,13 +464,14 @@
       const bucket = (label, list) => list.length ? [h("optgroup", { label: label + " (" + list.length + ")" }, list.map(optFor))] : [];
       const rs = h("select", { id: "hd_sampleRef" }, h("option", { value: "", text: t("select") }),
         h("option", { value: "__new", text: t("new_sample") }),
+        h("option", { value: "__recal", text: t("new_recal") }),
         ...bucket(t("cal_todo"), recent.filter((g) => !mine(g))),
         ...bucket(t("cal_mine"), recent.filter(mine)),
         ...bucket(t("cal_older", { n: CAL_RECENT_DAYS }), older));
       if (hd.sampleRef && !groups.some((g) => g.ref === hd.sampleRef)) rs.append(h("option", { value: hd.sampleRef, text: hd.sampleRef }));
       rs.value = hd.sampleRef || "";
       rs.addEventListener("input", async () => {
-        if (rs.value === "__new") { await refreshRecordsQuietly(); hd.sampleRef = newSampleRef(hd.test); }
+        if (rs.value === "__new" || rs.value === "__recal") { const recal = rs.value === "__recal"; await refreshRecordsQuietly(); hd.sampleRef = newSampleRef(hd.test, recal); }
         else {
           hd.sampleRef = rs.value;
           // Same sample = same interaction: copy its details so every evaluator scores the same thing.
@@ -1038,20 +1041,20 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? tx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
       ? tx("🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (" + pct(r.final) + ")\n🎉 Congratulations! المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ \"مكالمة Wow\" ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏", "🌟🏆 WOW CALL! Outstanding Performance (" + pct(r.final) + ")\n🎉 Congratulations! This call was selected as a standout \"Wow Call\" for the team's training library. Proud of your great work! 👏")
       : coaching
-        ? tx("💡 فيدباك تدريبي (Coaching – غير محسوب في السكور)", "💡 Coaching feedback (not counted in your score)")
+        ? tx("💡 إكسترا تارجت (غير محسوب في السكور)", "💡 Extra target (not counted in your score)")
         : pass && isGood
           ? tx("🎉👍 Congratulations! مكالمة كويسة جداً وعدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — المكالمة دي اتضافت كمثال كويس في مكتبة التدريب، استمر على نفس المستوى!", "🎉👍 Congratulations! Very good call & passed (PASSED – " + pct(r.final) + ") — Added as a good example to the training library, keep it up!")
           : pass
             ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
@@ -1213,6 +1216,9 @@
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   // The day of the call (falls back to the evaluation day for role-plays and old records).
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
+  // The evaluation type as the scorecard names it (Agent level, Program level, Extra target, ...), for reports and exports.
+  const short = (x) => String(x || "").replace(/\s*\(.*\)$/, "");
+  const purposeLabel = (r) => (purposeOf(r) === "calibration" && /(^|-)RECAL-/.test(r.sampleRef || "") ? t("p_recal") : t("p_" + purposeOf(r)).split(" (")[0]) + (r.test ? " (test)" : "");
   const purposeTag = (r) => t("p_" + purposeOf(r)) + (r.test ? " · " + t("test_tag") : "");
   // Turn "test" evaluations back into real ones (saved through the normal update, so the sheet and item tabs follow).
   async function unmarkTest(list, btn) {
@@ -1803,7 +1809,7 @@
       "Passed call ID", "Passed call time", "Passed call final", "Passed call result", "Status"];
     return [head, ...list.map((r) => {
       const c = coachState(r), due = failStart(r) ? new Date(new Date(failStart(r)).getTime() + c.sla * 36e5) : null;
-      return [evalIdOf(r), r.agent || "", t("p_" + purposeOf(r)), r.evaluator || "", whenText(r), dtText(failStart(r)), pct(r.final), r.critical || 0,
+      return [evalIdOf(r), r.agent || "", purposeLabel(r), r.evaluator || "", whenText(r), dtText(failStart(r)), pct(r.final), r.critical || 0,
         due && !isNaN(due) ? dtText(due.toISOString()) : "", c.coached ? dtText(c.cAt) : "", r.coachedBy || "", c.coached ? c.toCoach : "",
         c.coached ? (c.coachOnTime ? "Yes" : "No") : "", (r.coachPoints || []).join(", "), c.coached ? (r.coachAck === false ? "No" : "Yes") : "",
         c.fu ? evalIdOf(c.fu) : "", c.fu ? whenText(c.fu) : "", c.fu ? pct(c.fu.final) : "", c.fu ? c.fu.result : "", t(stWord[c.step])];
@@ -2465,8 +2471,8 @@
   function recordRows(list) {
     const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
-    return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
-      r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
+    return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
+      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
@@ -2482,7 +2488,7 @@
       [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
       const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
       const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
-        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", purposeOf(r) + (r.test ? " (test)" : ""), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", purposeLabel(r), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
           r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
           ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
       const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {
