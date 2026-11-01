@@ -664,7 +664,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -674,6 +674,10 @@ function setConfig_(c) {
   if (c.coachingSlaHours !== undefined) {
     const sla = Number(c.coachingSlaHours);
     if (sla >= 1 && sla <= 720) cur.coachingSlaHours = Math.round(sla);
+  }
+  if (c.passedSlaHours !== undefined) {
+    const psla = Number(c.passedSlaHours);
+    if (psla >= 1 && psla <= 720) cur.passedSlaHours = Math.round(psla);
   }
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
