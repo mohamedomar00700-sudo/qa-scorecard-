@@ -290,6 +290,7 @@
         // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
         const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
         if ((key === "method" || key === "selection") && purposeOf(a.header) === "roleplay") continue;
+        if (key === "selection" && purposeOf(a.header) === "postcoach") continue;
         if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
         const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "selection" ? SELECTIONS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
         if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
@@ -434,9 +435,10 @@
     const set = (p) => {
       hd.purpose = p; hd.rolePlay = p === "roleplay";
       if (p !== "calibration") hd.sampleRef = "";
+      if (p === "postcoach") { hd.selection = "targeted"; delete hd.pick; delete hd.pickAgent; } else { delete hd.followOf; delete hd.followOfId; }
       saveDraft(); renderHeader();
     };
-    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
+    const sel = h("select", { id: "hd_purpose" }, ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"].map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
       if (sel.value === "calibration") await refreshRecordsQuietly();
@@ -477,6 +479,23 @@
         saveDraft(); renderHeader();
       });
       out.push(h("label", {}, t("h_sampleRef") + " *", rs));
+    }
+    if (hd.purpose === "postcoach") {
+      // The first call after a coaching session: linked to the coached evaluation, so the tool can check it came after.
+      const open = allRecords().filter((r) => isCoached(r) && r.result === "Fail" && !r.test && r.form === current.form && (!hd.agent || r.agent === hd.agent) &&
+        (r.id === hd.followOf || !followUpOf(r))).sort((x, y) => coachTime(y) - coachTime(x));
+      const fs = h("select", { id: "hd_followOf" }, h("option", { value: "", text: open.length ? t("select") : t("fu_none") }),
+        open.map((r) => h("option", { value: r.id, text: [evalIdOf(r), r.agent || "–", t("fu_coached_on", { d: dtText(r.coachedAt) }), pct(r.final)].join(" · ") })));
+      fs.value = hd.followOf || "";
+      fs.addEventListener("input", () => {
+        const o = open.find((r) => r.id === fs.value);
+        hd.followOf = fs.value; hd.followOfId = o ? evalIdOf(o) : "";
+        if (o) { hd.agent = o.agent; hd.selection = "targeted"; }
+        saveDraft(); renderHeader();
+      });
+      out.push(h("label", {}, t("h_followOf") + " *", fs));
+      const o = open.find((r) => r.id === hd.followOf);
+      if (o) out.push(h("div", { class: "pick-out" }, t("fu_rule", { a: o.agent, d: dtText(o.coachedAt) })));
     }
     return out;
   }
@@ -758,6 +777,11 @@
     const a = current.answers, problems = [];
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
     if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
+    if (purposeOf(a.header) === "postcoach") {
+      const o = a.header.followOf && allRecords().find((r) => r.id === a.header.followOf);
+      if (!o) problems.push(t("h_followOf"));
+      else if (a.header.interactionDate && new Date(a.header.interactionDate).getTime() <= coachTime(o)) problems.push(t("fu_before", { d: dtText(o.coachedAt) }));
+    }
     if (!a.header.odooRef && !a.header.phone) problems.push(t("ref_needed"));
     if (a.header.interactionDate && purposeOf(a.header) !== "roleplay") {
       const when = new Date(a.header.interactionDate), now = Date.now();
@@ -982,7 +1006,7 @@
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
-  const mailable = (r) => ["live", "certcall", "coaching"].includes(purposeOf(r)) && !r.test;
+  const mailable = (r) => ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
   // Score split by category for result emails: Part A (non-critical) met/applicable, then each critical bucket with % view.
@@ -1014,7 +1038,7 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("متابعة بعد الكوتشينج – ", "Post-coaching evaluation – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
@@ -1027,7 +1051,7 @@
             ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? tx("ده تقييم أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
@@ -1080,7 +1104,79 @@
     refreshViews();
   }
   const isCoached = (r) => !!(r && (r.coached || (r.feedback && r.feedback.coached) || r.coachedAt));
-  const needsCoaching = (r) => !!(r && !r.test && ["live", "certcall"].includes(purposeOf(r)) && r.result === "Fail");
+  const needsCoaching = (r) => !!(r && !r.test && ["live", "certcall", "postcoach"].includes(purposeOf(r)) && r.result === "Fail");
+  const coachTime = (r) => new Date(r.coachedAt || (r.feedback && r.feedback.coachedAt) || 0).getTime() || 0;
+  // The post-coaching evaluation linked to a coached evaluation (the newest one if there are several).
+  const followUpOf = (r) => allRecords().filter((x) => x.followOf === r.id && !x.test).sort((a, b) => whenText(b).localeCompare(whenText(a)))[0];
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const localDT = (d) => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  const dtText = (iso) => { const d = new Date(iso); return isNaN(d) ? "–" : localDT(d).replace("T", " "); };
+  // Status of the coaching loop on an evaluation: post-coaching call passed / failed, or still waiting for it.
+  function followBadge(r) {
+    if (!isCoached(r) || r.result !== "Fail") return null;
+    const fu = followUpOf(r);
+    if (fu) return h("div", { class: "meta " + (fu.result === "Pass" ? "ok-txt" : "bad-txt"), text: t(fu.result === "Pass" ? "fu_passed" : "fu_failed", { id: evalIdOf(fu) }) });
+    return h("div", { class: "meta warn", text: t("fu_waiting") });
+  }
+  // Coaching session on an evaluation: when it happened, the points coached and what was agreed. Saved on the evaluation,
+  // then a summary email goes to the agent. The agent's first call after it is scored as "post-coaching" (followOf).
+  function openCoaching(r) {
+    const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
+    const now = localDT(new Date());
+    const when = h("input", { type: "datetime-local", value: r.coachedAt ? localDT(new Date(r.coachedAt)) : now, max: now });
+    const boxes = missed.map((i) => { const cb = h("input", { type: "checkbox" }); cb.checked = !r.coachPoints || r.coachPoints.includes(itemKey(i)); return [i, cb]; });
+    const note = h("textarea", { rows: 4, placeholder: t("coach_note_ph") }); note.value = r.coachNote || "";
+    const ack = h("input", { type: "checkbox" }); ack.checked = r.coachAck !== false;
+    const msg = h("div", { class: "msg" });
+    const close = () => ov.remove();
+    const save = h("button", { type: "button", text: t("coach_save") });
+    const ov = h("div", { class: "overlay", onclick: (e) => { if (e.target === ov) close(); } }, h("div", { class: "card dialog" },
+      h("h2", { text: t("coach_title", { n: r.agent || "" }) }),
+      h("div", { class: "meta", dir: "auto", text: [evalIdOf(r), whenText(r), pct(r.final) + " " + (r.result === "Fail" ? "✗" : "✓")].join(" · ") }),
+      h("p", { class: "hint", text: t("coach_steps") }),
+      h("label", {}, t("coach_when"), when),
+      missed.length ? h("div", {}, h("b", { text: t("coach_points") }), ...boxes.map(([i, cb]) => h("label", { class: "check" }, cb, (i.kind === "NC" ? "" : "[" + i.kind + "] ") + i.text))) : null,
+      h("label", {}, t("coach_note"), note),
+      h("label", { class: "check" }, ack, t("coach_ack")),
+      msg,
+      h("div", { class: "row" }, save, h("button", { type: "button", class: "ghost", text: t("cancel"), onclick: close }))));
+    save.onclick = async () => {
+      const at = new Date(when.value);
+      if (isNaN(at) || at.getTime() > Date.now() + 10 * 60000) { msg.className = "msg err"; msg.textContent = t("bad_future"); return; }
+      if (at.getTime() < new Date(r.savedAt || r.evalDate || 0).getTime() - 864e5) { msg.className = "msg err"; msg.textContent = t("coach_before_eval"); return; }
+      save.disabled = true; msg.className = "msg"; msg.textContent = t("saving");
+      const by = settings.who || settings.evaluator || r.evaluator || "", iso = at.toISOString(), stamp = new Date().toISOString();
+      const rec = Object.assign({}, r, { coached: true, coachedAt: iso, coachedBy: by, coachPoints: boxes.filter(([, cb]) => cb.checked).map(([i]) => itemKey(i)),
+        coachNote: note.value.trim(), coachAck: ack.checked, feedback: Object.assign({}, r.feedback || {}, { coached: true, coachedAt: iso }), editedAt: stamp, editedBy: by });
+      loaded.set(rec.id, rec);
+      const local = store(LS_EVALS) || [];
+      if (local.some((x) => x.id === rec.id)) store(LS_EVALS, local.map((x) => (x.id === rec.id ? rec : x)));
+      const fields = (x) => ({ coachedAt: x.coachedAt, coachedBy: x.coachedBy, coachPoints: x.coachPoints, coachNote: x.coachNote, coachAck: x.coachAck, coachMailedAt: x.coachMailedAt || "" });
+      try {
+        if (connected()) await apiPostJson({ action: "saveCoaching", id: rec.id, coaching: fields(rec) });
+        let sent = false;
+        if (connected() && mailMode() === "auto") {
+          try { await apiPostJson({ action: "sendCoaching", id: rec.id }); sent = true; } catch (e) { toast("err", t("email_failed", { e: e.message })); }
+        } else { const m = coachingMail(rec); composeMail((roster.emails || {})[rec.agent] || "", m.subject, m.body, resultCc().join(",")); sent = true; }
+        if (sent && connected()) { rec.coachMailedAt = new Date().toISOString(); loaded.set(rec.id, rec); apiPost({ action: "saveCoaching", id: rec.id, coaching: fields(rec) }).catch(() => {}); }
+        toast("ok", "✓ " + t(sent ? "coach_saved_mailed" : "coach_saved", { n: rec.agent }));
+        close(); refreshViews();
+      } catch (e) { save.disabled = false; msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message }); }
+    };
+    document.body.append(ov);
+    when.focus();
+  }
+  // Coaching summary email (used when emails open in Outlook; the automatic one is built by the script the same way).
+  function coachingMail(r) {
+    const pts = (r.items || []).filter((i) => (r.coachPoints || []).includes(itemKey(i)));
+    const lines = [tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
+      tx("ده ملخص جلسة الكوتشينج اللي عملناها مع بعض يوم ", "Here is a summary of our coaching session on ") + dtText(r.coachedAt) + tx(" على التقييم ", " about evaluation ") + evalIdOf(r) + " (" + whenText(r) + ").", ""];
+    if (pts.length) lines.push(tx("النقاط اللي اتكلمنا فيها:", "What we worked on:"), ...pts.map((i) => "- " + i.text), "");
+    if (r.coachNote) lines.push(tx("اتفقنا على:", "What we agreed:"), r.coachNote, "");
+    lines.push(tx("هنسمع أول مكالمة ليك بعد الكوتشينج علشان نتأكد إن النقاط دي بقت تمام.", "We'll listen to your first call after this session to make sure these points are in place."), "",
+      (r.coachedBy || r.evaluator || "") + tx(" – فريق الجودة", " – Quality Team"));
+    return { subject: tx("📝 ملخص جلسة الكوتشينج – ", "📝 Coaching session summary – ") + dtText(r.coachedAt).slice(0, 10) + " [" + evalIdOf(r) + "]", body: lines.join("\n") };
+  }
   const coachSlaHours = () => Number(teamCfg.coachingSlaHours) || 48;
   function coachHours(r) {
     const start = new Date(r.savedAt || (r.evalDate ? r.evalDate + "T12:00:00" : "")).getTime();
@@ -1153,12 +1249,12 @@
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
         mailable(r) ? outlookButton(r, true) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
-        !isCoached(r) && !r.test && ["live", "certcall", "coaching"].includes(purposeOf(r)) && canChange(r) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => markCoached(r) }) : null,
+        !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
       h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", title: t("c_eval_id"), text: evalIdOf(r), onclick: () => { navigator.clipboard && navigator.clipboard.writeText(evalIdOf(r)); toast("ok", t("eval_id_copied", { id: evalIdOf(r) })); } })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" && purposeOf(r) !== "postcoach" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), followBadge(r), r.followOfId ? h("div", { class: "meta", text: t("fu_of", { id: r.followOfId }) }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -1621,7 +1717,7 @@
   function renderCopcAlerts(boxId, recs, allLive) {
     const box = $(boxId); if (!box) return;
     box.innerHTML = "";
-    const valid = (recs || []).filter((r) => !r.test && ["live", "certcall"].includes(purposeOf(r)));
+    const valid = (recs || []).filter((r) => !r.test && ["live", "certcall", "postcoach"].includes(purposeOf(r)));
     if (!valid.length) { box.hidden = true; return; }
     const sla = coachSlaHours();
     const byAgCrit = new Map();
@@ -1652,10 +1748,13 @@
         const cCell = h("td", {},
           done ? h("span", { class: "pill " + (hrs !== null && hrs > sla ? "warn" : "good"), text: t("coach_done_tag") + (hrs !== null ? " · " + t(hrs <= sla ? "coach_within_sla" : "coach_late_sla", { h: hrs }) : "") })
             : h("span", { class: "pill " + (hrs !== null && hrs > sla ? "bad" : "warn"), text: hrs !== null && hrs > sla ? t("coach_overdue_tag", { h: sla }) : t("coach_pending_tag") }),
-          !done && canChange(r) ? h("button", { type: "button", class: "ghost", style: "margin-inline-start:6px;padding:2px 8px;font-size:12px", text: t("coach_btn"), onclick: () => markCoached(r) }) : null);
-        const fCell = h("td", {}, nextEval
-          ? h("span", { class: "pill good", text: t("copc_followup_done", { d: callDay(nextEval) }) })
-          : h("span", { class: "pill warn", text: t("copc_followup_need") }));
+          !done && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", style: "margin-inline-start:6px;padding:2px 8px;font-size:12px", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null);
+        const fu = followUpOf(r);
+        const fCell = h("td", {}, fu
+          ? h("span", { class: "pill " + (fu.result === "Pass" ? "good" : "bad"), text: t(fu.result === "Pass" ? "fu_passed" : "fu_failed", { id: evalIdOf(fu) }) })
+          : done ? h("span", { class: "pill warn", text: t("fu_waiting") })
+          : nextEval && !coachTime(r) ? h("span", { class: "pill good", text: t("copc_followup_done", { d: callDay(nextEval) }) })
+          : h("span", { class: "pill na", text: t("fu_after_coach") }));
         tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
           h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
       });
@@ -1963,7 +2062,7 @@
     if (p === "week") return [weekStart(ymd(d)), ymd(d)];
     return ["", ""];
   }
-  const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "calibration", "roleplay"];
+  const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"];
   function workStats(list) {
     const by = {}; PURPOSE_KEYS.forEach((k) => (by[k] = 0));
     list.forEach((r) => { by[purposeOf(r)] = (by[purposeOf(r)] || 0) + 1; });
@@ -2146,13 +2245,13 @@
   }
   function recordRows(list) {
     const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
-      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "KB version", "Evaluation date", "Edited by", "Random pick history"];
+      "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeOf(r) + (r.test ? " (test)" : ""),
       r.method || "recording", selectionOf(r), r.callTag || "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
-      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", isCoached(r) ? "Yes" : (needsCoaching(r) ? "Pending" : ""), r.coachedAt || "", r.coachedBy || "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
+      (r.feedback || {}).strengths || "", (r.feedback || {}).improve || "", (r.feedback || {}).coaching || "", isCoached(r) ? "Yes" : (needsCoaching(r) ? "Pending" : ""), r.coachedAt || "", r.coachedBy || "", (r.coachPoints || []).join(", "), r.coachNote || "", r.followOfId || "", (followUpOf(r) || {}).result ? evalIdOf(followUpOf(r)) + " " + followUpOf(r).result : "", r.kbVersion || "", r.evalDate || "", r.editedBy || "", pickTrail(r)])];
   }
   // One column per scorecard item (critical and non-critical), one sheet per form, plus an error-rate summary per item.
   const itemKey = (i) => (i.kind === "NC" ? "N" : "") + i.id;

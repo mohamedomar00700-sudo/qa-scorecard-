@@ -263,12 +263,12 @@ function catRows_(r, row) {
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb') get no automatic email.
-  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching') || (r.mailMode && r.mailMode !== 'auto')) return '';
+  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching' && purpose !== 'postcoach') || (r.mailMode && r.mailMode !== 'auto')) return '';
   const ro = readRoster_();
   const to = ro.emails[r.agent];
   if (!to) return '';
   const evEmail = ro.evalEmails[r.evaluator] || '';
-  const coaching = purpose === 'coaching', cert = purpose === 'certcall';
+  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach';
   try {
     const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
     const when = String(r.interactionDate || '').replace('T', ' ');
@@ -296,7 +296,7 @@ function emailAgent_(r) {
         : '';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       banner +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم أول مكالمة ليك بعد جلسة الكوتشينج على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده فيدباك (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
@@ -311,7 +311,7 @@ function emailAgent_(r) {
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 فيدباك – ' : post ? 'متابعة بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
@@ -323,6 +323,65 @@ function emailAgent_(r) {
   } catch (err) {
     return 'Not sent: ' + String(err).slice(0, 200);
   }
+}
+
+// Record a coaching session on an evaluation. Any evaluator can (team leaders coach on evaluations done by Quality),
+// so only the coaching fields are changed, never the score.
+function saveCoaching_(id, c, me) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_();
+    const at = findRow_(sh, id);
+    if (at === -1) return { ok: false, error: 'Not found' };
+    const r = JSON.parse(sh.getRange(at, JSON_COL).getValue());
+    const when = new Date(c.coachedAt);
+    if (isNaN(when.getTime()) || when.getTime() > Date.now() + 10 * 60000) return { ok: false, error: 'Bad coaching time' };
+    r.coached = true; r.coachedAt = when.toISOString(); r.coachedBy = me.owner && c.coachedBy ? String(c.coachedBy).slice(0, 80) : (me.name || c.coachedBy || '');
+    r.coachPoints = Array.isArray(c.coachPoints) ? c.coachPoints.map(String).slice(0, 60) : [];
+    r.coachNote = String(c.coachNote || '').slice(0, 2000); r.coachAck = !!c.coachAck;
+    if (c.coachMailedAt) r.coachMailedAt = String(c.coachMailedAt).slice(0, 40);
+    r.feedback = r.feedback || {}; r.feedback.coached = true; r.feedback.coachedAt = r.coachedAt;
+    r.editedAt = new Date().toISOString(); r.editedBy = r.coachedBy;
+    const savedAt = sh.getRange(at, 1).getValue();
+    const vals = row_(r, savedAt);
+    vals[COLUMNS.length - 1] = sh.getRange(at, COLUMNS.length).getValue();
+    sh.getRange(at, 1, 1, COLUMNS.length).setValues([vals]);
+    format_(sh, at);
+    return { ok: true, record: r };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Coaching session summary to the agent (points coached, what was agreed), sent after the coach saves the session.
+function sendCoaching_(id) {
+  const sh = sheet_();
+  const at = findRow_(sh, id);
+  if (at === -1) return { ok: false, error: 'Not found' };
+  let r;
+  try { r = JSON.parse(sh.getRange(at, JSON_COL).getValue()); } catch (err) { return { ok: false, error: 'Bad record' }; }
+  if (!r.coachedAt) return { ok: false, error: 'Not coached yet' };
+  const ro = readRoster_();
+  const to = ro.emails[r.agent];
+  if (!to) return { ok: false, error: 'No email for ' + r.agent + ' in the Names list' };
+  const coachEmail = ro.evalEmails[r.coachedBy] || ro.evalEmails[r.evaluator] || '';
+  const tz = Session.getScriptTimeZone();
+  const when = Utilities.formatDate(new Date(r.coachedAt), tz, 'yyyy-MM-dd HH:mm');
+  const pts = (r.items || []).filter(function (i) { return (r.coachPoints || []).indexOf((i.kind === 'NC' ? 'N' : '') + i.id) !== -1; });
+  let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
+    '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><b>📝 ملخص جلسة الكوتشينج</b></div>' +
+    '<p>أهلاً ' + esc_(r.agent) + '،</p><p>ده ملخص جلسة الكوتشينج اللي عملناها مع بعض يوم <b dir="ltr">' + when + '</b> على التقييم <b dir="ltr">' + esc_(evalId_(r)) + '</b> (' + esc_(String(r.interactionDate || '').replace('T', ' ')) + ').</p>';
+  if (pts.length) html += '<p><b>النقاط اللي اتكلمنا فيها:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
+  if (r.coachNote) html += '<p><b>اتفقنا على:</b><br><span dir="auto">' + esc_(r.coachNote) + '</span></p>';
+  html += '<p>هنسمع أول مكالمة ليك بعد الكوتشينج علشان نتأكد إن النقاط دي بقت تمام.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – فريق الجودة</p></div>';
+  const mail = { to: to, subject: '📝 ملخص جلسة الكوتشينج – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
+    name: String(config_().senderName || 'Quality Team').trim() || 'Quality Team' };
+  const cc = [coachEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
+  if (coachEmail) mail.replyTo = coachEmail;
+  if (cc.length) mail.cc = cc.join(',');
+  try { MailApp.sendEmail(mail); } catch (err) { return { ok: false, error: String(err).slice(0, 200) }; }
+  return { ok: true };
 }
 
 function row_(r, savedAt) {
@@ -671,6 +730,10 @@ function doPost(e) {
       if (!me.owner) body.record.editedBy = me.name;
       return reply_(updateRecord_(body.record));
     }
+    if (body.action === 'sendCoaching') {
+      return reply_(sendCoaching_(body.id));
+    }
+    if (body.action === 'saveCoaching') return reply_(saveCoaching_(body.id, body.coaching || {}, me));
     if (body.action === 'deleteRecord') {
       if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });
       return reply_(deleteRecord_(body.id, me.name || body.by));
