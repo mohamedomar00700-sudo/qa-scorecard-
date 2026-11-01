@@ -1038,7 +1038,7 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("متابعة بعد الكوتشينج – ", "Post-coaching evaluation – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? tx("💡 فيدباك – ", "💡 Feedback – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
@@ -1051,7 +1051,7 @@
             ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? tx("ده تقييم أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده فيدباك (مش محسوب في تقييمك) على ", "This is feedback (not counted in your score) on the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
