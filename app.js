@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -387,8 +387,7 @@
     const now = today(), ws = weekStartOf(now), ms = now.slice(0, 8) + "01", all = allRecords();
     // Agents still going through certification (they have certification evaluations but haven't passed) are not on
     // the floor yet, so they are left out until they pass, or until a certified date is put in the Roster (an exception).
-    const inCert = (n) => !agentCertInfo(n, all).certified && all.some((r) => !r.test && r.agent === n && ["certcall", "roleplay"].includes(purposeOf(r)));
-    const notYet = (roster.agents || []).filter(inCert), agents = (roster.agents || []).filter((n) => !notYet.includes(n));
+    const notYet = (roster.agents || []).filter((n) => !agentStage(n, all).floor), agents = (roster.agents || []).filter((n) => !notYet.includes(n));
     const week = new Map(), month = new Map();
     for (const r of all) {
       if (purposeOf(r) !== "program" || r.test || !r.agent) continue;
@@ -410,7 +409,7 @@
       h("div", { text: t("prog_rule") }),
       h("div", { text: t("prog_week", { d: c.agents.length - c.todoWeek.length, n }) + (c.todoWeek.length ? " · " + t("prog_left", { list: c.todoWeek.join("، ") }) : " ✓") }),
       h("div", { text: t("prog_month", { d: n - c.todoMonth.length, n }) + (c.todoMonth.length ? " · " + t("prog_left", { list: c.todoMonth.join("، ") }) : " ✓") }),
-      c.notYet.length ? h("div", { text: t("prog_notcert", { list: c.notYet.join("، ") }) }) : null);
+      ((l) => l.length ? h("div", { text: t("prog_notcert", { list: l.join("، ") }) }) : null)(c.notYet.map((n) => [n, agentStage(n)]).filter(([, st]) => st.key !== "dropped").map(([n, st]) => n + " (" + st.label + ")")));
     return box;
   }
   // Agents' shifts (Egypt time): winter 8 AM–6 PM, summer time (DST) 9 AM–7 PM. The owner can set fixed hours instead.
@@ -2117,7 +2116,8 @@
   let KBQ = null, KBQ_M = "", KBQ_AT = 0, KBQ_ERR = "";
   async function loadKbQuiz(force) {
     if (!connected()) return;
-    if (!force && KBQ && Date.now() - KBQ_AT < 5 * 60 * 1000) return;
+    // Also throttled after a failed reply: renderKbQuiz calls this again while there are no numbers, which used to loop.
+    if (!force && Date.now() - KBQ_AT < (KBQ ? 5 * 60 * 1000 : 60 * 1000)) return;
     KBQ_AT = Date.now(); KBQ_ERR = "";
     try { const j = await apiPostJson(Object.assign({ action: "kbDash" }, KBQ_M ? { month: KBQ_M } : {})); if (!Array.isArray(j.people)) throw new Error("Bad reply"); KBQ = j; }
     catch (e) { KBQ_ERR = e.message || "error"; }
@@ -2788,6 +2788,60 @@
     return { certified: !!certDate, certDate, autoDate, manualDate, daysSince, isNew, newDaysLeft, expDate, annualDaysLeft };
   }
 
+  // Where an agent is in certification. Worked out from the evaluations, unless an owner set a status in the Roster
+  // (column G): Exception (on the floor without passing, with who approved it and why), Retraining (off the floor until
+  // the next attempt) or Dropped (left the account). Passing certification always wins over Exception and Retraining.
+  // Attempt 1 = the first set of certification calls; anything after it is recertification. After a failed
+  // recertification the tool asks for a decision: an exception or drop.
+  function agentStage(agent, allRecs) {
+    const all = allRecs || allRecords(), man = (roster.certStatus || {})[agent] || null, ci = agentCertInfo(agent, all);
+    const mk = (key, cls, floor, extra) => Object.assign({ key, cls, floor, label: t("st_" + key), note: man ? man.note : "", manual: !!man }, extra || {});
+    if (man && man.s === "dropped") return mk("dropped", "na", false);
+    if (ci.certified) return mk("certified", "good", true, { manual: false, note: "" });
+    if (man && man.s === "exception") return mk("exception", "warn", true);
+    const mine = all.filter((r) => !r.test && !r.sampleRef && r.agent === agent && selectionOf(r) === "random");
+    const calls = mine.filter((r) => !r.rolePlay && purposeOf(r) === "certcall"), rps = mine.filter((r) => r.rolePlay);
+    if (man && man.s === "retrain") return mk("retrain", "warn", false);
+    if (!calls.length && !rps.length) return mk("none", "na", true, { label: "–" });
+    let best = null;
+    [...new Set([...calls, ...rps].map((r) => r.form))].forEach((f) => {
+      const fc = calls.filter((r) => r.form === f), c = Object.assign(evalAgentCert(agent, fc, rps.filter((r) => r.form === f)), { total: fc.length });
+      if (!best || c.total > best.total) best = c;
+    });
+    const attempt = Math.max(1, Math.ceil(best.total / CERT.minCalls)), n = { n: attempt };
+    if (best.decision === "Pending") return mk(attempt > 1 ? "recert" : "incert", "info", false, { attempt });
+    if (attempt > 1) return mk("decide", "bad", false, { attempt, label: t("st_decide", n) });
+    return mk("failed", "bad", false, { attempt });
+  }
+
+  async function setCertStatus(name, status, note) {
+    if (!connected()) { alert(t("email_needs_sheet")); return false; }
+    try {
+      const j = await apiPostJson({ action: "setCertStatus", name, status, note, by: settings.evaluator || "" });
+      roster.certStatus = Object.assign({}, roster.certStatus);
+      if (j.status) roster.certStatus[name] = { s: j.status, note: j.note || note }; else delete roster.certStatus[name];
+      store(LS_ROSTER, roster); renderSettings(); renderMyWork(); renderCertification(); renderHeader();
+      return true;
+    } catch (e) { alert(t("name_failed", { e: e.message })); return false; }
+  }
+  // Small form under the agent's name: pick a status, write who approved it and why.
+  function certStatusForm(name, li) {
+    const old = li.querySelector(".cs-form"); if (old) { old.remove(); return; }
+    const st = agentStage(name), cur = ((roster.certStatus || {})[name] || {}).s || "";
+    const sel = h("select", { "aria-label": t("st_btn") }, ["", "exception", "retrain", "dropped"].map((k) => h("option", { value: k, text: t("st_opt_" + (k || "auto")) })));
+    sel.value = cur;
+    const why = h("input", { placeholder: t("st_why_ph"), "aria-label": t("st_why_ph") });
+    const tip = h("div", { class: "hint" });
+    const sync = () => { tip.textContent = t("st_tip_" + (sel.value || "auto")); why.hidden = !sel.value; };
+    sel.onchange = sync; sync();
+    const save = h("button", { type: "button", text: t("save") || "Save", onclick: async () => {
+      if (sel.value && !why.value.trim()) { why.focus(); tip.textContent = t("st_need_why"); return; }
+      if (sel.value === "dropped" && !confirm(t("st_drop_confirm", { n: name }))) return;
+      save.disabled = true; if (!(await setCertStatus(name, sel.value, why.value.trim()))) save.disabled = false;
+    } });
+    li.append(h("div", { class: "cs-form" }, h("div", { class: "hint", text: t("st_now", { s: st.label }) + (st.note ? " · " + st.note : "") }), sel, why, save, tip));
+  }
+
   function renderCertification() {
     const out = $("#ctOut"); if (!out) return;
     const sel = $("#ctForm");
@@ -2852,7 +2906,7 @@
     const useOdoo = CERT.odoo > 0;
     const th = (text, num) => h("th", { class: num ? "num" : "", text });
     const tbl = h("table", { class: "cert" }, h("tr", {}, th(t("c_agent")), th(t("c_calls"), 1), th(t("c_live"), 1), th(t("c_crit_live"), 1),
-      useOdoo ? th(t("c_odoo"), 1) : null, rpIdx.map((i) => th(t("c_rp", { n: i + 1 }), 1)), mode === "annual" ? th(t("c_last_cert")) : null, mode === "annual" ? th(t("c_annual_status")) : null, th(t("c_decision")), th(t("c_notes"))));
+      useOdoo ? th(t("c_odoo"), 1) : null, rpIdx.map((i) => th(t("c_rp", { n: i + 1 }), 1)), mode === "annual" ? th(t("c_last_cert")) : null, mode === "annual" ? th(t("c_annual_status")) : null, th(t("c_decision")), th(t("st_col")), th(t("c_notes"))));
     rows.forEach((c) => {
       const notes = h("input", { value: c.notes, placeholder: t("c_notes_ph"), "aria-label": t("c_notes") + " · " + c.agent });
       notes.addEventListener("change", () => { (certInputs[c.agent] = certInputs[c.agent] || {}).notes = notes.value; store(LS_CERT, certInputs); });
@@ -2866,6 +2920,7 @@
         mode === "annual" ? h("td", { dir: "ltr", text: c.lastCert || "–" }) : null,
         mode === "annual" ? h("td", {}, !c.lastCert ? h("span", { class: "pill na", text: t("annual_none") }) : c.daysLeft >= 0 ? h("span", { class: "pill " + (c.daysLeft <= 30 ? "warn" : "good"), text: t("annual_valid", { d: c.expDate, n: c.daysLeft }) }) : h("span", { class: "pill bad", text: t("annual_due", { d: c.expDate }) })) : null,
         h("td", {}, h("span", { class: "pill " + cls[c.decision], text: t("d_" + c.decision) })),
+        ((st) => h("td", {}, h("span", { class: "pill " + st.cls, title: st.note || "", text: st.label })))(agentStage(c.agent)),
         h("td", {}, notes)));
     });
 
@@ -3030,10 +3085,12 @@
 
 
         h("span", {}, name, (roster.owners || []).includes(name) ? h("span", { class: "pill info", text: t("owner_tag") }) : null,
+          role === "agents" && agentStage(name).key !== "none" ? h("span", { class: "pill " + agentStage(name).cls, style: "margin-inline-start:4px", title: agentStage(name).note || "", text: agentStage(name).label }) : null,
           role === "agents" && agentCertInfo(name).isNew ? h("span", { class: "pill info", style: "margin-inline-start:4px", title: t("newhire_tip", { d: agentCertInfo(name).certDate }), text: t("newhire_days_tag", { n: agentCertInfo(name).newDaysLeft }) }) : null,
           own ? h("small", { class: "meta email", dir: "ltr", text: (emailsFor(role)[name] || t("no_email")) + (role === "agents" ? " · " + t("off_tag") + ": " + ((roster.daysOff || {})[name] || t("off_none")) + (agentCertInfo(name).certDate ? " · ✓ " + t("certdate_tag") + ": " + agentCertInfo(name).certDate : "") : "") }) : null,
           null),
         own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("newhire_btn"), onclick: () => setCertDate(name) }) : null,
+        own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("st_btn"), onclick: (e) => certStatusForm(name, e.target.closest("li")) }) : null,
         own && role === "agents" ? h("button", { type: "button", class: "ghost", text: t("off_btn"), onclick: () => setDaysOff(name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("email_btn"), onclick: () => setEmail(role, name) }) : null,
         own ? h("button", { type: "button", class: "ghost", text: t("rename"), onclick: () => renamePerson(role, name) }) : null,
