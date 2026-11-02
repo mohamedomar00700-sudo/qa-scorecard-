@@ -321,8 +321,23 @@
       if (key === "kbVersion") { a.header.kbVersion = kbFor(a.header.interactionDate) || a.header.kbVersion || ""; input.readOnly = true; input.tabIndex = -1; input.className = "auto"; input.placeholder = t("kb_auto_ph"); }
       if (kind === "tel") { input.dir = "ltr"; input.placeholder = "+9715XXXXXXXX"; input.inputMode = "tel"; }
       input.value = a.header[key] || "";
+      // Program level: the call day is the randomly picked day, not a choice; only the time of the call found is typed.
+      let progHint = null;
+      if (key === "interactionDate" && progRandom(a)) {
+        const pk = a.header.pick && a.header.pickAgent === a.header.agent ? a.header.pick : "";
+        if (!pk) { input.readOnly = true; input.tabIndex = -1; input.className = "auto"; input.value = ""; if (a.header.interactionDate) { a.header.interactionDate = ""; saveDraft(); } progHint = t("prog_date_wait"); }
+        else {
+          const day = pk.slice(0, 10);
+          if (!a.header.interactionDate || a.header.interactionDate.slice(0, 10) !== day) { a.header.interactionDate = day + "T" + pk.slice(11); input.value = a.header.interactionDate; a.header.kbVersion = kbFor(a.header.interactionDate); saveDraft(); }
+          input.min = day + "T00:00"; input.max = day + "T23:59"; progHint = t("prog_date_lock", { d: wdOf(day) + " " + day });
+        }
+      }
       input.id = "hd_" + key;
       input.addEventListener("input", async () => {
+        if (key === "interactionDate" && progRandom(a) && a.header.pick) {
+          const day = a.header.pick.slice(0, 10);
+          if (input.value.slice(0, 10) !== day) input.value = day + "T" + (input.value.slice(11, 16) || a.header.pick.slice(11));
+        }
         if (input.value === "__new") {
           const role = key === "agent" ? "agents" : "evaluators";
           const name = await addPerson(role, prompt(key === "agent" ? t("new_agent_prompt") : t("new_eval_prompt")) || "");
@@ -340,7 +355,7 @@
         if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
-      box.append(h("label", {}, lab + (req ? " *" : ""), input));
+      box.append(h("label", {}, lab + (req ? " *" : ""), input, progHint ? h("span", { class: "hint", text: progHint }) : null));
       if (key === "selection" && (a.header.selection || "random") === "random") box.append(randomPicker(a));
     }
   }
@@ -402,18 +417,25 @@
       const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
       // Look back over the set window; if every day there is closed or was already rejected (the agent was off, no
       // calls), keep going back one day at a time (up to 31 days) instead of stopping the evaluator.
-      let wider = false;
+      // Program level only picks from this month (from the 1st), never the month before.
+      const prog = progRandom(a), monthStart = today().slice(0, 8) + "01";
+      let wider = false, todayOnly = false;
       for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
+        if (prog && ymdOf(d) < monthStart) break;
         if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) { ok.push(ymdOf(d)); if (i > days) wider = true; }
       }
-      if (!ok.length) { alert(t("pick_none", { n: 31 })); return; }
-      if (wider) alert(t("pick_wider", { n: days }));
-      const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
+      const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+      if (!ok.length && prog && !off.has(new Date().getDay()) && !skip.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
+      if (!ok.length) { alert(prog ? t("prog_pick_none") : t("pick_none", { n: 31 })); return; }
+      if (wider && !prog) alert(t("pick_wider", { n: days }));
+      const from = fh * 60 + (fm || 0), to = Math.max(from + 1, Math.min(th * 60 + (tm || 0), todayOnly ? nowM - 15 : 24 * 60)), m = from + Math.floor(Math.random() * (to - from));
       a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
       a.header.pickAgent = agent;
       log.push({ p: a.header.pick, ag: agent, at: new Date().toISOString() });
-      a.header.pickLog = log; saveDraft(); show();
+      a.header.pickLog = log;
+      if (prog) { a.header.interactionDate = a.header.pick.replace(" ", "T"); a.header.kbVersion = kbFor(a.header.interactionDate); saveDraft(); renderHeader(); return; }
+      saveDraft(); show();
     };
     const show = () => {
       box.innerHTML = "";
