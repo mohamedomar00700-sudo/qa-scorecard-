@@ -1482,7 +1482,17 @@ function kbAssign_(b) {
   const log = sh.getRange(row, BK_C.log + 1);
   sh.getRange(row, BK_C.to + 1, 1, 2).setValues([[to, String(ro.emails[to] || '').toLowerCase()]]);
   log.setValue(String(log.getValue() || '') + ' | given to ' + to + ' · ' + who.name + ' · ' + bkNow_());
-  return { ok: true };
+  // tell the new agent right away (no customer number in email: it's in their follow-up calls tab)
+  const em = String(ro.emails[to] || '').trim();
+  if (em) {
+    const r = sh.getRange(row, 1, 1, BK_COLS.length).getValues()[0];
+    try {
+      MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'مكالمة متابعة جديدة ليك: ' + String(r[BK_C.cust]),
+        htmlBody: mailWrap_('مكالمة متابعة اتحولتلك', mailBox_('📞 من ' + esc_(who.name), '<p style="margin:0 0 6px">' + esc_(who.name) + ' حوّل لك متابعة حجز <b>' + esc_(r[BK_C.cust]) + '</b>، ميعاده ' + esc_(ymdOf_(r[BK_C.date])) + ' ' + esc_(hmOf_(r[BK_C.time])) + (r[BK_C.branch] ? ' في فرع ' + esc_(r[BK_C.branch]) : '') + (r[BK_C.svc] ? ' (' + esc_(r[BK_C.svc]) + ')' : '') + '.</p>' +
+          '<p style="margin:0;color:#555">الرقم وكل التفاصيل في تبويب "📞 مكالمات المتابعة" في النولدج بيز. بعد المكالمة دوس على النتيجة.</p>')) });
+    } catch (e) {}
+  }
+  return { ok: true, emailed: !!em };
 }
 // 10 am: each agent with calls today gets one short email (no customer numbers in email: the numbers are in the knowledge base).
 // Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
