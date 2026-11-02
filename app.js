@@ -291,11 +291,17 @@
         const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
         if ((key === "method" || key === "selection") && purposeOf(a.header) === "roleplay") continue;
         if (key === "selection" && purposeOf(a.header) === "postcoach") continue;
+        if (key === "selection" && progRandom(a)) { if (a.header.selection !== "random") { a.header.selection = "random"; saveDraft(); } box.append(randomPicker(a)); continue; }
         if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
         const opts = (key === "type" ? Object.keys(d.types) : key === "callTag" ? CALL_TAGS : key === "method" ? METHODS : key === "selection" ? SELECTIONS : key === "outcome" ? F.odoo.stages.map((s) => s.name) : key === "odooTag" ? stage.tags.slice() : d.outcomes).slice();
         if (key !== "type" && a.header[key] && !opts.includes(a.header[key])) opts.push(a.header[key]);
         const show = (o) => (key === "type" ? typeLabel(current.form, o) : key === "callTag" ? t("tag_" + o) : key === "method" ? t("m_" + o) : key === "selection" ? t("sel_" + o) : key === "outcome" ? stageLabel(o) : key === "odooTag" ? o : outLabel(current.form, o));
         input = h("select", {}, h("option", { value: "", text: t("select") }), opts.map((o) => h("option", { value: o, text: show(o) })));
+      } else if (kind === "person" && key === "agent" && progRandom(a)) {
+        // Program level: nobody chooses the agent. The tool draws one at random from the agents not heard yet this week.
+        box.append(h("label", {}, lab + " *", h("input", { id: "hd_agent", value: a.header.agent || "", placeholder: t("prog_agent_ph"), readOnly: true, tabIndex: -1, class: "auto" })));
+        box.append(progCoverage());
+        continue;
       } else if (kind === "person") {
         const role = key === "agent" ? "agents" : "evaluators";
         const opts = roster[role].slice();
@@ -353,9 +359,40 @@
     if (log.length < 2) return "";
     return t("pick_trail", { n: log.length }) + " " + log.map((e) => wdOf(e.p.slice(0, 10)) + " " + e.p + (e.why ? " (" + t("pick_why_" + e.why) + ")" : "")).join(" → ");
   }
+  // ---------- Program level: random agent with weekly coverage ----------
+  // The week starts on Saturday (Friday is the day off). Every agent is heard at least once a week (so also every month);
+  // agents can be heard more than once, numbers don't have to be equal.
+  const progRandom = (a) => purposeOf(a.header) === "program" && !current.edit;
+  function weekStartOf(day) { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); return ymdOf(d); }
+  function programCoverage() {
+    const now = today(), ws = weekStartOf(now), ms = now.slice(0, 8) + "01", agents = (roster.agents || []).slice();
+    const week = new Map(), month = new Map();
+    for (const r of allRecords()) {
+      if (purposeOf(r) !== "program" || r.test || !r.agent) continue;
+      const d = String(r.evalDate || r.savedAt || "").slice(0, 10);
+      if (d >= ms && d <= now) month.set(r.agent, (month.get(r.agent) || 0) + 1);
+      if (d >= ws && d <= now) week.set(r.agent, (week.get(r.agent) || 0) + 1);
+    }
+    return { agents, week, month, ws, todoWeek: agents.filter((n) => !week.has(n)), todoMonth: agents.filter((n) => !month.has(n)) };
+  }
+  function drawProgramAgent() {
+    const c = programCoverage();
+    // Not heard this week first (and among them, not heard this month first); once everyone is covered, anyone.
+    const pool = c.todoWeek.filter((n) => c.todoMonth.includes(n)).length ? c.todoWeek.filter((n) => c.todoMonth.includes(n)) : c.todoWeek.length ? c.todoWeek : c.agents;
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
+  }
+  function progCoverage() {
+    const c = programCoverage(), n = c.agents.length;
+    const box = h("div", { class: "hint prog-cov" },
+      h("div", { text: t("prog_rule") }),
+      h("div", { text: t("prog_week", { d: c.agents.length - c.todoWeek.length, n }) + (c.todoWeek.length ? " · " + t("prog_left", { list: c.todoWeek.join("، ") }) : " ✓") }),
+      h("div", { text: t("prog_month", { d: n - c.todoMonth.length, n }) + (c.todoMonth.length ? " · " + t("prog_left", { list: c.todoMonth.join("، ") }) : " ✓") }));
+    return box;
+  }
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
     const pick = (why) => {
+      if (progRandom(a) && !why) { const ag = drawProgramAgent(); if (!ag) { alert(t("prog_no_agents")); return; } a.header.agent = ag; a.header.randAgent = true; }
       const agent = a.header.agent;
       const log = (a.header.pickLog || []).slice();
       if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
@@ -381,9 +418,9 @@
     const show = () => {
       box.innerHTML = "";
       const picked = a.header.pick && a.header.pickAgent === a.header.agent;
-      if (!picked) box.append(h("button", { type: "button", class: "ghost", text: "🎲 " + t("pick_btn"), onclick: () => {
-        if (!a.header.agent) { alert(t("pick_need_agent")); return; }
-        pick("");
+      if (!picked) box.append(h("button", { type: "button", class: progRandom(a) ? "" : "ghost", text: "🎲 " + t(progRandom(a) ? "prog_pick_btn" : "pick_btn"), onclick: () => {
+        if (!a.header.agent && !progRandom(a)) { alert(t("pick_need_agent")); return; }
+        pick(""); if (progRandom(a)) renderHeader();
       } }));
       if (picked) {
         const day = a.header.pick.slice(0, 10);
@@ -443,6 +480,7 @@
     const set = (p) => {
       hd.purpose = p; hd.rolePlay = p === "roleplay";
       if (p !== "calibration") hd.sampleRef = "";
+      if (p === "program" && !hd.randAgent && !current.edit) { hd.agent = ""; delete hd.pick; delete hd.pickAgent; hd.selection = "random"; }
       if (p === "postcoach") { hd.selection = "targeted"; delete hd.pick; delete hd.pickAgent; } else { delete hd.followOf; delete hd.followOfId; }
       saveDraft(); renderHeader();
     };
@@ -451,7 +489,7 @@
     const isQ = isQualityName(evName), isOwn = (roster.owners || []).some((n) => nameKey(n) === nameKey(evName));
     const levels = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"]
       .filter((p) => !(p === "live" && isQ) && !(p === "program" && !isQ && !isOwn && evName));
-    if (!levels.includes(hd.purpose)) { hd.purpose = isQ ? "program" : "live"; saveDraft(); }
+    if (!levels.includes(hd.purpose)) { hd.purpose = isQ ? "program" : "live"; if (hd.purpose === "program" && !hd.randAgent && !current.edit) { hd.agent = ""; delete hd.pick; delete hd.pickAgent; } saveDraft(); setTimeout(renderHeader); }
     const sel = h("select", { id: "hd_purpose" }, levels.map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
@@ -2029,7 +2067,57 @@
       h("div", { class: "table-wrap" }, tbl));
     box.hidden = false;
   }
+  // ---------- knowledge base quiz numbers (agents' daily quiz on the knowledge base) ----------
+  let KBQ = null, KBQ_M = "", KBQ_AT = 0, KBQ_ERR = "";
+  async function loadKbQuiz(force) {
+    if (!connected()) return;
+    if (!force && KBQ && Date.now() - KBQ_AT < 5 * 60 * 1000) return;
+    KBQ_AT = Date.now(); KBQ_ERR = "";
+    try { const j = await apiPostJson(Object.assign({ action: "kbDash" }, KBQ_M ? { month: KBQ_M } : {})); if (!Array.isArray(j.people)) throw new Error("Bad reply"); KBQ = j; }
+    catch (e) { KBQ_ERR = e.message || "error"; }
+    renderKbQuiz();
+  }
+  function renderKbQuiz() {
+    const box = $("#dbQuiz"); if (!box) return;
+    box.innerHTML = "";
+    box.append(h("h3", { text: tx("📚 كويز النولدج بيز", "📚 Knowledge base quiz") }));
+    if (!connected()) { box.append(h("div", { class: "hint", text: tx("اتصل بالشيت الأول علشان تظهر أرقام الكويز.", "Connect to the sheet to see the quiz numbers.") })); return; }
+    if (!KBQ) { box.append(h("div", { class: "hint", text: KBQ_ERR ? tx("الأرقام مش متاحة: ", "Numbers not available: ") + KBQ_ERR + tx(" (لازم Code.gs الجديد يترفع كـ New version)", " (the new Code.gs must be published as a new version)") : tx("بيحمّل…", "Loading…") })); loadKbQuiz(); return; }
+    const X = KBQ, pctTxt = (v) => v == null ? "–" : v + "%";
+    const m = h("input", { type: "month", value: X.month, style: "max-width:180px" });
+    m.addEventListener("change", () => { KBQ_M = m.value; KBQ = null; renderKbQuiz(); loadKbQuiz(true); });
+    box.append(h("div", { class: "toolbar" }, h("label", {}, tx("الشهر", "Month") + " ", m), h("button", { type: "button", class: "ghost", text: tx("↻ تحديث", "↻ Refresh"), onclick: () => loadKbQuiz(true) })));
+    const ag = X.people.filter((p) => !p.staff), took = ag.filter((p) => p.days > 0);
+    const avgAcc = took.length ? Math.round(took.reduce((s, p) => s + (p.pct || 0), 0) / took.length) : 0;
+    const part = ag.length ? Math.round(ag.reduce((s, p) => s + p.rate, 0) / ag.length) : 0;
+    box.append(h("div", { class: "tiles" }, [[tx("حلّوا النهارده", "Done today"), X.doneToday + "/" + X.agents], [tx("متوسط الدقة", "Avg accuracy"), avgAcc + "%"], [tx("متوسط الالتزام", "Avg participation"), part + "%"], [tx("أيام الكويز", "Quiz days"), X.days.length]]
+      .map(([k, v]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: String(v) })))));
+    // Best and the ones who need follow-up: accuracy, then participation (at least 2 quiz days to be ranked).
+    const ranked = took.filter((p) => p.days >= 2).sort((a, b) => (b.pct || 0) - (a.pct || 0) || b.rate - a.rate);
+    const never = ag.filter((p) => !p.days).map((p) => p.name), nb = Math.min(3, Math.ceil(ranked.length / 2));
+    const line = (p) => p.name + " · " + pctTxt(p.pct) + tx(" دقة · ", " accuracy · ") + p.rate + tx("% التزام", "% participation");
+    if (ranked.length) box.append(h("div", { class: "kbq-two" },
+      h("div", {}, h("b", { text: tx("🏆 الأفضل", "🏆 Best") }), h("ol", {}, ranked.slice(0, nb).map((p) => h("li", { text: line(p) })))),
+      h("div", {}, h("b", { text: tx("⚠️ محتاجين متابعة", "⚠️ Need follow-up") }), h("ol", {}, ranked.slice(nb).reverse().slice(0, 3).map((p) => h("li", { text: line(p) }))),
+        never.length ? h("div", { class: "hint", text: tx("ما حلّوش ولا مرة الشهر ده: ", "Haven't taken it this month: ") + never.join("، ") }) : null)));
+    // Most missed questions
+    const top = (X.top || []).slice(0, 10);
+    box.append(h("h4", { text: tx("أكتر الأسئلة اللي اتغلط فيها", "Most missed questions") }));
+    if (!top.length) box.append(h("div", { class: "hint", text: tx("لسه مفيش بيانات.", "No data yet.") }));
+    top.forEach((q) => { const r = q.asked ? q.wrong / q.asked : 0;
+      box.append(h("div", { class: "bar-row" }, h("span", { class: "bar-label", title: q.text, text: q.text }), h("div", { class: "bar-track" }, h("div", { class: "bar-fill", style: "width:" + Math.round(100 * r) + "%;background:var(--bad,#c0392b)" })), h("span", { text: tx(q.wrong + " غلط من " + q.asked, q.wrong + " wrong of " + q.asked) }))); });
+    // Per agent
+    box.append(h("h4", { text: tx("كل إيجنت", "Per agent") }));
+    const tbl = h("table", { class: "rec-table" }, h("tr", {}, [tx("الاسم", "Name"), tx("أيام", "Days"), tx("الالتزام", "Participation"), tx("الدقة", "Accuracy"), "5/5", tx("ستريك", "Streak"), tx("الشهري", "Monthly"), tx("آخر كويز", "Last quiz"), tx("بيغلط في", "Gets wrong")].map((x) => h("th", { text: x }))));
+    X.people.slice().sort((a, b) => a.staff - b.staff || (b.pct || 0) - (a.pct || 0) || b.days - a.days).forEach((p) => tbl.append(h("tr", { class: p.staff ? "muted" : "" },
+      h("td", { text: (p.staff ? "🛡 " : "") + p.name }), h("td", { text: String(p.days) }), h("td", { text: p.rate + "%" }), h("td", { text: pctTxt(p.pct) }), h("td", { text: String(p.perfect) }),
+      h("td", { text: p.streak ? "🔥 " + p.streak : "–" }), h("td", { text: pctTxt(p.monthly) }), h("td", { text: p.last || "–" }),
+      h("td", { style: "white-space:normal;min-width:220px", text: (p.weak || []).map((w) => w.text + (w.n > 1 ? " (" + w.n + ")" : "")).join(" · ") || "–" }))));
+    box.append(h("div", { style: "overflow-x:auto" }, tbl));
+  }
+
   function renderDashboard() {
+    renderKbQuiz();
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));

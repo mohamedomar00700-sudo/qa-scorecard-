@@ -753,6 +753,7 @@ function doPost(e) {
     if (body.action === 'setDaysOff') return reply_(setDaysOff_(body.name, body.days));
     if (body.action === 'setCertDate') return reply_(setCertDate_(body.name, body.certDate));
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
+    if (body.action === 'kbDash') return reply_(kbDashForEval_(body, me)); // knowledge base quiz numbers on the scorecard dashboard
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
@@ -1310,13 +1311,21 @@ function kbDash_(p) {
   if (!who) return { ok: false, error: 'signed_out' };
   const acc = kbAccess_(who.email);
   if (!acc.dash) return { ok: false, error: 'forbidden' };
+  return kbDashData_(p, who, acc);
+}
+// The same numbers inside the QA scorecard dashboard (any signed-in evaluator, or the access key).
+function kbDashForEval_(p, me) {
+  const acc = { dash: true, seeStaff: !!me.owner || (me.email ? kbAccess_(me.email).seeStaff : false) };
+  return kbDashData_(p, { name: me.name || '', email: me.email || '' }, acc);
+}
+function kbDashData_(p, who, acc) {
   const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : today.slice(0, 7);
   const people = rosterPeople_(), staff = {}, ro = readRoster_();
   people.forEach(function (x) { if (isEvalRole_(x.role)) staff[nameKey_(x.name)] = 1; });
   const rows = quizRows_().filter(function (r) { return r.period.slice(0, 7) === month || r.date.slice(0, 7) === month; });
   const persons = {}, days = {}, qs = {};
-  const P = function (name) { const k = nameKey_(name); return persons[k] || (persons[k] = { name: name, staff: !!staff[k], days: 0, right: 0, asked: 0, perfect: 0, last: '', monthly: null, dates: [] }); };
+  const P = function (name) { const k = nameKey_(name); return persons[k] || (persons[k] = { name: name, staff: !!staff[k], days: 0, right: 0, asked: 0, perfect: 0, last: '', monthly: null, dates: [], weak: {} }); };
   ro.agents.forEach(P);
   rows.forEach(function (r) {
     const isStaff = !!staff[nameKey_(r.name)];
@@ -1332,13 +1341,15 @@ function kbDash_(p) {
         Object.keys(wr).forEach(function (id) { if (!d.q[id]) { const t = qKey_(splitQs_(r.wrong).filter(function (w) { return qKey_(w).id === id; })[0] || id); d.q[id] = { id: id, text: t.text, asked: 1, wrong: 1 }; } });
       }
     } else x.monthly = Math.round(100 * r.score / (r.total || 1));
+    splitQs_(r.wrong).forEach(function (w) { const q = qKey_(w), e = x.weak[q.id] || (x.weak[q.id] = { text: q.text, n: 0 }); e.n++; });
     if (!isStaff) {
       splitQs_(r.asked).forEach(function (a) { const q = qKey_(a), e = qs[q.id] || (qs[q.id] = { id: q.id, text: q.text, asked: 0, wrong: 0 }); e.asked++; });
       splitQs_(r.wrong).forEach(function (w) { const q = qKey_(w), e = qs[q.id] || (qs[q.id] = { id: q.id, text: q.text, asked: 0, wrong: 0 }); e.wrong++; if (e.asked < e.wrong) e.asked = e.wrong; });
     }
   });
   const workDays = Object.keys(days).length;
-  const list = Object.keys(persons).map(function (k) { const x = persons[k]; return { name: x.name, staff: x.staff, days: x.days, pct: x.asked ? Math.round(100 * x.right / x.asked) : null, perfect: x.perfect, last: x.last, monthly: x.monthly, streak: streak_(x.dates, today), rate: workDays ? Math.round(100 * Math.min(x.days, workDays) / workDays) : 0 }; })
+  const list = Object.keys(persons).map(function (k) { const x = persons[k]; return { name: x.name, staff: x.staff, days: x.days, pct: x.asked ? Math.round(100 * x.right / x.asked) : null, perfect: x.perfect, last: x.last, monthly: x.monthly, streak: streak_(x.dates, today), rate: workDays ? Math.round(100 * Math.min(x.days, workDays) / workDays) : 0,
+      weak: Object.keys(x.weak).map(function (i) { return x.weak[i]; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 3) }; })
     .filter(function (x) { return !x.staff || acc.seeStaff || nameKey_(x.name) === nameKey_(who.name); })
     .sort(function (a, b) { return a.staff - b.staff || b.days - a.days || (b.pct || 0) - (a.pct || 0); });
   const dayList = Object.keys(days).sort().reverse().map(function (k) { const d = days[k]; return { date: d.date, done: d.done, pct: d.asked ? Math.round(100 * d.right / d.asked) : 0, qs: Object.keys(d.q).map(function (i) { return d.q[i]; }).sort(function (a, b) { return b.wrong / b.asked - a.wrong / a.asked; }) }; });
