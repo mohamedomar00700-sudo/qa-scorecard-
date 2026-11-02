@@ -184,18 +184,21 @@
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
       }
-      // Names added on this device while it was not connected go up to the shared list.
-      for (const role of ["agents", "evaluators"]) {
-        for (const name of (role === "agents" || isOwner() ? roster[role] : []) || []) {
-          if (server[role].some((x) => nameKey(x) === nameKey(name))) continue;
-          try { await apiPost({ action: "addPerson", role, name }); server[role].push(name); } catch (e) { /* try again next time */ }
-        }
-        server[role].sort((a, b) => a.localeCompare(b));
+      // Only names added on this device while it was not connected go up to the shared list. Names that are just
+      // missing from the server (for example an agent set to Active = No) are dropped, never added back.
+      const pending = store(LS_PENDING) || [], left = [];
+      for (const p of pending) {
+        if (!["agents", "evaluators"].includes(p.role) || (p.role === "evaluators" && !isOwner())) continue;
+        if (server[p.role].some((x) => nameKey(x) === nameKey(p.name)) || (j.inactive || []).some((x) => nameKey(x) === nameKey(p.name))) continue;
+        try { await apiPost({ action: "addPerson", role: p.role, name: p.name }); server[p.role].push(p.name); } catch (e) { left.push(p); }
       }
+      store(LS_PENDING, left);
+      for (const role of ["agents", "evaluators"]) server[role].sort((a, b) => a.localeCompare(b));
       roster = server;
       store(LS_ROSTER, roster);
     } catch (e) { /* keep the cached list */ }
   }
+  const LS_PENDING = "qa_roster_pending";
   async function addPerson(role, raw) {
     const name = normName(raw);
     if (!name) return null;
@@ -203,10 +206,11 @@
     const near = similarName(list, name);
     if (near && (nameKey(near) === nameKey(name) || confirm(t("similar_confirm", { a: near, b: name })))) return near;
     list.push(name); list.sort((a, b) => a.localeCompare(b)); store(LS_ROSTER, roster);
+    const queue = () => { const q = store(LS_PENDING) || []; q.push({ role, name }); store(LS_PENDING, q); };
     if (connected()) {
       try { await apiPost({ action: "addPerson", role, name }); }
-      catch (e) { alert(t("added_local", { e: e.message })); }
-    }
+      catch (e) { queue(); alert(t("added_local", { e: e.message })); }
+    } else queue();
     return name;
   }
 
