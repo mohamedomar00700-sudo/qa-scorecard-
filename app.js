@@ -455,6 +455,7 @@
     };
     const show = () => {
       box.innerHTML = "";
+      if (progRandom(a) && a.header.pick && a.header.pick.slice(0, 10) < today().slice(0, 8) + "01") { delete a.header.pick; delete a.header.pickAgent; a.header.agent = ""; a.header.interactionDate = ""; delete a.header.randAgent; saveDraft(); setTimeout(renderHeader); }
       const picked = a.header.pick && a.header.pickAgent === a.header.agent;
       if (!picked) box.append(h("button", { type: "button", class: progRandom(a) ? "" : "ghost", text: "🎲 " + t(progRandom(a) ? "prog_pick_btn" : "pick_btn"), onclick: () => {
         if (!a.header.agent && !progRandom(a)) { alert(t("pick_need_agent")); return; }
@@ -464,8 +465,8 @@
         const day = a.header.pick.slice(0, 10);
         box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent, d: wdOf(day) + " " + day, t: a.header.pick.slice(11) })),
           h("div", { class: "hint", text: t("pick_again_hint") }),
-          h("button", { type: "button", class: "ghost", text: t("pick_off_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("off"); } }),
-          h("button", { type: "button", class: "ghost", text: t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }));
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_off_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("off"); } }),
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }));
         const tr = pickTrail(a.header);
         if (tr) box.append(h("div", { class: "hint", text: tr }));
       }
