@@ -51,7 +51,7 @@ function roster_() {
   return sh;
 }
 
-// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator (Quality)', 'Evaluator (Operations)' or 'Agent'. Owners count as evaluators everywhere.
+// Role column: 'Evaluator (Owner)' or 'Owner' (full control, also scores), 'Evaluator (Quality)', 'Evaluator (Operations)', 'Evaluator (Chief)' (Hussein: also sees evaluators' quiz results) or 'Agent'. Owners count as evaluators everywhere.
 // Quality evaluators score Program level (never Agent level); the other evaluators (Operations) score Agent level (never Program level).
 function isEvalRole_(v) { return /^(eval|owner)/i.test(String(v || '').trim()); }
 function isQualityRole_(v) { return /quality|\bqa\b|كواليتي|جودة/i.test(String(v || '')); }
@@ -792,7 +792,8 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
-  if (p.action === 'kbAsks') return reply_(kbAsks_(p)); // public list, no names: questions waiting for / answered by the client
+  if (p.action === 'kbAsks') return reply_(kbAsks_(p));
+  if (p.action === 'kbDash') return reply_(kbDash_(p)); // signed-in evaluators only // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
   const me = who_(p);
   if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
@@ -858,7 +859,7 @@ function sameEvaluatorTwin_(sh, r) {
 // The knowledge base page (no access key) posts quiz scores and reads the leaderboard and the
 // team's most missed scorecard items. Only agents in the Roster, or a company email, can save.
 const QUIZ_NAME = 'Quiz';
-const QUIZ_COLS = ['Saved at', 'Date', 'Kind', 'Period', 'Name', 'Email', 'Score', 'Total', 'Wrong questions'];
+const QUIZ_COLS = ['Saved at', 'Date', 'Kind', 'Period', 'Name', 'Email', 'Score', 'Total', 'Wrong questions', 'Questions asked'];
 function quizSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(QUIZ_NAME);
@@ -976,7 +977,9 @@ function saveQuiz_(b) {
       for (let i = 0; i < rows.length; i++) if (rows[i][0] === kind && String(rows[i][1]) === period && nameKey_(rows[i][2]) === nameKey_(name)) return { ok: true, duplicate: true, name: name };
     }
     const wrong = (Array.isArray(b.wrong) ? b.wrong : []).slice(0, 30).map(function (x) { return String(x).replace(/\s*\|\s*/g, ' ').slice(0, 140); }).join(' | ');
-    sh.appendRow([now, date, kind, "'" + period, name, who.email, score, total, wrong]);
+    const asked = (Array.isArray(b.asked) ? b.asked : []).slice(0, 30).map(function (x) { return String(x).replace(/\s*\|\s*/g, ' ').slice(0, 140); }).join(' | ');
+    if (!sh.getRange(1, 10).getValue()) sh.getRange(1, 10).setValue('Questions asked').setFontWeight('bold');
+    sh.appendRow([now, date, kind, "'" + period, name, who.email, score, total, wrong, asked]);
   } finally { lock.releaseLock(); }
   return { ok: true, name: name };
 }
@@ -1023,7 +1026,7 @@ function pulse_(p) {
   }
   const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly, streak: streak_(days[k] || [], today) }; })
     .sort(function (a, b) { return b.points - a.points || b.pct - a.pct || a.name.localeCompare(b.name); });
-  const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14) };
+  const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14), hard: quizHard_(today) };
   if (p.session) {
     if (!me) out.signedOut = true;
     else {
@@ -1036,7 +1039,8 @@ function pulse_(p) {
         if (k >= ds[ds.length - 1]) break;
       }
       const rank = list.findIndex(function (b) { return nameKey_(b.name) === meK; });
-      out.me = { name: me.name, staff: !!staff[meK], streak: streak_(mine.dates, today), best: best, points: mine.points, pct: mine.asked ? Math.round(100 * mine.right / mine.asked) : 0,
+      const acc = kbAccess_(me.email);
+      out.me = { name: me.name, staff: !!staff[meK], dash: acc.dash, seeStaff: acc.seeStaff, streak: streak_(mine.dates, today), best: best, points: mine.points, pct: mine.asked ? Math.round(100 * mine.right / mine.asked) : 0,
         days: mine.dates.length, perfect: mine.perfect, monthlies: mine.monthlies, bestMonthly: mine.bestMonthly, rank: rank < 0 ? null : rank + 1,
         week: mine.dates.filter(function (d) { return d > Utilities.formatDate(new Date(Date.now() - 14 * 864e5), tz, 'yyyy-MM-dd'); }), doneToday: mine.dates.indexOf(today) >= 0 };
     }
@@ -1171,8 +1175,8 @@ function mailWrap_(title, inner) {
 function quizRows_() { // [{date, kind, period, name, score, total, wrong}]
   const qs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(QUIZ_NAME), tz = Session.getScriptTimeZone();
   if (!qs || qs.getLastRow() < 2) return [];
-  return qs.getRange(2, 2, qs.getLastRow() - 1, 8).getValues().map(function (r) {
-    return { date: r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]), kind: String(r[1]), period: String(r[2]), name: String(r[3]), score: Number(r[5]) || 0, total: Number(r[6]) || 0, wrong: String(r[7] || '') };
+  return qs.getRange(2, 2, qs.getLastRow() - 1, 9).getValues().map(function (r) {
+    return { date: r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]), kind: String(r[1]), period: String(r[2]).replace(/^'/, ''), name: String(r[3]), score: Number(r[5]) || 0, total: Number(r[6]) || 0, wrong: String(r[7] || ''), asked: String(r[8] || '') };
   });
 }
 function kbDailyDigest() {
@@ -1247,4 +1251,73 @@ function kbLeadsReport() {
   }
   MailApp.sendEmail({ to: leads.join(','), name: KB_SENDER, subject: 'تقرير الكويز ' + today, htmlBody: mailWrap_('تقرير النولدج بيز للتيم ليدرز', parts.join('')) });
   return 'sent';
+}
+
+// ---------- quiz analytics for the owner, team leads, quality and Hussein ----------
+// Everyone with an Evaluator / Owner role in the Roster can open the dashboard (signed in on the knowledge base).
+// Evaluators' own quiz results are shown only to the owner and to roles with "Chief" (Hussein); the rest see agents only.
+function kbAccess_(email) {
+  const em = String(email || '').toLowerCase(), p = rosterPeople_().filter(function (x) { return x.email.toLowerCase() === em; })[0];
+  const role = p ? p.role : '';
+  return { dash: !!p && isEvalRole_(role), seeStaff: !!p && /owner|chief|head/i.test(role) };
+}
+function splitQs_(v) { return String(v || '').split(/\s*\|\s*/).map(function (x) { return x.trim(); }).filter(Boolean); }
+function qKey_(x) { const m = /^(\S+)\s+—\s+(.*)$/.exec(x); return m ? { id: m[1], text: m[2] } : { id: x, text: x }; }
+// The questions the team got wrong most in the last 14 days (agents only, up to yesterday), so tomorrow's quiz brings
+// them back. Cached for the day, so everyone gets the same quiz.
+function quizHard_(today) {
+  const cache = CacheService.getScriptCache(), k = 'quizHard' + today, hit = cache.get(k);
+  if (hit) return JSON.parse(hit);
+  const staff = {}; rosterPeople_().forEach(function (p) { if (isEvalRole_(p.role)) staff[nameKey_(p.name)] = 1; });
+  const from = Utilities.formatDate(new Date(Date.now() - 14 * 864e5), Session.getScriptTimeZone(), 'yyyy-MM-dd'), asked = {}, wrong = {};
+  quizRows_().forEach(function (r) {
+    if (r.date < from || r.date >= today || staff[nameKey_(r.name)]) return;
+    splitQs_(r.asked).forEach(function (x) { const id = qKey_(x).id; asked[id] = (asked[id] || 0) + 1; });
+    splitQs_(r.wrong).forEach(function (x) { const id = qKey_(x).id; wrong[id] = (wrong[id] || 0) + 1; });
+  });
+  const out = Object.keys(wrong).map(function (id) { return { id: id, w: wrong[id], a: Math.max(asked[id] || 0, wrong[id]) }; })
+    .filter(function (x) { return x.w >= 2 || x.w / x.a >= 0.5; }).sort(function (a, b) { return b.w / b.a - a.w / a.a || b.w - a.w; }).slice(0, 12).map(function (x) { return x.id; });
+  cache.put(k, JSON.stringify(out), 21600);
+  return out;
+}
+function kbDash_(p) {
+  const who = kbWho_(p.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const acc = kbAccess_(who.email);
+  if (!acc.dash) return { ok: false, error: 'forbidden' };
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : today.slice(0, 7);
+  const people = rosterPeople_(), staff = {}, ro = readRoster_();
+  people.forEach(function (x) { if (isEvalRole_(x.role)) staff[nameKey_(x.name)] = 1; });
+  const rows = quizRows_().filter(function (r) { return r.period.slice(0, 7) === month || r.date.slice(0, 7) === month; });
+  const persons = {}, days = {}, qs = {};
+  const P = function (name) { const k = nameKey_(name); return persons[k] || (persons[k] = { name: name, staff: !!staff[k], days: 0, right: 0, asked: 0, perfect: 0, last: '', monthly: null, dates: [] }); };
+  ro.agents.forEach(P);
+  rows.forEach(function (r) {
+    const isStaff = !!staff[nameKey_(r.name)];
+    if (isStaff && !acc.seeStaff && nameKey_(r.name) !== nameKey_(who.name)) return;
+    const x = P(r.name);
+    if (r.kind === 'daily') {
+      x.days++; x.right += r.score; x.asked += r.total; if (r.total && r.score === r.total) x.perfect++; if (r.date > x.last) x.last = r.date; x.dates.push(r.date);
+      if (!isStaff) {
+        const d = days[r.date] || (days[r.date] = { date: r.date, done: 0, right: 0, asked: 0, q: {} });
+        d.done++; d.right += r.score; d.asked += r.total;
+        const wr = {}; splitQs_(r.wrong).forEach(function (w) { wr[qKey_(w).id] = 1; });
+        splitQs_(r.asked).forEach(function (a) { const q = qKey_(a), e = d.q[q.id] || (d.q[q.id] = { id: q.id, text: q.text, asked: 0, wrong: 0 }); e.asked++; if (wr[q.id]) e.wrong++; });
+        Object.keys(wr).forEach(function (id) { if (!d.q[id]) { const t = qKey_(splitQs_(r.wrong).filter(function (w) { return qKey_(w).id === id; })[0] || id); d.q[id] = { id: id, text: t.text, asked: 1, wrong: 1 }; } });
+      }
+    } else x.monthly = Math.round(100 * r.score / (r.total || 1));
+    if (!isStaff) {
+      splitQs_(r.asked).forEach(function (a) { const q = qKey_(a), e = qs[q.id] || (qs[q.id] = { id: q.id, text: q.text, asked: 0, wrong: 0 }); e.asked++; });
+      splitQs_(r.wrong).forEach(function (w) { const q = qKey_(w), e = qs[q.id] || (qs[q.id] = { id: q.id, text: q.text, asked: 0, wrong: 0 }); e.wrong++; if (e.asked < e.wrong) e.asked = e.wrong; });
+    }
+  });
+  const workDays = Object.keys(days).length;
+  const list = Object.keys(persons).map(function (k) { const x = persons[k]; return { name: x.name, staff: x.staff, days: x.days, pct: x.asked ? Math.round(100 * x.right / x.asked) : null, perfect: x.perfect, last: x.last, monthly: x.monthly, streak: streak_(x.dates, today), rate: workDays ? Math.round(100 * Math.min(x.days, workDays) / workDays) : 0 }; })
+    .filter(function (x) { return !x.staff || acc.seeStaff || nameKey_(x.name) === nameKey_(who.name); })
+    .sort(function (a, b) { return a.staff - b.staff || b.days - a.days || (b.pct || 0) - (a.pct || 0); });
+  const dayList = Object.keys(days).sort().reverse().map(function (k) { const d = days[k]; return { date: d.date, done: d.done, pct: d.asked ? Math.round(100 * d.right / d.asked) : 0, qs: Object.keys(d.q).map(function (i) { return d.q[i]; }).sort(function (a, b) { return b.wrong / b.asked - a.wrong / a.asked; }) }; });
+  const top = Object.keys(qs).map(function (i) { return qs[i]; }).filter(function (q) { return q.wrong; }).sort(function (a, b) { return b.wrong - a.wrong || b.wrong / b.asked - a.wrong / a.asked; }).slice(0, 15);
+  const agentsN = ro.agents.length, doneToday = rows.filter(function (r) { return r.kind === 'daily' && r.date === today && !staff[nameKey_(r.name)]; }).length;
+  return { ok: true, month: month, today: today, seeStaff: acc.seeStaff, agents: agentsN, doneToday: doneToday, people: list, days: dayList, top: top, hard: quizHard_(today) };
 }
