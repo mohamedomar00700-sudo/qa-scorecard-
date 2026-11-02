@@ -73,10 +73,11 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {} };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, inactive: [] };
   if (sh.getLastRow() < 2) return out;
   sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
+    if (name && String(r[2]).toLowerCase() === 'no') out.inactive.push(name);
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
     if (isEvalRole_(r[1]) && isQualityRole_(r[1])) out.quality.push(name);
@@ -811,7 +812,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, inactive: ro.inactive,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
