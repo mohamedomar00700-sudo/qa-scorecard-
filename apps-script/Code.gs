@@ -1500,6 +1500,22 @@ function kbCallsReminder() {
     }).join('') + '</ol><p style="margin:8px 0 0;color:#555">الأرقام والتفاصيل في تبويب "📞 مكالمات المتابعة" في النولدج بيز. بعد كل مكالمة دوس على النتيجة علشان التذكير يقف.</p>');
     MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'مكالمات المتابعة النهارده: ' + L.length, htmlBody: mailWrap_('صباح الخير 🌸', body) }); sent++;
   });
+  // the management copy: every call for today, per agent, with who is off (Operations team leads, Owner, Chief)
+  const mgmt = rosterPeople_().filter(function (p) { return isEvalRole_(p.role) && /operation|اوبريشن|أوبريشن|owner|chief/i.test(p.role); }).map(function (p) { return p.email; });
+  const all = bkAll_(today).filter(function (x) { return x.c.state === 'due' || x.c.state === 'late'; });
+  if (mgmt.length && all.length) {
+    const per = {}; all.forEach(function (x) { const n = String(x.r[BK_C.to]); (per[n] = per[n] || []).push(x); });
+    const cnt = [0, 0, 0, 0]; all.forEach(function (x) { cnt[x.c.call]++; });
+    const late = all.filter(function (x) { return x.c.state === 'late'; }).length;
+    const sum = '<p style="margin:0 0 10px">' + all.length + ' مكالمة النهارده: ' + cnt[1] + ' تأكيد، ' + cnt[2] + ' تذكير يوم الميعاد، ' + cnt[3] + ' بعد الزيارة' + (late ? '، منهم <b style="color:#A63D63">' + late + ' متأخرة</b>' : '') + '.</p>';
+    const list = Object.keys(per).sort().map(function (n) {
+      const off = bkOffOn_(n, today, ro);
+      return '<p style="margin:10px 0 4px"><b>' + esc_(n) + '</b> (' + per[n].length + ')' + (off ? ' <span style="color:#A63D63;font-weight:bold">· أجازة النهارده: اديها لحد تاني من النولدج بيز</span>' : '') + '</p><ul style="margin:0;padding-inline-start:20px">' +
+        per[n].sort(function (a, b) { return a.c.call - b.c.call; }).map(function (x) { return '<li>' + esc_(names[x.c.call]) + ': ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(x.r[BK_C.branch]) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(متأخرة)</span>' : '') + (x.c.tries ? ' · مردش ' + x.c.tries + ' مرة' : '') + '</li>'; }).join('') + '</ul>';
+    }).join('');
+    MailApp.sendEmail({ to: mgmt.join(','), name: KB_SENDER, subject: 'مكالمات متابعة الحجوزات النهارده: ' + all.length, htmlBody: mailWrap_('مكالمات المتابعة النهارده', mailBox_('📞 خطة اليوم', sum + list) + '<p style="color:#555;font-size:13px">الساعة 3 هيوصلكم في تقرير التيم ليدرز اللي لسه متعملش.</p>') });
+    sent++;
+  }
   return 'sent ' + sent;
 }
 // For the 3 pm team leads report: calls still open today, late ones, and agents who are off with calls.
