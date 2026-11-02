@@ -363,11 +363,15 @@
       const days = Math.max(1, Number(teamCfg.pickDays) || 7);
       const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
       const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
-      for (let i = 1; i <= days; i++) {
+      // Look back over the set window; if every day there is closed or was already rejected (the agent was off, no
+      // calls), keep going back one day at a time (up to 31 days) instead of stopping the evaluator.
+      let wider = false;
+      for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) ok.push(ymdOf(d));
+        if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) { ok.push(ymdOf(d)); if (i > days) wider = true; }
       }
-      if (!ok.length) { alert(t("pick_none", { n: days })); return; }
+      if (!ok.length) { alert(t("pick_none", { n: 31 })); return; }
+      if (wider) alert(t("pick_wider", { n: days }));
       const from = fh * 60 + (fm || 0), to = Math.max(from + 1, th * 60 + (tm || 0)), m = from + Math.floor(Math.random() * (to - from));
       a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
       a.header.pickAgent = agent;
@@ -1043,7 +1047,7 @@
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
-  const mailable = (r) => ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && !r.test;
+  const mailable = (r) => ["live", "certcall", "coaching", "postcoach", "program"].includes(purposeOf(r)) && !r.test;
   // Result emails follow the screen language (Arabic or English).
   const tx = (ar, en) => (lang === "en" ? en : ar);
   // Score split by category for result emails: Part A (non-critical) met/applicable, then each critical bucket with % view.
@@ -1075,11 +1079,13 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? tx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? tx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? tx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? tx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "program" ? tx("📊 عينة البرنامج (غير محسوبة) – ", "📊 Program sample (not counted) – ") : purposeOf(r) === "postcoach" ? tx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? tx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : tx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
       ? tx("🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (" + pct(r.final) + ")\n🎉 Congratulations! المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ \"مكالمة Wow\" ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏", "🌟🏆 WOW CALL! Outstanding Performance (" + pct(r.final) + ")\n🎉 Congratulations! This call was selected as a standout \"Wow Call\" for the team's training library. Proud of your great work! 👏")
+      : purposeOf(r) === "program"
+        ? tx("📊 عينة جودة البرنامج (Program level): مش محسوبة في تقييمك. المكالمة اتسمعت ضمن عينة الكواليتي للأكاونت، والنتيجة للمعلومة والتعلّم بس (" + pct(r.final) + ").", "📊 Program quality sample (Program level): not counted in your score. Your call was heard in Quality's account sample; the result is for your information and learning (" + pct(r.final) + ").")
       : coaching
         ? tx("💡 إكسترا تارجت (غير محسوب في السكور)", "💡 Extra target (not counted in your score)")
         : pass && isGood
@@ -1088,7 +1094,7 @@
             ? tx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : tx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", tx("أهلاً ", "Hi ") + (r.agent || "") + tx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : purposeOf(r) === "program" ? tx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
