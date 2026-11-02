@@ -276,12 +276,13 @@ function catRows_(r, row) {
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb') get no automatic email.
-  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching' && purpose !== 'postcoach') || (r.mailMode && r.mailMode !== 'auto')) return '';
+  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching' && purpose !== 'postcoach' && purpose !== 'program') || (r.mailMode && r.mailMode !== 'auto')) return '';
   const ro = readRoster_();
   const to = ro.emails[r.agent];
   if (!to) return '';
   const evEmail = ro.evalEmails[r.evaluator] || '';
-  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach';
+  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = purpose === 'program';
+  // Program level (Quality's account sample) is emailed too, so it's on record and the agent knows the call was heard; it says clearly it doesn't count.
   try {
     const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
     const when = String(r.interactionDate || '').replace('T', ' ');
@@ -295,6 +296,8 @@ function emailAgent_(r) {
     const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
     const banner = isWow
       ? '<div style="background:linear-gradient(135deg,#fff8e1,#ffecb3);background-color:#fff8e1;border:2px solid #f59e0b;border-right:6px solid #d97706;color:#78350f;padding:14px 18px;border-radius:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:bold;margin-bottom:6px">🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (' + pct_(r.final) + ')</div><div style="font-size:14px">🎉 <b>Congratulations!</b> المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ <b>"مكالمة Wow"</b> ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏</div></div>'
+      : prog
+        ? '<div style="background:#f1f3f4;border:1px solid #dadce0;border-right:5px solid #5f6368;color:#3c4043;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold;margin-bottom:4px">📊 عينة جودة البرنامج (Program level): مش محسوبة في تقييمك</div><div style="font-size:13px">المكالمة دي اتسمعت ضمن عينة الكواليتي للأكاونت كله. النتيجة تحت للمعلومة والتعلّم بس' + (pass ? '، وعدّت بنجاح (' + pct_(r.final) + ') 👏' : '، ومحتاجة شوية تظبيط (' + pct_(r.final) + ')') + '.</div></div>'
       : coaching
         ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 إكسترا تارجت (غير محسوب في السكور)</div></div>'
         : pass && isGood
@@ -309,7 +312,7 @@ function emailAgent_(r) {
         : '';
     let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
       banner +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
+      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ' : prog ? 'ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
@@ -324,7 +327,7 @@ function emailAgent_(r) {
     if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
     html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 إكسترا تارجت – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 إكسترا تارجت – ' : prog ? '📊 عينة البرنامج (غير محسوبة) – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
