@@ -48,6 +48,8 @@ function roster_() {
   if (!sh.getRange(1, 4).getValue()) sh.getRange(1, 4).setValue('Email').setFontWeight('bold');
   if (!sh.getRange(1, 5).getValue()) sh.getRange(1, 5).setValue('Days off (e.g. Fri, Sat)').setFontWeight('bold');
   if (!sh.getRange(1, 6).getValue() || sh.getRange(1, 6).getValue() === 'New hire (Yes / No)') sh.getRange(1, 6).setValue('Certified date (YYYY-MM-DD)').setFontWeight('bold');
+  if (!sh.getRange(1, 7).getValue()) sh.getRange(1, 7).setValue('Cert status (Exception / Retraining / Dropped, blank = from evaluations)').setFontWeight('bold');
+  if (!sh.getRange(1, 8).getValue()) sh.getRange(1, 8).setValue('Cert status note (date · approved by · reason)').setFontWeight('bold');
   return sh;
 }
 
@@ -73,9 +75,9 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, inactive: [] };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, inactive: [] };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (name && String(r[2]).toLowerCase() === 'no') out.inactive.push(name);
     if (!name || String(r[2]).toLowerCase() === 'no') return;
@@ -88,6 +90,8 @@ function readRoster_() {
       if (String(r[4] || '').trim()) out.daysOff[name] = String(r[4]).trim();
       const cd = r[5] instanceof Date ? Utilities.formatDate(r[5], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(r[5] || '').trim().slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}$/.test(cd)) out.certDates[name] = cd;
+      const cs = certStatusKey_(r[6]);
+      if (cs) out.certStatus[name] = { s: cs, note: String(r[7] || '').trim() };
     }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -209,6 +213,35 @@ function setDaysOff_(name, days) {
       if (roleMatches_(rows[i][1], 'agents') && nameKey_(rows[i][0]) === nameKey_(name)) {
         ro.getRange(i + 2, 5).setValue(v);
         return { ok: true, days: v };
+      }
+    }
+  }
+  return { ok: false, error: 'Agent not found' };
+}
+
+// Certification lifecycle set by an owner. Blank = worked out from the evaluations (in certification, failed, recertification, certified).
+const CERT_STATUS_ = { exception: 'Exception', retrain: 'Retraining', dropped: 'Dropped' };
+function certStatusKey_(v) {
+  const x = String(v || '').trim().toLowerCase();
+  if (!x) return '';
+  if (/^exc|استثن/.test(x)) return 'exception';
+  if (/^re-?train|تدريب/.test(x)) return 'retrain';
+  if (/^drop|exit|left|دروب|اتشال|مشي/.test(x)) return 'dropped';
+  return '';
+}
+function setCertStatus_(name, status, note, me) {
+  const key = certStatusKey_(status);
+  if (status && !key) return { ok: false, error: 'Bad status' };
+  note = String(note || '').trim().slice(0, 300);
+  if (key && !note) return { ok: false, error: 'A reason is needed' };
+  const ro = roster_();
+  if (ro.getLastRow() > 1) {
+    const rows = ro.getRange(2, 1, ro.getLastRow() - 1, 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (roleMatches_(rows[i][1], 'agents') && nameKey_(rows[i][0]) === nameKey_(name)) {
+        const stamp = key ? Utilities.formatDate(new Date(), 'Africa/Cairo', 'yyyy-MM-dd') + ' · ' + ((me && me.name) || '') + ' · ' + note : '';
+        ro.getRange(i + 2, 7, 1, 2).setValues([[key ? CERT_STATUS_[key] : '', stamp]]);
+        return { ok: true, status: key, note: stamp };
       }
     }
   }
@@ -746,7 +779,7 @@ function doPost(e) {
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
     if (!me) return reply_({ ok: false, error: body.session ? 'signed_out' : 'Wrong access key' });
-    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setDaysOff: 1, setCertDate: 1, setConfig: 1 };
+    const ownerOnly = { renamePerson: 1, removePerson: 1, setEmail: 1, setDaysOff: 1, setCertDate: 1, setCertStatus: 1, setConfig: 1 };
     if ((ownerOnly[body.action] || (body.action === 'addPerson' && body.role === 'evaluators')) && !me.owner) return reply_({ ok: false, error: 'not_owner' });
     if (body.action === 'addPerson') return reply_(addPerson_(body.role, body.name));
     if (body.action === 'renamePerson') return reply_(renamePerson_(body.role, body.from, body.to));
@@ -754,6 +787,7 @@ function doPost(e) {
     if (body.action === 'setEmail') return reply_(setEmail_(body.role, body.name, body.email));
     if (body.action === 'setDaysOff') return reply_(setDaysOff_(body.name, body.days));
     if (body.action === 'setCertDate') return reply_(setCertDate_(body.name, body.certDate));
+    if (body.action === 'setCertStatus') return reply_(setCertStatus_(body.name, body.status, body.note, { name: me.name || String(body.by || '').slice(0, 80) }));
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'kbDash') return reply_(kbDashForEval_(body, me)); // knowledge base quiz numbers on the scorecard dashboard
     if (body.action === 'addKb') return reply_(addKb_(body.update));
@@ -812,7 +846,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, inactive: ro.inactive,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();

@@ -269,3 +269,7 @@ tr.muted td { color: var(--muted); }
 .warn-short[hidden] { display: none; }
 .picker button.repick { border: 1.5px solid var(--brand, #1f3a5f); background: var(--brand-soft, #eef3fb); color: var(--brand, #1f3a5f); font-weight: 600; text-align: start; border-radius: 8px; padding: 8px 12px; }
 .picker button.repick:hover { background: var(--brand, #1f3a5f); color: #fff; }
+.cs-form { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; padding: 10px; border: 1px dashed var(--line, #ccc); border-radius: 10px; }
+.cs-form .hint { flex-basis: 100%; margin: 0; }
+.cs-form input { flex: 1 1 260px; min-width: 0; }
+.names li:has(.cs-form) { flex-wrap: wrap; }
