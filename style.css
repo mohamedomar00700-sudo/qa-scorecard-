@@ -267,3 +267,5 @@ tr.muted td { color: var(--muted); }
 .kbq-two ol { margin: 4px 0; padding-inline-start: 20px; line-height: 1.8; }
 .warn-short { color: var(--bad, #c0392b); font-weight: 600; display: block; margin-top: 4px; }
 .warn-short[hidden] { display: none; }
+.picker button.repick { border: 1.5px solid var(--brand, #1f3a5f); background: var(--brand-soft, #eef3fb); color: var(--brand, #1f3a5f); font-weight: 600; text-align: start; border-radius: 8px; padding: 8px 12px; }
+.picker button.repick:hover { background: var(--brand, #1f3a5f); color: #fff; }
