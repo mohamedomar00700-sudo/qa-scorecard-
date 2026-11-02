@@ -1377,22 +1377,50 @@ function bkRes_(v) { // 'confirmed · Nada · 03 Nov 14:20' → {key, tries}
 const BK_DONE_ = { confirmed: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1, 'n/a': 1, other: 1 };
 function bkLead_(who) { return !!who && kbAccess_(who.email).dash; }
 function bkMine_(r, who) { return String(r[BK_C.toEmail]).toLowerCase() === who.email || nameKey_(r[BK_C.to]) === nameKey_(who.name); }
+// mode: 'new' (a new booking), 'move' (the customer changed the day of an existing booking), 'cancel' (the customer cancelled).
+// For move/cancel the open booking is found by the customer's number (last 9 digits); a move with no saved booking is saved as a booking.
+function bkPhoneKey_(v) { const d = String(v || '').replace(/\D/g, ''); return d.length >= 7 ? d.slice(-9) : ''; }
 function kbBook_(b) {
   const who = kbWho_(b.session);
   if (!who) return { ok: false, error: 'signed_out' };
   const x = b.booking || {}, tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const mode = x.mode === 'move' || x.mode === 'cancel' ? x.mode : 'new';
   const appt = ymdOf_(x.date), time = hmOf_(x.time), id = String(x.id || '').replace(/[^\w-]/g, '').slice(0, 40);
-  if (!id || !appt || !String(x.name || '').trim()) return { ok: false, error: 'bad_booking' };
-  if (appt < today) return { ok: false, error: 'past_date' };
+  if (!id || (mode !== 'cancel' && !appt) || !String(x.name || '').trim()) return { ok: false, error: 'bad_booking' };
+  if (mode !== 'cancel' && appt < today) return { ok: false, error: 'past_date' };
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
-    const sh = bkSheet_(), n = sh.getLastRow() - 1;
-    if (n > 0 && sh.getRange(2, 1, n, 1).getValues().flat().indexOf(id) >= 0) return { ok: true, duplicate: true };
-    const d = bkDues_(appt, today), cut = function (v, k) { return String(v || '').trim().slice(0, k || 120); };
+    const sh = bkSheet_(), n = sh.getLastRow() - 1, cut = function (v, k) { return String(v || '').trim().slice(0, k || 120); };
+    const rows = n > 0 ? sh.getRange(2, 1, n, BK_COLS.length).getValues() : [];
+    if (rows.some(function (r) { return String(r[0]) === id; })) return { ok: true, duplicate: true };
+    if (mode !== 'new') { // the customer's open booking, newest first
+      const pk = bkPhoneKey_(x.phone);
+      let at = -1;
+      if (pk) for (let i = rows.length - 1; i >= 0; i--) if (bkPhoneKey_(rows[i][BK_C.phone]) === pk && !/cancel|done|no-?show/i.test(String(rows[i][BK_C.status]))) { at = i; break; }
+      if (at >= 0) {
+        const r = rows[at], old = ymdOf_(r[BK_C.date]) + ' ' + hmOf_(r[BK_C.time]), stamp = ' · ' + who.name + ' · ' + bkNow_();
+        if (mode === 'cancel') {
+          r[BK_C.status] = 'Cancelled';
+          [1, 2, 3].forEach(function (j) { if (!BK_DONE_[bkRes_(r[BK_C['r' + j]]).key]) r[BK_C['r' + j]] = 'n/a · cancelled'; });
+          r[BK_C.log] = String(r[BK_C.log] || '') + ' | cancelled (booking email)' + stamp;
+        } else {
+          const d = bkDues_(appt, today);
+          r[BK_C.date] = "'" + appt; r[BK_C.time] = "'" + time; r[BK_C.status] = 'Active';
+          if (x.branch) r[BK_C.branch] = cut(x.branch); if (x.svc) r[BK_C.svc] = cut(x.svc, 200); if (x.doc) r[BK_C.doc] = cut(x.doc);
+          [1, 2, 3].forEach(function (j) { r[BK_C['d' + j]] = "'" + d['d' + j]; r[BK_C['r' + j]] = d['d' + j] === 'n/a' ? 'n/a · rescheduled' : ''; });
+          r[BK_C.log] = String(r[BK_C.log] || '') + ' | moved from ' + old + ' to ' + appt + ' ' + time + ' (booking email)' + stamp;
+        }
+        if (cut(x.notes)) r[BK_C.notes] = (String(r[BK_C.notes] || '') ? r[BK_C.notes] + '\n' : '') + cut(x.notes, 600) + ' (' + who.name + ')';
+        sh.getRange(2 + at, 1, 1, BK_COLS.length).setValues([r]);
+        return { ok: true, updated: mode };
+      }
+      if (mode === 'cancel') return { ok: true, none: true }; // nothing saved to cancel (booked before this, or by another way)
+    }
+    const d = bkDues_(appt, today), was = mode === 'move' && x.oldDate ? 'Moved from ' + ymdOf_(x.oldDate) + ' ' + hmOf_(x.oldTime) + '. ' : '';
     const row = [id, new Date(), who.name, who.email, who.name, who.email, cut(x.name), "'" + cut(x.phone, 30), cut(x.branch), cut(x.svc, 200), cut(x.doc), cut(x.kind, 40),
-      "'" + appt, "'" + time, "'" + cut(x.odoo, 40), 'Active', "'" + d.d1, d.d1 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d2, d.d2 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d3, '', cut(x.notes, 600), 'Booked ' + bkNow_()];
+      "'" + appt, "'" + time, "'" + cut(x.odoo, 40), 'Active', "'" + d.d1, d.d1 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d2, d.d2 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d3, '', (was + cut(x.notes, 600)).trim(), (mode === 'move' ? 'Saved from a date change ' : 'Booked ') + bkNow_()];
     sh.appendRow(row);
-    return { ok: true, dues: d };
+    return { ok: true, dues: d, created: true };
   } finally { lock.releaseLock(); }
 }
 // One row → the calls that still matter. state: due (today), late (past its day, still worth calling), soon (coming), missed (its moment passed)
