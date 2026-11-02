@@ -384,15 +384,19 @@
   const progRandom = (a) => purposeOf(a.header) === "program" && !current.edit;
   function weekStartOf(day) { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); return ymdOf(d); }
   function programCoverage() {
-    const now = today(), ws = weekStartOf(now), ms = now.slice(0, 8) + "01", agents = (roster.agents || []).slice();
+    const now = today(), ws = weekStartOf(now), ms = now.slice(0, 8) + "01", all = allRecords();
+    // Agents still going through certification (they have certification evaluations but haven't passed) are not on
+    // the floor yet, so they are left out until they pass, or until a certified date is put in the Roster (an exception).
+    const inCert = (n) => !agentCertInfo(n, all).certified && all.some((r) => !r.test && r.agent === n && ["certcall", "roleplay"].includes(purposeOf(r)));
+    const notYet = (roster.agents || []).filter(inCert), agents = (roster.agents || []).filter((n) => !notYet.includes(n));
     const week = new Map(), month = new Map();
-    for (const r of allRecords()) {
+    for (const r of all) {
       if (purposeOf(r) !== "program" || r.test || !r.agent) continue;
       const d = String(r.evalDate || r.savedAt || "").slice(0, 10);
       if (d >= ms && d <= now) month.set(r.agent, (month.get(r.agent) || 0) + 1);
       if (d >= ws && d <= now) week.set(r.agent, (week.get(r.agent) || 0) + 1);
     }
-    return { agents, week, month, ws, todoWeek: agents.filter((n) => !week.has(n)), todoMonth: agents.filter((n) => !month.has(n)) };
+    return { agents, notYet, week, month, ws, todoWeek: agents.filter((n) => !week.has(n)), todoMonth: agents.filter((n) => !month.has(n)) };
   }
   function drawProgramAgent() {
     const c = programCoverage();
@@ -405,7 +409,8 @@
     const box = h("div", { class: "hint prog-cov" },
       h("div", { text: t("prog_rule") }),
       h("div", { text: t("prog_week", { d: c.agents.length - c.todoWeek.length, n }) + (c.todoWeek.length ? " · " + t("prog_left", { list: c.todoWeek.join("، ") }) : " ✓") }),
-      h("div", { text: t("prog_month", { d: n - c.todoMonth.length, n }) + (c.todoMonth.length ? " · " + t("prog_left", { list: c.todoMonth.join("، ") }) : " ✓") }));
+      h("div", { text: t("prog_month", { d: n - c.todoMonth.length, n }) + (c.todoMonth.length ? " · " + t("prog_left", { list: c.todoMonth.join("، ") }) : " ✓") }),
+      c.notYet.length ? h("div", { text: t("prog_notcert", { list: c.notYet.join("، ") }) }) : null);
     return box;
   }
   // Agents' shifts (Egypt time): winter 8 AM–6 PM, summer time (DST) 9 AM–7 PM. The owner can set fixed hours instead.
