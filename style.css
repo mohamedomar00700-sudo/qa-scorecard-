@@ -265,3 +265,5 @@ tr.muted td { color: var(--muted); }
 #dbQuiz h4 { margin: 16px 0 6px; }
 .kbq-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
 .kbq-two ol { margin: 4px 0; padding-inline-start: 20px; line-height: 1.8; }
+.warn-short { color: var(--bad, #c0392b); font-weight: 600; display: block; margin-top: 4px; }
+.warn-short[hidden] { display: none; }

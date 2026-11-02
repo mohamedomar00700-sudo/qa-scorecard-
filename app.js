@@ -404,6 +404,15 @@
       h("div", { text: t("prog_month", { d: n - c.todoMonth.length, n }) + (c.todoMonth.length ? " · " + t("prog_left", { list: c.todoMonth.join("، ") }) : " ✓") }));
     return box;
   }
+  // Agents' shifts (Egypt time): winter 8 AM–6 PM, summer time (DST) 9 AM–7 PM. The owner can set fixed hours instead.
+  function cairoSummer(day) {
+    try { const tz = new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Cairo", timeZoneName: "shortOffset" }).formatToParts(new Date(day + "T10:00:00Z")).find((p) => p.type === "timeZoneName"); return /\+3/.test(tz ? tz.value : ""); }
+    catch (e) { const m = +day.slice(5, 7); return m >= 5 && m <= 10; }
+  }
+  function pickWindow(day) {
+    if (teamCfg.pickMode === "manual") return [teamCfg.pickFrom || "08:00", teamCfg.pickTo || "18:00"];
+    return cairoSummer(day) ? ["09:00", "19:00"] : ["08:00", "18:00"];
+  }
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
     const pick = (why) => {
@@ -411,7 +420,8 @@
       const agent = a.header.agent;
       const log = (a.header.pickLog || []).slice();
       if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
-      const [fh, fm] = String(teamCfg.pickFrom || "10:00").split(":").map(Number), [th, tm] = String(teamCfg.pickTo || "21:30").split(":").map(Number);
+      const win = (day) => pickWindow(day);
+      const [fh, fm] = win(today())[0].split(":").map(Number);
       const days = Math.max(1, Number(teamCfg.pickDays) || 7);
       const off = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
       const skip = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10)), ok = [];
@@ -429,8 +439,10 @@
       if (!ok.length && prog && !off.has(new Date().getDay()) && !skip.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
       if (!ok.length) { alert(prog ? t("prog_pick_none") : t("pick_none", { n: 31 })); return; }
       if (wider && !prog) alert(t("pick_wider", { n: days }));
-      const from = fh * 60 + (fm || 0), to = Math.max(from + 1, Math.min(th * 60 + (tm || 0), todayOnly ? nowM - 15 : 24 * 60)), m = from + Math.floor(Math.random() * (to - from));
-      a.header.pick = ok[Math.floor(Math.random() * ok.length)] + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+      // A random time inside the shift, at least 30 minutes before it ends so there are calls after it.
+      const day = ok[Math.floor(Math.random() * ok.length)], [w0, w1] = win(day).map((x) => { const [hh, mm] = x.split(":").map(Number); return hh * 60 + (mm || 0); });
+      const from = w0, to = Math.max(from + 1, Math.min(w1 - 30, todayOnly ? nowM - 15 : 24 * 60)), m = from + Math.floor(Math.random() * (to - from));
+      a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
       a.header.pickAgent = agent;
       log.push({ p: a.header.pick, ag: agent, at: new Date().toISOString() });
       a.header.pickLog = log;
@@ -595,8 +607,10 @@
       Array.from({ length: 12 }, (_, i) => h("option", { value: pad(i * 5), text: pad(i * 5) + " " + t("sec") })));
     mins.value = m0 || ""; secs.value = s0 || "";
     const upd = () => set(mins.value || secs.value ? (mins.value || "00") + ":" + (secs.value || "00") : "");
-    mins.addEventListener("input", upd); secs.addEventListener("input", upd);
-    return h("label", {}, label, h("div", { class: "pair" }, mins, secs));
+    const warn = h("span", { class: "hint warn-short", text: t("short_call_warn") });
+    const chk = () => { const sec = (+mins.value || 0) * 60 + (+secs.value || 0); warn.hidden = !((mins.value || secs.value) && sec < 60 && (a.header.selection || "random") === "random" && purposeOf(a.header) !== "roleplay"); };
+    mins.addEventListener("input", () => { upd(); chk(); }); secs.addEventListener("input", () => { upd(); chk(); }); chk();
+    return h("label", {}, label, h("div", { class: "pair" }, mins, secs), warn);
   }
 
   function applyType() {
@@ -2977,7 +2991,9 @@
     $("#setTarget").value = teamCfg.monthlyTarget;
     if ($("#setCoachSla")) $("#setCoachSla").value = teamCfg.coachingSlaHours || 48;
     if ($("#setPassedSla")) $("#setPassedSla").value = teamCfg.passedSlaHours || 48;
-    $("#setPickFrom").value = teamCfg.pickFrom || "10:00"; $("#setPickTo").value = teamCfg.pickTo || "21:30"; $("#setPickDays").value = teamCfg.pickDays || 7;
+    $("#setPickMode").value = teamCfg.pickMode === "manual" ? "manual" : "auto";
+    const pmSync = () => { const auto = $("#setPickMode").value !== "manual", w = pickWindow(today()); $("#setPickFrom").disabled = $("#setPickTo").disabled = auto; if (auto) { $("#setPickFrom").value = w[0]; $("#setPickTo").value = w[1]; } else { $("#setPickFrom").value = teamCfg.pickFrom || "08:00"; $("#setPickTo").value = teamCfg.pickTo || "18:00"; } };
+    $("#setPickMode").onchange = pmSync; pmSync(); $("#setPickDays").value = teamCfg.pickDays || 7;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#setSenderName").value = teamCfg.senderName || "Quality Team";
     $("#btnSaveTarget").onclick = async () => {
@@ -2991,7 +3007,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");

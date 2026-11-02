@@ -699,6 +699,7 @@ function setConfig_(c) {
   if (c.pickFrom && hhmm.test(c.pickFrom)) cur.pickFrom = c.pickFrom;
   if (c.pickTo && hhmm.test(c.pickTo)) cur.pickTo = c.pickTo;
   const d = Number(c.pickDays); if (d >= 1 && d <= 31) cur.pickDays = Math.round(d);
+  if (c.pickMode === 'auto' || c.pickMode === 'manual') cur.pickMode = c.pickMode;
   if (c.closedDays !== undefined) {
     try { cur.closedDays = daysList_(c.closedDays); } catch (err) { return { ok: false, error: err.message }; }
   }
