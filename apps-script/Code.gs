@@ -731,6 +731,8 @@ function doPost(e) {
     if (body.action === 'quiz') return reply_(saveQuiz_(body)); // knowledge base quiz (needs a KB sign-in)
     if (body.action === 'kbOtpRequest') return reply_(kbOtpRequest_(body.email, body.via));
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
+    if (body.action === 'kbAsk') return reply_(kbAsk_(body)); // knowledge base: an agent's question or suggestion for the client
+    if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
@@ -790,6 +792,7 @@ function doPost(e) {
 
 function doGet(e) {
   const p = e.parameter || {};
+  if (p.action === 'kbAsks') return reply_(kbAsks_(p)); // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
   const me = who_(p);
   if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
@@ -1068,4 +1071,51 @@ function topMissed_(days) {
   const res = { days: days, evals: evals, items: out.slice(0, 5) };
   cache.put('topMissed' + days, JSON.stringify(res), 600);
   return res;
+}
+
+// ---------- agents' questions and suggestions for the client ----------
+// Agents send them from the knowledge base (signed in with their work email). Mohamed fills Status and Answer in the
+// "Agent questions" tab; answered ones show in the knowledge base for everyone. Names are kept in the sheet only.
+const ASK_NAME = 'Agent questions';
+const ASK_COLS = ['Saved at', 'Name', 'Email', 'Type', 'Topic', 'Question / suggestion', 'Customer said (optional)', 'Status (New / Asked client / Answered / Not needed)', 'Answer', 'Answered at', 'Same question from'];
+function askSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ASK_NAME);
+  if (!sh) { sh = ss.insertSheet(ASK_NAME); sh.getRange(1, 1, 1, ASK_COLS.length).setValues([ASK_COLS]).setFontWeight('bold'); sh.setFrozenRows(1); sh.setColumnWidth(6, 380); sh.setColumnWidth(9, 380); }
+  return sh;
+}
+function kbAsk_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const text = String(b.text || '').trim().slice(0, 1500);
+  if (text.length < 5) return { ok: false, error: 'too_short' };
+  const type = b.type === 'suggestion' ? 'Suggestion' : 'Question';
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    askSheet_().appendRow([new Date(), who.name, who.email, type, String(b.topic || '').slice(0, 60), text, String(b.context || '').slice(0, 600), 'New', '', '', '']);
+  } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+function kbAskVote_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const sh = askSheet_(), row = Math.floor(Number(b.id));
+  if (!(row >= 2 && row <= sh.getLastRow())) return { ok: false, error: 'not_found' };
+  const c = sh.getRange(row, 11), list = String(c.getValue() || '').split(/\s*,\s*/).filter(Boolean);
+  if (String(sh.getRange(row, 3).getValue()).toLowerCase() !== who.email && list.indexOf(who.email) < 0) { list.push(who.email); c.setValue(list.join(', ')); }
+  return { ok: true, votes: list.length + 1 };
+}
+function kbAsks_(p) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME), tz = Session.getScriptTimeZone();
+  if (!sh || sh.getLastRow() < 2) return { ok: true, items: [] };
+  const me = p.session ? kbWho_(p.session) : null, n = sh.getLastRow() - 1, from = Math.max(0, n - 300);
+  const fmt = function (d) { return d instanceof Date ? Utilities.formatDate(d, tz, 'yyyy-MM-dd') : String(d || '').slice(0, 10); };
+  const items = sh.getRange(2 + from, 1, n - from, ASK_COLS.length).getValues().map(function (r, i) {
+    const st = String(r[7] || 'New').toLowerCase(), voters = String(r[10] || '').split(/\s*,\s*/).filter(Boolean);
+    const status = /answer|اتجاوب|تم/.test(st) ? 'answered' : /asked|client|اتسأل|كلاينت/.test(st) ? 'asked' : /not|no need|مش محتاج|ملغي/.test(st) ? 'closed' : 'new';
+    return { id: 2 + from + i, date: fmt(r[0]), type: String(r[3]) === 'Suggestion' ? 'suggestion' : 'question', topic: String(r[4] || ''), text: String(r[5] || ''),
+      status: status, answer: status === 'answered' ? String(r[8] || '') : '', answeredAt: fmt(r[9]), votes: 1 + voters.length,
+      mine: !!me && String(r[2]).toLowerCase() === me.email, voted: !!me && voters.indexOf(me.email) >= 0 };
+  }).filter(function (x) { return x.text && x.status !== 'closed'; }).reverse();
+  return { ok: true, items: items };
 }
