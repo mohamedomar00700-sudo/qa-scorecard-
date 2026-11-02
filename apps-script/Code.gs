@@ -975,7 +975,7 @@ function saveQuiz_(b) {
       const rows = sh.getRange(2, 3, n, 3).getValues(); // Kind, Period, Name
       for (let i = 0; i < rows.length; i++) if (rows[i][0] === kind && String(rows[i][1]) === period && nameKey_(rows[i][2]) === nameKey_(name)) return { ok: true, duplicate: true, name: name };
     }
-    const wrong = (Array.isArray(b.wrong) ? b.wrong : []).slice(0, 30).map(function (x) { return String(x).slice(0, 40); }).join(', ');
+    const wrong = (Array.isArray(b.wrong) ? b.wrong : []).slice(0, 30).map(function (x) { return String(x).replace(/\s*\|\s*/g, ' ').slice(0, 140); }).join(' | ');
     sh.appendRow([now, date, kind, "'" + period, name, who.email, score, total, wrong]);
   } finally { lock.releaseLock(); }
   return { ok: true, name: name };
@@ -1077,7 +1077,7 @@ function topMissed_(days) {
 // Agents send them from the knowledge base (signed in with their work email). Mohamed fills Status and Answer in the
 // "Agent questions" tab; answered ones show in the knowledge base for everyone. Names are kept in the sheet only.
 const ASK_NAME = 'Agent questions';
-const ASK_COLS = ['Saved at', 'Name', 'Email', 'Type', 'Topic', 'Question / suggestion', 'Customer said (optional)', 'Status (New / Asked client / Answered / Not needed)', 'Answer', 'Answered at', 'Same question from'];
+const ASK_COLS = ['Saved at', 'Name', 'Email', 'Type', 'Topic', 'Question / suggestion', 'Customer said (optional)', 'Status (New / Asked client / Answered / Not needed)', 'Answer', 'Answered at', 'Same question from', 'Sent to the floor'];
 function askSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(ASK_NAME);
@@ -1118,4 +1118,133 @@ function kbAsks_(p) {
       mine: !!me && String(r[2]).toLowerCase() === me.email, voted: !!me && voters.indexOf(me.email) >= 0 };
   }).filter(function (x) { return x.text && x.status !== 'closed'; }).reverse();
   return { ok: true, items: items };
+}
+
+// ---------- emails to the floor and to the team leads ----------
+// Run setupKbEmails() once from the Apps Script editor (Run ▶). It adds two daily triggers:
+//  • kbDailyDigest at 9 am: ONE email to everyone in the Roster (only when there is something new): new knowledge base
+//    updates (the "التحديثات" tab of the KB sheet), newly answered client questions, yesterday's quiz stars, and on the
+//    first days of a month the monthly champions.
+//  • kbLeadsReport at 3 pm: to the operations team leads (and the owner): who did today's quiz, who didn't yet, and on
+//    Thursdays the quiz questions the team got wrong most this week, for coaching.
+// Fridays are skipped. Emails go from the account that owns this script, with the sender name below.
+const KB_SHEET_ID = '1kKXesKcnse3ofMTc0_FbuUWOz6I6fPf7';
+const KB_LINK = 'https://hidden-hat-5831.mohamed-omar00700.workers.dev/';
+const KB_SENDER = 'H&P Knowledge Base';
+function setupKbEmails() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('kbDailyDigest').timeBased().everyDays(1).atHour(9).create();
+  ScriptApp.newTrigger('kbLeadsReport').timeBased().everyDays(1).atHour(15).create();
+  kbNewsNew_(true); // what's already in the updates tab counts as sent
+  return 'ok';
+}
+function rosterPeople_() { // active Roster rows with an email: {name, email, role}
+  const sh = roster_(), out = [];
+  if (sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+    const em = String(r[3] || '').trim();
+    if (String(r[0] || '').trim() && em && String(r[2]).toLowerCase() !== 'no') out.push({ name: String(r[0]).trim(), email: em, role: String(r[1] || '') });
+  });
+  return out;
+}
+function kbNewsNew_(markOnly) {
+  let rows = [];
+  try {
+    const url = 'https://docs.google.com/spreadsheets/d/' + KB_SHEET_ID + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent('التحديثات');
+    rows = Utilities.parseCsv(UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getContentText()).slice(1).filter(function (r) { return String(r[1] || r[2] || '').trim(); });
+  } catch (e) { return []; }
+  const props = PropertiesService.getScriptProperties(), seen = JSON.parse(props.getProperty('kbNewsSeen') || '[]');
+  const fresh = rows.filter(function (r) { return seen.indexOf(hash_(r.join('|')).slice(0, 16)) < 0; });
+  if (fresh.length || markOnly) props.setProperty('kbNewsSeen', JSON.stringify(rows.map(function (r) { return hash_(r.join('|')).slice(0, 16); }).slice(-300)));
+  return markOnly ? [] : fresh.map(function (r) { return { date: String(r[0] || ''), ar: String(r[1] || ''), en: String(r[2] || '') }; });
+}
+function esc_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
+function mailBox_(title, body) {
+  return '<div style="border:1px solid #eadbe2;border-radius:14px;padding:14px 16px;margin:12px 0;background:#fff"><div style="font-size:17px;font-weight:bold;color:#A63D63;margin-bottom:8px">' + title + '</div>' + body + '</div>';
+}
+function mailWrap_(title, inner) {
+  return '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;background:#f7f2f4;padding:18px;color:#1d2731;font-size:15px;line-height:1.7">' +
+    '<div style="max-width:620px;margin:0 auto"><div style="background:#1d2731;color:#fff;border-radius:14px;padding:16px 18px;font-size:20px;font-weight:bold">' + title + '</div>' + inner +
+    '<div style="text-align:center;margin:18px 0"><a href="' + KB_LINK + '" style="background:#2F7565;color:#fff;text-decoration:none;padding:11px 22px;border-radius:12px;font-weight:bold">افتح النولدج بيز</a></div>' +
+    '<div style="color:#7a8590;font-size:12px;text-align:center">إيميل أوتوماتيك من النولدج بيز بتاع أكاونت H&P.</div></div></div>';
+}
+function quizRows_() { // [{date, kind, period, name, score, total, wrong}]
+  const qs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(QUIZ_NAME), tz = Session.getScriptTimeZone();
+  if (!qs || qs.getLastRow() < 2) return [];
+  return qs.getRange(2, 2, qs.getLastRow() - 1, 8).getValues().map(function (r) {
+    return { date: r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]), kind: String(r[1]), period: String(r[2]), name: String(r[3]), score: Number(r[5]) || 0, total: Number(r[6]) || 0, wrong: String(r[7] || '') };
+  });
+}
+function kbDailyDigest() {
+  const tz = Session.getScriptTimeZone(), now = new Date();
+  if (Utilities.formatDate(now, tz, 'u') === '5') return 'friday';
+  const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), parts = [];
+  // 1) knowledge base updates
+  const news = kbNewsNew_(false);
+  if (news.length) parts.push(mailBox_('📢 تحديثات جديدة في النولدج بيز', news.map(function (n) { return '<p style="margin:0 0 10px">' + (n.date ? '<b>' + esc_(n.date) + ':</b> ' : '') + esc_(n.ar || n.en) + '</p>'; }).join('')));
+  // 2) client answers to agents' questions
+  const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME), done = [];
+  if (ask && ask.getLastRow() > 1) {
+    if (!ask.getRange(1, 12).getValue()) ask.getRange(1, 12).setValue('Sent to the floor').setFontWeight('bold');
+    const vals = ask.getRange(2, 1, ask.getLastRow() - 1, 12).getValues();
+    vals.forEach(function (r, i) { if (/answer|اتجاوب|تم/i.test(String(r[7])) && String(r[8]).trim() && !r[11]) done.push({ row: i + 2, q: r[5], a: r[8] }); });
+    if (done.length) parts.push(mailBox_('✅ الكلاينت رد على استفساراتكم', done.slice(0, 15).map(function (x) { return '<p style="margin:0 0 4px"><b>س: ' + esc_(x.q) + '</b></p><p style="margin:0 0 12px;background:#E0F0EB;border-radius:10px;padding:8px 10px">ج: ' + esc_(x.a) + '</p>'; }).join('')));
+  }
+  // 3) yesterday's quiz stars (the last day with daily quizzes before today)
+  const rows = quizRows_(), staff = {};
+  rosterPeople_().forEach(function (p) { if (isEvalRole_(p.role)) staff[nameKey_(p.name)] = 1; });
+  const days = rows.filter(function (r) { return r.kind === 'daily' && r.date < today && !staff[nameKey_(r.name)]; }).map(function (r) { return r.date; }).sort();
+  const last = days[days.length - 1], props = PropertiesService.getScriptProperties();
+  if (last && last >= Utilities.formatDate(new Date(now.getTime() - 4 * 864e5), tz, 'yyyy-MM-dd') && props.getProperty('kbStarDay') !== last) {
+    const d = rows.filter(function (r) { return r.kind === 'daily' && r.date === last && !staff[nameKey_(r.name)]; }), best = Math.max.apply(null, d.map(function (r) { return r.score; }));
+    const stars = d.filter(function (r) { return r.score === best; }).map(function (r) { return r.name; });
+    const all = {}; rows.forEach(function (r) { if (r.kind === 'daily') (all[nameKey_(r.name)] = all[nameKey_(r.name)] || { name: r.name, d: [] }).d.push(r.date); });
+    const streaks = Object.keys(all).filter(function (k) { return !staff[k]; }).map(function (k) { return { name: all[k].name, n: streak_(all[k].d, last) }; }).filter(function (x) { return x.n >= 3; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 3);
+    if (best >= 4) parts.push(mailBox_('🌟 نجوم كويز ' + last, '<p style="margin:0 0 8px">برافو على <b>' + esc_(stars.join('، ')) + '</b>: ' + best + ' من ' + (d[0].total || 5) + ' في كويز يوم ' + last + '. شكراً على المجهود، وده بيبان في مكالماتكم 👏</p>' +
+      '<p style="margin:0;color:#555">' + d.length + ' من التيم حلّوا الكويز.' + (streaks.length ? ' 🔥 أطول ستريك: ' + streaks.map(function (s) { return esc_(s.name) + ' (' + s.n + ' يوم)'; }).join('، ') + '.' : '') + '</p>'));
+    props.setProperty('kbStarDay', last);
+  }
+  // 4) monthly champions, once, in the first days of the month
+  const lastMonth = Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - 1, 15), tz, 'yyyy-MM');
+  if (Number(Utilities.formatDate(now, tz, 'd')) <= 5 && props.getProperty('kbChampMonth') !== lastMonth) {
+    const b = pulse_({ month: lastMonth }).board.slice(0, 3);
+    if (b.length) {
+      parts.unshift(mailBox_('🏆 أبطال كويز شهر ' + lastMonth, b.map(function (x, i) { return '<p style="margin:0 0 6px;font-size:16px">' + ['🥇', '🥈', '🥉'][i] + ' <b>' + esc_(x.name) + '</b>: ' + x.points + ' نقطة، دقة ' + x.pct + '%' + (x.monthly != null ? '، الكويز الشهري ' + x.monthly + '%' : '') + '</p>'; }).join('') +
+        '<p style="margin:8px 0 0">ألف مبروك، وشكراً إنكم بتذاكروا كل يوم. الشهر الجديد بدأ والدوري اتصفّر، يلا! 💪</p>'));
+      props.setProperty('kbChampMonth', lastMonth);
+    }
+  }
+  if (!parts.length) return 'nothing new';
+  const to = rosterPeople_().map(function (p) { return p.email; });
+  if (!to.length) return 'no emails';
+  const q = rosterPeople_().filter(function (p) { return isQualityRole_(p.role); })[0];
+  MailApp.sendEmail({ to: to.join(','), name: KB_SENDER, replyTo: q ? q.email : undefined, subject: 'النولدج بيز: الجديد النهارده ' + today, htmlBody: mailWrap_('صباح الخير يا تيم H&P 🌸', parts.join('')) });
+  if (ask) done.forEach(function (x) { ask.getRange(x.row, 12).setValue(new Date()); });
+  return 'sent to ' + to.length;
+}
+function kbLeadsReport() {
+  const tz = Session.getScriptTimeZone(), now = new Date(), wd = Utilities.formatDate(now, tz, 'u');
+  if (wd === '5') return 'friday';
+  const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), people = rosterPeople_(), rows = quizRows_();
+  const leads = people.filter(function (p) { return isEvalRole_(p.role) && /operation|اوبريشن|أوبريشن|owner/i.test(p.role); }).map(function (p) { return p.email; });
+  if (!leads.length) return 'no leads';
+  const ro = readRoster_(), doneMap = {};
+  rows.forEach(function (r) { if (r.kind === 'daily' && r.date === today) doneMap[nameKey_(r.name)] = r; });
+  const done = ro.agents.filter(function (a) { return doneMap[nameKey_(a)]; }), notYet = ro.agents.filter(function (a) { return !doneMap[nameKey_(a)]; });
+  const parts = [mailBox_('📝 كويز النهارده', '<p style="margin:0 0 6px"><b>حلّوه (' + done.length + '):</b> ' + (done.map(function (a) { return esc_(a) + ' ' + doneMap[nameKey_(a)].score + '/' + doneMap[nameKey_(a)].total; }).join('، ') || '–') + '</p>' +
+    '<p style="margin:0"><b>لسه (' + notYet.length + '):</b> ' + (esc_(notYet.join('، ')) || 'كله حلّ 👏') + '</p><p style="margin:6px 0 0;color:#777;font-size:13px">لو حد أجازة النهارده هيبان هنا في "لسه"، تجاهله.</p>')];
+  // Thursdays (or whenever asked): the questions the team got wrong most in the last 7 days
+  if (wd === '4') {
+    const from = Utilities.formatDate(new Date(now.getTime() - 7 * 864e5), tz, 'yyyy-MM-dd'), cnt = {}, asked = rows.filter(function (r) { return r.date >= from; }).length;
+    rows.forEach(function (r) { if (r.date < from || !r.wrong) return; r.wrong.split(/\s*\|\s*/).forEach(function (w) { const k = w.replace(/^[^—]*—\s*/, '').trim() || w; if (k) cnt[k] = (cnt[k] || 0) + 1; }); });
+    const top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 7);
+    if (top.length) parts.push(mailBox_('🎯 أكتر أسئلة اتغلط فيها الأسبوع ده (' + asked + ' كويز)', '<ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li>' + esc_(k) + ' <span style="color:#A63D63">(' + cnt[k] + ' مرة)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">دي أولويات الكوتشينج للأسبوع الجاي.</p>'));
+  }
+  const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME);
+  if (ask && ask.getLastRow() > 1) {
+    const waiting = ask.getRange(2, 8, ask.getLastRow() - 1, 1).getValues().filter(function (r) { const s = String(r[0] || 'New'); return !/answer|اتجاوب|تم|not|no need|مش محتاج|ملغي/i.test(s); }).length;
+    if (waiting) parts.push(mailBox_('❓ استفسارات مستنية الكلاينت', '<p style="margin:0">فيه ' + waiting + ' استفسار/اقتراح من الإيجنتس في تاب "Agent questions" في شيت QA Evaluations.</p>'));
+  }
+  MailApp.sendEmail({ to: leads.join(','), name: KB_SENDER, subject: 'تقرير الكويز ' + today, htmlBody: mailWrap_('تقرير النولدج بيز للتيم ليدرز', parts.join('')) });
+  return 'sent';
 }
