@@ -733,6 +733,9 @@ function doPost(e) {
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
     if (body.action === 'kbAsk') return reply_(kbAsk_(body)); // knowledge base: an agent's question or suggestion for the client
     if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
+    if (body.action === 'kbBook') return reply_(kbBook_(body)); // knowledge base: a booking, for the 3 follow-up calls
+    if (body.action === 'kbCall') return reply_(kbCall_(body));
+    if (body.action === 'kbAssign') return reply_(kbAssign_(body));
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
@@ -793,6 +796,7 @@ function doPost(e) {
 function doGet(e) {
   const p = e.parameter || {};
   if (p.action === 'kbAsks') return reply_(kbAsks_(p));
+  if (p.action === 'kbCalls') return reply_(kbCalls_(p)); // signed-in: my follow-up calls (team leads: everyone's)
   if (p.action === 'kbDash') return reply_(kbDash_(p)); // signed-in evaluators only // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
   const me = who_(p);
@@ -1129,6 +1133,7 @@ function kbAsks_(p) {
 //  • kbDailyDigest at 9 am: ONE email to everyone in the Roster (only when there is something new): new knowledge base
 //    updates (the "التحديثات" tab of the KB sheet), newly answered client questions, yesterday's quiz stars, and on the
 //    first days of a month the monthly champions.
+//  • kbCallsReminder at 10 am: each agent with booking follow-up calls today gets a short list (see Bookings below).
 //  • kbLeadsReport at 3 pm: to the operations team leads (and the owner): who did today's quiz, who didn't yet, and on
 //    Thursdays the quiz questions the team got wrong most this week, for coaching.
 // Fridays are skipped. Emails go from the account that owns this script, with the sender name below.
@@ -1136,8 +1141,9 @@ const KB_SHEET_ID = '1kKXesKcnse3ofMTc0_FbuUWOz6I6fPf7';
 const KB_LINK = 'https://hidden-hat-5831.mohamed-omar00700.workers.dev/';
 const KB_SENDER = 'H&P Knowledge Base';
 function setupKbEmails() {
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport', 'kbCallsReminder'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('kbDailyDigest').timeBased().everyDays(1).atHour(9).create();
+  ScriptApp.newTrigger('kbCallsReminder').timeBased().everyDays(1).atHour(10).create();
   ScriptApp.newTrigger('kbLeadsReport').timeBased().everyDays(1).atHour(15).create();
   kbNewsNew_(true); // what's already in the updates tab counts as sent
   return 'ok';
@@ -1244,6 +1250,8 @@ function kbLeadsReport() {
     const top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 7);
     if (top.length) parts.push(mailBox_('🎯 أكتر أسئلة اتغلط فيها الأسبوع ده (' + asked + ' كويز)', '<ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li>' + esc_(k) + ' <span style="color:#A63D63">(' + cnt[k] + ' مرة)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">دي أولويات الكوتشينج للأسبوع الجاي.</p>'));
   }
+  const calls = bkLeadsBox_(today);
+  if (calls) parts.unshift(calls);
   const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME);
   if (ask && ask.getLastRow() > 1) {
     const waiting = ask.getRange(2, 8, ask.getLastRow() - 1, 1).getValues().filter(function (r) { const s = String(r[0] || 'New'); return !/answer|اتجاوب|تم|not|no need|مش محتاج|ملغي/i.test(s); }).length;
@@ -1320,4 +1328,187 @@ function kbDash_(p) {
   const top = Object.keys(qs).map(function (i) { return qs[i]; }).filter(function (q) { return q.wrong; }).sort(function (a, b) { return b.wrong - a.wrong || b.wrong / b.asked - a.wrong / a.asked; }).slice(0, 15);
   const agentsN = ro.agents.length, doneToday = rows.filter(function (r) { return r.kind === 'daily' && r.date === today && !staff[nameKey_(r.name)]; }).length;
   return { ok: true, month: month, today: today, seeStaff: acc.seeStaff, agents: agentsN, doneToday: doneToday, people: list, days: dayList, top: top, hard: quizHard_(today) };
+}
+
+// ---------- booking follow-up calls (knowledge base) ----------
+// Every booking email sent from the knowledge base is also saved here, so the agent is reminded of the 3 follow-up calls:
+//  1) confirm: the working day before the appointment (Fridays are off, so a Saturday appointment is confirmed on Thursday)
+//  2) same day: on the appointment day, before the appointment
+//  3) after the visit: the next working day (did they go, how was it)
+// A call is skipped when the booking itself was made that day (the booking call already covers it).
+// Team leads (any Evaluator / Owner) see everyone's calls, see who is off today and can give a call to someone else.
+// Result columns can also be edited by hand: the first word is the result (confirmed, noanswer, rescheduled, cancelled, went, noshow, n/a).
+const BK_NAME = 'Bookings';
+const BK_COLS = ['ID', 'Saved at', 'Booked by', 'Booked by email', 'Assigned to', 'Assigned email', 'Customer', 'Phone', 'Branch', 'Offer / service', 'Doctor',
+  'Booking for', 'Appointment date', 'Appointment time', 'Odoo', 'Status (Active / Cancelled / No-show / Done)',
+  'Call 1 due (confirm)', 'Call 1 result', 'Call 2 due (same day)', 'Call 2 result', 'Call 3 due (after visit)', 'Call 3 result', 'Feedback / notes', 'Log'];
+const BK_C = { id: 0, saved: 1, by: 2, byEmail: 3, to: 4, toEmail: 5, cust: 6, phone: 7, branch: 8, svc: 9, doc: 10, kind: 11, date: 12, time: 13, odoo: 14, status: 15, d1: 16, r1: 17, d2: 18, r2: 19, d3: 20, r3: 21, notes: 22, log: 23 };
+function bkSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(BK_NAME);
+  if (!sh) { sh = ss.insertSheet(BK_NAME); sh.getRange(1, 1, 1, BK_COLS.length).setValues([BK_COLS]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  return sh;
+}
+function ymdOf_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const s = String(v || '').replace(/^'/, '').trim(); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : '';
+}
+function hmOf_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm');
+  const m = /(\d{1,2}):(\d{2})/.exec(String(v || '')); return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : '';
+}
+function addDays_(ymd, n) { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd'); }
+function workDay_(ymd, step) { // the nearest working day before (step -1) or after (step 1); Friday is off for everyone
+  let d = addDays_(ymd, step);
+  while (new Date(d + 'T12:00:00Z').getUTCDay() === 5) d = addDays_(d, step);
+  return d;
+}
+function bkDues_(appt, booked) {
+  const c1 = workDay_(appt, -1);
+  const fri = new Date(appt + 'T12:00:00Z').getUTCDay() === 5; // a Friday appointment: nobody works, the Thursday call covers it
+  return { d1: c1 <= booked ? 'n/a' : c1, d2: appt <= booked || fri ? 'n/a' : appt, d3: workDay_(appt, 1) };
+}
+function bkNow_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM HH:mm'); }
+function bkRes_(v) { // 'confirmed · Nada · 03 Nov 14:20' → {key, tries}
+  const s = String(v || '').trim().toLowerCase(); if (!s) return { key: '', tries: 0 };
+  const m = /^([a-z/]+)(?:\s*\((\d+)\))?/.exec(s);
+  return { key: m ? m[1] : 'other', tries: m && m[2] ? Number(m[2]) : (m && m[1] === 'noanswer' ? 1 : 0) };
+}
+const BK_DONE_ = { confirmed: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1, 'n/a': 1, other: 1 };
+function bkLead_(who) { return !!who && kbAccess_(who.email).dash; }
+function bkMine_(r, who) { return String(r[BK_C.toEmail]).toLowerCase() === who.email || nameKey_(r[BK_C.to]) === nameKey_(who.name); }
+function kbBook_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const x = b.booking || {}, tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const appt = ymdOf_(x.date), time = hmOf_(x.time), id = String(x.id || '').replace(/[^\w-]/g, '').slice(0, 40);
+  if (!id || !appt || !String(x.name || '').trim()) return { ok: false, error: 'bad_booking' };
+  if (appt < today) return { ok: false, error: 'past_date' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const sh = bkSheet_(), n = sh.getLastRow() - 1;
+    if (n > 0 && sh.getRange(2, 1, n, 1).getValues().flat().indexOf(id) >= 0) return { ok: true, duplicate: true };
+    const d = bkDues_(appt, today), cut = function (v, k) { return String(v || '').trim().slice(0, k || 120); };
+    const row = [id, new Date(), who.name, who.email, who.name, who.email, cut(x.name), "'" + cut(x.phone, 30), cut(x.branch), cut(x.svc, 200), cut(x.doc), cut(x.kind, 40),
+      "'" + appt, "'" + time, "'" + cut(x.odoo, 40), 'Active', "'" + d.d1, d.d1 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d2, d.d2 === 'n/a' ? 'n/a · booked the same day' : '', "'" + d.d3, '', cut(x.notes, 600), 'Booked ' + bkNow_()];
+    sh.appendRow(row);
+    return { ok: true, dues: d };
+  } finally { lock.releaseLock(); }
+}
+// One row → the calls that still matter. state: due (today), late (past its day, still worth calling), soon (coming), missed (its moment passed)
+function bkCalls_(r, today) {
+  const st = String(r[BK_C.status] || 'Active').toLowerCase();
+  if (/cancel|no-?show|done|ملغي/.test(st)) return [];
+  const appt = ymdOf_(r[BK_C.date]), out = [];
+  [1, 2, 3].forEach(function (k) {
+    const due = ymdOf_(r[BK_C['d' + k]]), res = bkRes_(r[BK_C['r' + k]]);
+    if (!due || BK_DONE_[res.key]) return;
+    let state = due > today ? 'soon' : due === today ? 'due' : 'late';
+    if (k < 3 && state === 'late' && appt <= today) state = appt === today && k === 2 ? 'due' : 'missed';
+    if (k === 1 && appt <= today) state = 'missed';
+    out.push({ call: k, due: due, state: state, tries: res.tries });
+  });
+  return out;
+}
+function bkItem_(r, row, c, full) {
+  const o = { id: row, call: c.call, due: c.due, state: c.state, tries: c.tries, to: String(r[BK_C.to]), cust: String(r[BK_C.cust]), branch: String(r[BK_C.branch]), svc: String(r[BK_C.svc]),
+    doc: String(r[BK_C.doc]), kind: String(r[BK_C.kind]), date: ymdOf_(r[BK_C.date]), time: hmOf_(r[BK_C.time]), notes: String(r[BK_C.notes] || '') };
+  if (full) { o.phone = String(r[BK_C.phone]).replace(/^'/, ''); o.odoo = String(r[BK_C.odoo]).replace(/^'/, ''); }
+  return o;
+}
+function bkAll_(today) { // every open call, with the Roster days off of whoever has it
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BK_NAME), out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  const n = sh.getLastRow() - 1, from = Math.max(0, n - 600);
+  sh.getRange(2 + from, 1, n - from, BK_COLS.length).getValues().forEach(function (r, i) {
+    bkCalls_(r, today).forEach(function (c) { if (c.state !== 'missed' || c.due >= addDays_(today, -2)) out.push({ r: r, row: 2 + from + i, c: c }); });
+  });
+  return out;
+}
+function bkOffOn_(name, ymd, ro) {
+  const days = String((ro.daysOff || {})[name] || ''), wd = DAY_NAMES_[new Date(ymd + 'T12:00:00Z').getUTCDay()];
+  return days.split(/\s*,\s*/).indexOf(wd) >= 0;
+}
+function kbCalls_(p) {
+  const who = kbWho_(p.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'), lead = bkLead_(who), ro = readRoster_();
+  const items = bkAll_(today).filter(function (x) { return lead || bkMine_(x.r, who); }).map(function (x) {
+    const o = bkItem_(x.r, x.row, x.c, true); o.mine = bkMine_(x.r, who); o.off = bkOffOn_(o.to, x.c.due > today ? x.c.due : today, ro); return o;
+  });
+  return { ok: true, today: today, lead: lead, agents: lead ? ro.agents : [], items: items };
+}
+function kbCall_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const sh = bkSheet_(), row = Math.floor(Number(b.id)), k = Math.floor(Number(b.call));
+  if (!(row >= 2 && row <= sh.getLastRow()) || [1, 2, 3].indexOf(k) < 0) return { ok: false, error: 'not_found' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const rg = sh.getRange(row, 1, 1, BK_COLS.length), r = rg.getValues()[0];
+    if (!bkMine_(r, who) && !bkLead_(who)) return { ok: false, error: 'not_yours' };
+    const res = String(b.result || ''), ok = { confirmed: 1, noanswer: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1 };
+    if (!ok[res]) return { ok: false, error: 'bad_result' };
+    const stamp = ' · ' + who.name + ' · ' + bkNow_(), note = String(b.note || '').trim().slice(0, 500);
+    const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    const set = function (c, v) { r[c] = v; };
+    if (res === 'noanswer') set(BK_C['r' + k], 'noanswer (' + (bkRes_(r[BK_C['r' + k]]).tries + 1) + ')' + stamp);
+    else if (res === 'rescheduled') {
+      const nd = ymdOf_(b.date), nt = hmOf_(b.time);
+      if (!nd || nd < today) return { ok: false, error: 'bad_date' };
+      const old = ymdOf_(r[BK_C.date]) + ' ' + hmOf_(r[BK_C.time]), d = bkDues_(nd, today);
+      set(BK_C.date, "'" + nd); set(BK_C.time, "'" + nt);
+      // all 3 calls start again for the new day; the move is kept in the Log column
+      [1, 2, 3].forEach(function (j) { set(BK_C['d' + j], "'" + d['d' + j]); set(BK_C['r' + j], d['d' + j] === 'n/a' ? 'n/a · rescheduled' : ''); });
+      set(BK_C.log, String(r[BK_C.log] || '') + ' | call ' + k + ': moved from ' + old + ' to ' + nd + ' ' + nt + stamp);
+      set(BK_C.status, 'Active');
+    } else {
+      set(BK_C['r' + k], res + (b.rating ? ' ' + Math.max(1, Math.min(5, Math.floor(Number(b.rating)))) + '/5' : '') + stamp);
+      if (res === 'cancelled') { set(BK_C.status, 'Cancelled'); [1, 2, 3].forEach(function (j) { if (j !== k && !BK_DONE_[bkRes_(r[BK_C['r' + j]]).key]) set(BK_C['r' + j], 'n/a · cancelled'); }); }
+      if (res === 'noshow') set(BK_C.status, 'No-show');
+      if (res === 'went') { set(BK_C.status, 'Done'); [1, 2].forEach(function (j) { if (!BK_DONE_[bkRes_(r[BK_C['r' + j]]).key]) set(BK_C['r' + j], 'n/a · visit done'); }); }
+    }
+    if (note) set(BK_C.notes, (String(r[BK_C.notes] || '') ? r[BK_C.notes] + '\n' : '') + 'Call ' + k + ': ' + note + ' (' + who.name + ')');
+    rg.setValues([r]);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+function kbAssign_(b) {
+  const who = kbWho_(b.session);
+  if (!who || !bkLead_(who)) return { ok: false, error: who ? 'forbidden' : 'signed_out' };
+  const sh = bkSheet_(), row = Math.floor(Number(b.id)), ro = readRoster_(), to = String(b.to || '').trim();
+  if (!(row >= 2 && row <= sh.getLastRow())) return { ok: false, error: 'not_found' };
+  if (ro.agents.indexOf(to) < 0) return { ok: false, error: 'bad_agent' };
+  const log = sh.getRange(row, BK_C.log + 1);
+  sh.getRange(row, BK_C.to + 1, 1, 2).setValues([[to, String(ro.emails[to] || '').toLowerCase()]]);
+  log.setValue(String(log.getValue() || '') + ' | given to ' + to + ' · ' + who.name + ' · ' + bkNow_());
+  return { ok: true };
+}
+// 10 am: each agent with calls today gets one short email (no customer numbers in email: the numbers are in the knowledge base).
+// Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
+function kbCallsReminder() {
+  const tz = Session.getScriptTimeZone(), now = new Date();
+  if (Utilities.formatDate(now, tz, 'u') === '5') return 'friday';
+  const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), ro = readRoster_(), by = {};
+  bkAll_(today).forEach(function (x) { if ((x.c.state === 'due' || x.c.state === 'late') && !bkOffOn_(String(x.r[BK_C.to]), today, ro)) { const em = String(x.r[BK_C.toEmail] || ro.emails[x.r[BK_C.to]] || '').trim(); if (em) (by[em] = by[em] || []).push(x); } });
+  const names = ['', 'تأكيد الميعاد (قبلها بيوم)', 'تذكير يوم الميعاد', 'بعد الزيارة: راح؟ ورأيه إيه؟'];
+  let sent = 0;
+  Object.keys(by).forEach(function (em) {
+    const L = by[em].sort(function (a, b) { return a.c.call - b.c.call; });
+    const body = mailBox_('📞 مكالمات المتابعة النهارده (' + L.length + ')', '<ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
+      return '<li style="margin-bottom:6px"><b>' + esc_(names[x.c.call]) + '</b>: ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(x.r[BK_C.branch]) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(متأخرة)</span>' : '') + '</li>';
+    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">الأرقام والتفاصيل في تبويب "📞 مكالمات المتابعة" في النولدج بيز. بعد كل مكالمة دوس على النتيجة علشان التذكير يقف.</p>');
+    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'مكالمات المتابعة النهارده: ' + L.length, htmlBody: mailWrap_('صباح الخير 🌸', body) }); sent++;
+  });
+  return 'sent ' + sent;
+}
+// For the 3 pm team leads report: calls still open today, late ones, and agents who are off with calls.
+function bkLeadsBox_(today) {
+  const ro = readRoster_(), open = bkAll_(today).filter(function (x) { return x.c.state === 'due' || x.c.state === 'late'; });
+  if (!open.length) return '';
+  const per = {}; open.forEach(function (x) { const n = String(x.r[BK_C.to]); (per[n] = per[n] || []).push(x); });
+  return mailBox_('📞 مكالمات متابعة الحجوزات لسه متعملتش (' + open.length + ')', Object.keys(per).sort().map(function (n) {
+    const off = bkOffOn_(n, today, ro), late = per[n].filter(function (x) { return x.c.state === 'late'; }).length;
+    return '<p style="margin:0 0 6px"><b>' + esc_(n) + '</b>: ' + per[n].length + ' مكالمة' + (late ? '، منهم ' + late + ' متأخرة' : '') + (off ? ' <span style="color:#A63D63">· أجازة النهارده، اديها لحد تاني</span>' : '') + '</p>';
+  }).join('') + '<p style="margin:6px 0 0;color:#777;font-size:13px">التفاصيل وتحويل المكالمة لحد تاني من تبويب "📞 مكالمات المتابعة" في النولدج بيز.</p>');
 }
