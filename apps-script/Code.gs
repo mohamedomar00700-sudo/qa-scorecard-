@@ -736,6 +736,7 @@ function doPost(e) {
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
     if (body.action === 'kbAsk') return reply_(kbAsk_(body)); // knowledge base: an agent's question or suggestion for the client
     if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
+    if (body.action === 'kbAvatar') return reply_(kbAvatar_(body)); // knowledge base: the agent's chosen character
     if (body.action === 'kbBook') return reply_(kbBook_(body)); // knowledge base: a booking, for the 3 follow-up calls
     if (body.action === 'kbCall') return reply_(kbCall_(body));
     if (body.action === 'kbAssign') return reply_(kbAssign_(body));
@@ -990,6 +991,18 @@ function saveQuiz_(b) {
   } finally { lock.releaseLock(); }
   return { ok: true, name: name };
 }
+// Each agent picks a character for the quiz and the leaderboard. Only a picture id is kept (no photos).
+function kbAvatars_() { return JSON.parse(PropertiesService.getScriptProperties().getProperty('kbAvatars') || '{}'); }
+function kbAvatar_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const id = String(b.avatar || '');
+  if (!/^[a-z0-9_]{1,16}$/.test(id)) return { ok: false, error: 'bad_avatar' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try { const all = kbAvatars_(); all[nameKey_(who.name)] = id; PropertiesService.getScriptProperties().setProperty('kbAvatars', JSON.stringify(all)); }
+  finally { lock.releaseLock(); }
+  return { ok: true, avatar: id };
+}
 // Streak: days in a row with the daily quiz. Fridays and Saturdays never break it (days off), and today
 // doesn't break it until the day is over.
 function streak_(dates, today) {
@@ -1031,7 +1044,8 @@ function pulse_(p) {
       if (r[1] === 'daily') b.days++; else b.monthly = Math.round(100 * sc / (tot || 1));
     });
   }
-  const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly, streak: streak_(days[k] || [], today) }; })
+  const avs = kbAvatars_();
+  const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly, streak: streak_(days[k] || [], today), av: avs[k] || '' }; })
     .sort(function (a, b) { return b.points - a.points || b.pct - a.pct || a.name.localeCompare(b.name); });
   const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14), hard: quizHard_(today) };
   if (p.session) {
@@ -1047,7 +1061,7 @@ function pulse_(p) {
       }
       const rank = list.findIndex(function (b) { return nameKey_(b.name) === meK; });
       const acc = kbAccess_(me.email);
-      out.me = { name: me.name, staff: !!staff[meK], dash: acc.dash, seeStaff: acc.seeStaff, streak: streak_(mine.dates, today), best: best, points: mine.points, pct: mine.asked ? Math.round(100 * mine.right / mine.asked) : 0,
+      out.me = { name: me.name, av: avs[meK] || '', staff: !!staff[meK], dash: acc.dash, seeStaff: acc.seeStaff, streak: streak_(mine.dates, today), best: best, points: mine.points, pct: mine.asked ? Math.round(100 * mine.right / mine.asked) : 0,
         days: mine.dates.length, perfect: mine.perfect, monthlies: mine.monthlies, bestMonthly: mine.bestMonthly, rank: rank < 0 ? null : rank + 1,
         week: mine.dates.filter(function (d) { return d > Utilities.formatDate(new Date(Date.now() - 14 * 864e5), tz, 'yyyy-MM-dd'); }), doneToday: mine.dates.indexOf(today) >= 0 };
     }
