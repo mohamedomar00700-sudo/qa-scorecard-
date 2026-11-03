@@ -397,11 +397,29 @@
     }
     return { agents, notYet, week, month, ws, todoWeek: agents.filter((n) => !week.has(n)), todoMonth: agents.filter((n) => !month.has(n)) };
   }
-  function drawProgramAgent() {
+  function agentDayEvals(agent, day) {
+    if (!agent || !day) return [];
+    return allRecords().filter((r) => !r.test && !r.rolePlay && nameKey(r.agent) === nameKey(agent) && String(r.interactionDate || r.evalDate || "").slice(0, 10) === day);
+  }
+  function drawProgramAgent(excludeList) {
     const c = programCoverage();
-    // Not heard this week first (and among them, not heard this month first); once everyone is covered, anyone.
-    const pool = c.todoWeek.filter((n) => c.todoMonth.includes(n)).length ? c.todoWeek.filter((n) => c.todoMonth.includes(n)) : c.todoWeek.length ? c.todoWeek : c.agents;
+    if (!c.agents.length) return "";
+    const allProg = allRecords().filter((r) => purposeOf(r) === "program" && !r.test && r.agent)
+      .sort((x, y) => String(y.savedAt || y.evalDate || "").localeCompare(String(x.savedAt || x.evalDate || "")));
+    const lastAg = allProg[0] ? allProg[0].agent : "";
+    const excl = new Set([lastAg, ...(excludeList || [])].filter(Boolean).map(nameKey));
+    const base = c.agents.filter((n) => !excl.has(nameKey(n)));
+    const cand = base.length ? base : c.agents.filter((n) => !(excludeList || []).some((x) => nameKey(x) === nameKey(n)));
+    const list = cand.length ? cand : c.agents;
+    const minW = Math.min(...list.map((n) => c.week.get(n) || 0));
+    const tierW = list.filter((n) => (c.week.get(n) || 0) === minW);
+    const minM = Math.min(...tierW.map((n) => c.month.get(n) || 0));
+    const pool = tierW.filter((n) => (c.month.get(n) || 0) === minM);
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : "";
+
+
+
+
   }
   function progCoverage() {
     const c = programCoverage(), n = c.agents.length;
@@ -424,8 +442,8 @@
   function randomPicker(a) {
     const box = h("div", { class: "picker" });
     const pick = (why) => {
-      if (progRandom(a) && !why) { const ag = drawProgramAgent(); if (!ag) { alert(t("prog_no_agents")); return; } a.header.agent = ag; a.header.randAgent = true; }
-      const agent = a.header.agent;
+      if (progRandom(a) && !why) { const ag = drawProgramAgent(a.header.agent ? [a.header.agent] : []); if (!ag) { alert(t("prog_no_agents")); return; } a.header.agent = ag; a.header.randAgent = true; }
+      let agent = a.header.agent;
       const log = (a.header.pickLog || []).slice();
       if (why && log.length) log[log.length - 1] = Object.assign({}, log[log.length - 1], { why });
       const win = (day) => pickWindow(day);
@@ -445,11 +463,32 @@
       }
       const nowM = new Date().getHours() * 60 + new Date().getMinutes();
       if (!ok.length && prog && !off.has(new Date().getDay()) && !skip.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
+      if (prog && why && (!ok.length || !ok.some((d) => !agentDayEvals(agent, d).length))) {
+        const tried = [...new Set(log.map((e) => e.ag).concat(agent).filter(Boolean))];
+        const nextAg = drawProgramAgent(tried);
+        if (nextAg && nameKey(nextAg) !== nameKey(agent)) {
+          agent = a.header.agent = nextAg; a.header.randAgent = true;
+          const off2 = new Set([...dayIdx(teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays), ...dayIdx((roster.daysOff || {})[agent])]);
+          const skip2 = log.filter((e) => e.why && e.ag === agent).map((e) => e.p.slice(0, 10));
+          ok.length = 0; todayOnly = false;
+          for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
+            const d = new Date(); d.setDate(d.getDate() - i);
+            if (ymdOf(d) < monthStart) break;
+            if (!off2.has(d.getDay()) && !skip2.includes(ymdOf(d))) ok.push(ymdOf(d));
+          }
+          if (!ok.length && !off2.has(new Date().getDay()) && !skip2.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
+        }
+      }
       if (!ok.length) { alert(prog ? t("prog_pick_none") : t("pick_none", { n: 31 })); return; }
       if (wider && !prog) alert(t("pick_wider", { n: days }));
       // A random time inside the shift, at least 30 minutes before it ends so there are calls after it.
-      const day = ok[Math.floor(Math.random() * ok.length)], [w0, w1] = win(day).map((x) => { const [hh, mm] = x.split(":").map(Number); return hh * 60 + (mm || 0); });
-      const from = w0, to = Math.max(from + 1, Math.min(w1 - 30, todayOnly ? nowM - 15 : 24 * 60)), m = from + Math.floor(Math.random() * (to - from));
+      const minEv = Math.min(...ok.map((d) => agentDayEvals(agent, d).length));
+      const bestDays = ok.filter((d) => agentDayEvals(agent, d).length === minEv);
+      const day = bestDays[Math.floor(Math.random() * bestDays.length)], [w0, w1] = win(day).map((x) => { const [hh, mm] = x.split(":").map(Number); return hh * 60 + (mm || 0); });
+      const from = w0, to = Math.max(from + 1, Math.min(w1 - 30, todayOnly ? nowM - 15 : 24 * 60));
+      const hadMins = agentDayEvals(agent, day).map((r) => { const tm = String(r.interactionDate || "").slice(11, 16); if (!tm) return null; const [h1, m1] = tm.split(":").map(Number); return isNaN(h1) ? null : h1 * 60 + (m1 || 0); }).filter((x) => x !== null);
+      let m = from + Math.floor(Math.random() * (to - from));
+      for (let tTry = 0; tTry < 15 && hadMins.some((hm) => Math.abs(hm - m) < 90); tTry++) m = from + Math.floor(Math.random() * (to - from));
       a.header.pick = day + " " + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
       a.header.pickAgent = agent;
       log.push({ p: a.header.pick, ag: agent, at: new Date().toISOString() });
@@ -467,10 +506,14 @@
       } }));
       if (picked) {
         const day = a.header.pick.slice(0, 10);
+        const dayEvals = agentDayEvals(a.header.pickAgent, day);
+        const dayEvalList = dayEvals.map((r) => [String(r.interactionDate || "").slice(11, 16) || "–", r.odooRef ? "Odoo " + r.odooRef : (r.phone ? "#" + String(r.phone).slice(-4) : "")].filter(Boolean).join(" ")).join("، ");
         box.append(h("div", { class: "pick-out" }, t("pick_rule", { a: a.header.pickAgent, d: wdOf(day) + " " + day, t: a.header.pick.slice(11) })),
+          dayEvals.length ? h("div", { class: "meta warn", text: t("pick_day_had", { a: a.header.pickAgent, list: dayEvalList }) }) : null,
           h("div", { class: "hint", text: t("pick_again_hint") }),
           h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_off_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("off"); } }),
-          h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }));
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_nocalls_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("nocalls"); } }),
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("pick_taken_btn"), onclick: () => { if (confirm(t("pick_confirm", { d: wdOf(day) + " " + day }))) pick("taken"); } }));
         const tr = pickTrail(a.header);
         if (tr) box.append(h("div", { class: "hint", text: tr }));
       }
