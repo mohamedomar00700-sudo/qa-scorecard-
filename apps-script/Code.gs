@@ -771,6 +771,7 @@ function doPost(e) {
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
     if (body.action === 'kbAsk') return reply_(kbAsk_(body)); // knowledge base: an agent's question or suggestion for the client
     if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
+    if (body.action === 'kbMiss') return reply_(kbMiss_(body)); // knowledge base: a search / Noor question that found nothing
     if (body.action === 'kbAvatar') return reply_(kbAvatar_(body)); // knowledge base: the agent's chosen character
     if (body.action === 'kbBook') return reply_(kbBook_(body)); // knowledge base: a booking, for the 3 follow-up calls
     if (body.action === 'kbCall') return reply_(kbCall_(body));
@@ -837,6 +838,7 @@ function doPost(e) {
 function doGet(e) {
   const p = e.parameter || {};
   if (p.action === 'kbAsks') return reply_(kbAsks_(p));
+  if (p.action === 'kbMisses') return reply_(kbMisses_(p)); // signed-in evaluators only: what agents searched for and didn't find
   if (p.action === 'kbCalls') return reply_(kbCalls_(p)); // signed-in: my follow-up calls (team leads: everyone's)
   if (p.action === 'kbDash') return reply_(kbDash_(p)); // signed-in evaluators only // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
@@ -1180,6 +1182,47 @@ function kbAsks_(p) {
       mine: !!me && String(r[2]).toLowerCase() === me.email, voted: !!me && voters.indexOf(me.email) >= 0 };
   }).filter(function (x) { return x.text && x.status !== 'closed'; }).reverse();
   return { ok: true, items: items };
+}
+
+// ---------- knowledge base: searches that found nothing ----------
+// Every search or Noor question in the knowledge base that finds nothing is saved here (no customer data: long numbers are
+// masked before saving), so the team can see what content is missing. Team leads see the top ones in the KB "📊" tab.
+const MISS_NAME = 'KB misses';
+const MISS_COLS = ['Saved at', 'Searched for', 'Where (search / Noor)', 'Language', 'Agent email (if signed in)'];
+function missSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(MISS_NAME);
+  if (!sh) { sh = ss.insertSheet(MISS_NAME); sh.getRange(1, 1, 1, MISS_COLS.length).setValues([MISS_COLS]).setFontWeight('bold'); sh.setFrozenRows(1); sh.setColumnWidth(2, 320); }
+  return sh;
+}
+function kbMiss_(b) {
+  const q = String(b.q || '').replace(/[0-9٠-٩]{5,}/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (q.length < 2) return { ok: false, error: 'too_short' };
+  const who = b.session ? kbWho_(b.session) : null;
+  const src = b.src === 'noor' ? 'Noor' : 'Search', lang = b.lang === 'en' ? 'en' : 'ar';
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try { missSheet_().appendRow([new Date(), q, src, lang, who ? who.email : '']); } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+function kbMisses_(p) {
+  const who = kbWho_(p.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  if (!kbAccess_(who.email).dash) return { ok: false, error: 'forbidden' };
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MISS_NAME);
+  if (!sh || sh.getLastRow() < 2) return { ok: true, items: [], total: 0 };
+  const since = new Date(Date.now() - 30 * 864e5), n = sh.getLastRow() - 1, from = Math.max(0, n - 3000), map = {};
+  let total = 0;
+  sh.getRange(2 + from, 1, n - from, 4).getValues().forEach(function (r) {
+    if (!(r[0] instanceof Date) || r[0] < since) return;
+    const q = String(r[1] || '').trim(); if (!q) return;
+    const k = q.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[^a-z0-9\u0600-\u06ff ]/g, '').replace(/\s+/g, ' ').trim();
+    const e = map[k] || (map[k] = { q: q, n: 0, noor: 0, last: r[0] });
+    e.n++; total++; if (String(r[2]) === 'Noor') e.noor++; if (r[0] > e.last) { e.last = r[0]; e.q = q; }
+  });
+  const tz = Session.getScriptTimeZone();
+  const items = Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) { return b.n - a.n || b.last - a.last; }).slice(0, 25)
+    .map(function (e) { return { q: e.q, n: e.n, noor: e.noor, last: Utilities.formatDate(e.last, tz, 'yyyy-MM-dd') }; });
+  return { ok: true, items: items, total: total };
 }
 
 // ---------- emails to the floor and to the team leads ----------
