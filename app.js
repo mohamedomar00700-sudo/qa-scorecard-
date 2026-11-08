@@ -357,7 +357,7 @@
         if (key === "evaluator") { saveDraft(); renderHeader(); return; } // the evaluation level depends on who scores (Quality vs operations)
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
-        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; delete a.header.callId; delete a.header.callTalk; } saveDraft(); renderHeader(); return; }
+        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt"]) delete a.header[k]; } saveDraft(); renderHeader(); return; }
         if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
@@ -534,9 +534,29 @@
   const mmss = (sec) => String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
   const hm12 = (tm) => { const [hh, mm] = String(tm || "").split(":").map(Number); if (isNaN(hh)) return tm || ""; return ((hh % 12) || 12) + ":" + String(mm || 0).padStart(2, "0") + (hh < 12 ? " AM" : " PM"); };
   function callPicker(a) {
-    const box = h("div", { class: "picker" });
+    const box = h("div", { class: "picker call-panel" });
     const prog = progRandom(a);
     let busy = false;
+    // While the server draws the call: a rolling dice, the steps it goes through and a shuffling Call ID, shown for at
+    // least ~1.8 s so nobody thinks the page froze or keeps pressing the button.
+    const rolling = () => {
+      box.innerHTML = "";
+      const steps = ["call_step1", "call_step2", "call_step3"].map((k) => h("li", { text: t(k) }));
+      const ticker = h("div", { class: "cp-ticker", dir: "ltr" });
+      const bar = h("div", { class: "cp-bar" }, h("span"));
+      box.append(h("div", { class: "cp-rolling", role: "status", "aria-live": "polite" },
+        h("div", { class: "cp-dice", "aria-hidden": "true" }, h("span", { text: "🎲" })),
+        h("div", { class: "cp-roll-body" }, h("div", { class: "cp-title", text: t("call_rolling") }), ticker, h("ol", { class: "cp-steps" }, steps), bar)));
+      const hex = "0123456789ABCDEF";
+      let n = 0;
+      const tick = setInterval(() => {
+        ticker.textContent = "2026" + Array.from({ length: 15 }, () => hex[Math.floor(Math.random() * 16)]).join("");
+        const at = Math.min(steps.length - 1, Math.floor(n / 8));
+        steps.forEach((li, i) => { li.className = i < at ? "done" : i === at ? "now" : ""; });
+        n++;
+      }, 75);
+      return () => clearInterval(tick);
+    };
     const go = async (why) => {
       if (busy) return;
       if (!prog && !a.header.agent) { alert(t("pick_need_agent")); return; }
@@ -545,61 +565,81 @@
       if (prog && !why) { agent = drawProgramAgent(a.header.agent ? [a.header.agent] : []); if (!agent) { alert(t("prog_no_agents")); return; } }
       const to = today(), from = prog ? today().slice(0, 8) + "01" : addDays(today(), -Math.max(1, Number(teamCfg.pickDays) || 7));
       const tried = [];
-      busy = true; box.classList.add("busy");
+      busy = true;
+      const stop = rolling(), t0 = Date.now();
+      const settle = async () => { const wait = 1800 - (Date.now() - t0); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); stop(); };
       try {
         for (;;) {
           const j = await apiPostJson({ action: "pickCall", agent, from, to, widen: !prog, prev, why: why || "" });
           if (prev && log.length) { log[log.length - 1] = Object.assign({}, log[log.length - 1], { why }); prev = ""; a.header.pickLog = log; delete a.header.callId; saveDraft(); }
           if (j.call) {
             const c = j.call;
+            await settle();
             a.header.agent = agent; if (prog) a.header.randAgent = true;
-            a.header.callId = c.id; a.header.callTalk = c.talk;
+            a.header.callId = c.id; a.header.callTalk = c.talk; a.header.callPool = j.pool || 0; a.header.callPbx = c.pbx || ""; a.header.callExt = c.ext || "";
             a.header.pick = c.day + " " + c.time; a.header.pickAgent = agent;
             a.header.interactionDate = c.day + "T" + c.time; a.header.kbVersion = kbFor(a.header.interactionDate);
             a.header.phone = c.num ? (c.num.startsWith("+") ? c.num : "+" + c.num) : "";
-            a.header.duration = mmss(Math.round(c.talk) - (Math.round(c.talk) % 5)); // the duration list goes in 5-second steps
+            a.header.duration = mmss(Math.round(c.talk)); // exact talk time from the phone system
             log.push({ p: a.header.pick, ag: agent, c: c.id, at: new Date().toISOString() });
             a.header.pickLog = log;
+            busy = false; pickCall.fresh = true;
             saveDraft(); renderHeader(); checkSameCall();
             if (j.wider) alert(t("call_wider", { n: Number(teamCfg.pickDays) || 7 }));
             return;
           }
           // Nothing left for this agent: on Program level the next agent is drawn; otherwise tell the evaluator.
-          if (!prog) { alert(t("call_none", { a: agent, d: j.dataTo || "–" })); renderHeader(); return; }
+          if (!prog) { await settle(); busy = false; alert(t("call_none", { a: agent, d: j.dataTo || "–" })); renderHeader(); return; }
           tried.push(agent);
           agent = drawProgramAgent(tried);
-          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { alert(t("call_none_prog", { d: j.dataTo || "–" })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
+          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { await settle(); busy = false; alert(t("call_none_prog", { d: j.dataTo || "–" })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
         }
-      } catch (e) { alert(e.message); }
-      finally { busy = false; box.classList.remove("busy"); }
+      } catch (e) { stop(); busy = false; show(); alert(e.message); }
     };
+    const tile = (icon, k, v, cls) => h("div", { class: "cp-tile" + (cls ? " " + cls : "") }, h("span", { class: "cp-ico", text: icon, "aria-hidden": "true" }), h("div", {}, h("div", { class: "cp-k", text: t(k) }), h("div", { class: "cp-v", dir: "auto", text: v })));
     const show = () => {
       box.innerHTML = "";
-      if (prog && a.header.callId && String(a.header.pick || "").slice(0, 10) < today().slice(0, 8) + "01") { for (const k of ["callId", "callTalk", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
+      if (prog && a.header.callId && String(a.header.pick || "").slice(0, 10) < today().slice(0, 8) + "01") { for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
       const picked = a.header.callId && a.header.pickAgent === a.header.agent;
       if (!picked) {
         if (current.edit) return;
-        box.append(h("button", { type: "button", class: prog ? "" : "ghost", text: "🎲 " + t(prog ? "prog_pick_btn" : "pick_btn"), onclick: () => go("") }),
-          h("div", { class: "hint", text: t("call_src_hint") }));
+        box.append(h("div", { class: "cp-idle" },
+          h("div", { class: "cp-idle-text" }, h("div", { class: "cp-title", text: t(prog ? "prog_pick_btn" : "pick_btn") }), h("div", { class: "hint", text: t("call_src_hint") })),
+          h("button", { type: "button", class: "primary cp-go", onclick: () => go("") }, h("span", { class: "cp-go-dice", text: "🎲", "aria-hidden": "true" }), t("call_go"))));
         return;
       }
       const day = a.header.pick.slice(0, 10), tm = a.header.pick.slice(11);
-      box.append(h("div", { class: "pick-out" },
-        h("div", { text: t("call_rule", { a: a.header.pickAgent }) }),
-        h("div", { class: "call-card", dir: "ltr" },
-          h("b", { text: "Call ID: " }), h("code", { text: a.header.callId }), " ",
-          h("button", { type: "button", class: "ghost small", text: "📋", title: t("call_copy"), onclick: async () => { try { await navigator.clipboard.writeText(a.header.callId); } catch (e) {} } })),
-        h("div", { text: t("call_when", { d: wdOf(day) + " " + day, t: hm12(tm) }) + (a.header.phone ? " · " + t("call_num", { n: a.header.phone }) : "") + (a.header.callTalk ? " · " + t("call_talk", { m: mmss(Math.round(a.header.callTalk)) }) : "") })));
+      const copyBtn = h("button", { type: "button", class: "cp-copy", title: t("call_copy"), text: "📋 " + t("call_copy_short") });
+      copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(a.header.callId); copyBtn.textContent = "✓ " + t("call_copied"); copyBtn.classList.add("ok"); setTimeout(() => { copyBtn.textContent = "📋 " + t("call_copy_short"); copyBtn.classList.remove("ok"); }, 1600); } catch (e) {} };
+      const card = h("div", { class: "cp-card" + (pickCall.fresh ? " fresh" : "") },
+        h("div", { class: "cp-head" },
+          h("div", { class: "cp-badge", text: "✓" }),
+          h("div", {}, h("div", { class: "cp-title", text: t("call_picked_title", { a: a.header.pickAgent }) }),
+            h("div", { class: "hint", text: a.header.callPool ? t("call_pool", { n: a.header.callPool }) : t("call_src_hint") }))),
+        h("div", { class: "cp-id" }, h("span", { class: "cp-id-k", text: "Call ID" }), h("code", { dir: "ltr", text: a.header.callId }), current.edit ? null : copyBtn),
+        h("div", { class: "cp-tiles" },
+          tile("📅", "call_t_day", wdOf(day) + " " + day),
+          tile("🕒", "call_t_time", hm12(tm)),
+          a.header.phone ? tile("📞", "call_t_num", a.header.phone, "ltr") : null,
+          a.header.callTalk ? tile("⏱️", "call_t_talk", mmss(Math.round(a.header.callTalk))) : null,
+          a.header.callExt ? tile("🎧", "call_t_user", (a.header.callPbx || a.header.pickAgent) + " · " + a.header.callExt) : null),
+        h("div", { class: "cp-rule", text: t("call_rule", { a: a.header.pickAgent }) }));
+      pickCall.fresh = false;
+      box.append(card);
       if (current.edit) return;
-      box.append(h("div", { class: "hint", text: t("call_again_hint") }),
-        h("button", { type: "button", class: "repick", text: "🔁 " + t("call_norec_btn"), onclick: () => { if (confirm(t("call_confirm"))) go("norec"); } }),
-        h("button", { type: "button", class: "repick", text: "🔁 " + t("call_unfit_btn"), onclick: () => { if (confirm(t("call_confirm"))) go("unfit"); } }));
       const tr = pickTrail(a.header);
-      if (tr) box.append(h("div", { class: "hint", text: tr }));
+      box.append(h("details", { class: "cp-repick" },
+        h("summary", { text: t("call_cant") }),
+        h("div", { class: "hint", text: t("call_again_hint") }),
+        h("div", { class: "cp-repick-btns" },
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("call_norec_btn"), onclick: () => { if (confirm(t("call_confirm"))) go("norec"); } }),
+          h("button", { type: "button", class: "repick", text: "🔁 " + t("call_unfit_btn"), onclick: () => { if (confirm(t("call_confirm"))) go("unfit"); } })),
+        tr ? h("div", { class: "hint", text: tr }) : null));
     };
     show();
     return box;
   }
+  const pickCall = {};
 
   // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
   // plus a "test" switch. Tests are kept apart from the dashboard and certification.
@@ -735,8 +775,10 @@
     const mins = h("select", { id: "hd_duration_m", "aria-label": t("min") }, h("option", { value: "", text: t("min") }),
       Array.from({ length: 61 }, (_, i) => h("option", { value: pad(i), text: i + " " + t("min") })));
     const secs = h("select", { id: "hd_duration_s", "aria-label": t("sec") }, h("option", { value: "", text: t("sec") }),
-      Array.from({ length: 12 }, (_, i) => h("option", { value: pad(i * 5), text: pad(i * 5) + " " + t("sec") })));
+      Array.from({ length: 60 }, (_, i) => h("option", { value: pad(i), text: pad(i) + " " + t("sec") })));
     mins.value = m0 || ""; secs.value = s0 || "";
+    // A call drawn from the raw call data brings its exact talk time from the phone system: shown, not chosen.
+    if (a.header.callId) { mins.disabled = secs.disabled = true; mins.classList.add("auto"); secs.classList.add("auto"); }
     const upd = () => set(mins.value || secs.value ? (mins.value || "00") + ":" + (secs.value || "00") : "");
     const warn = h("span", { class: "hint warn-short", text: t("short_call_warn") });
     const chk = () => { const sec = (+mins.value || 0) * 60 + (+secs.value || 0); warn.hidden = !((mins.value || secs.value) && sec < 60 && (a.header.selection || "random") === "random" && purposeOf(a.header) !== "roleplay"); };
@@ -1309,6 +1351,9 @@
       (purposeOf(r) === "postcoach" ? tx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? tx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : purposeOf(r) === "program" ? tx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : cert ? tx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : tx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + tx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       tx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
+      ...(r.callId ? [tx("رقم المكالمة (Call ID): ", "Call ID: ") + r.callId] : []),
+      ...(r.callPbx || r.callExt ? [tx("الإيجنت على سيستم التليفونات: ", "Agent on the phone system: ") + (r.callPbx || r.agent) + (r.callExt ? " · User ID " + r.callExt : "")] : []),
+      ...(r.callTalk ? [tx("مدة الكلام: ", "Talk time: ") + mmss(Math.round(r.callTalk))] : []),
       tx("النتيجة النهائية: ", "Final score: ") + pct(r.final) + " – " + (r.result === "Pass" ? tx("ناجح", "Pass") : tx("محتاج تحسين", "Needs improvement")),
       ...(isWow ? [tx("تصنيف المكالمة: 🌟🏆 مكالمة Wow (مثال مميز في مكتبة التدريب)", "Call tag: 🌟🏆 Wow call (training library standout)")] : isGood ? [tx("تصنيف المكالمة: 👍 مكالمة كويسة جداً (مكتبة التدريب)", "Call tag: 👍 Very good call (training library)")] : []),
       ...(r.method === "sidebyside" ? [tx("طريقة التقييم: سايد باي سايد", "Evaluated: side by side")] : []),
@@ -1532,7 +1577,7 @@
     const header = {};
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
-    for (const k of ["followOf", "followOfId", "pick", "pickAgent", "pickLog", "callId", "callTalk"]) if (r[k] !== undefined) header[k] = r[k];
+    for (const k of ["followOf", "followOfId", "pick", "pickAgent", "pickLog", "callId", "callTalk", "callPool", "callPbx", "callExt"]) if (r[k] !== undefined) header[k] = r[k];
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, evalId: evalIdOf(r), savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "", coached: !!(r.coached || (r.feedback && r.feedback.coached)), coachedAt: r.coachedAt || (r.feedback && r.feedback.coachedAt) || "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
