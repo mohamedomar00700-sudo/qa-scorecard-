@@ -429,16 +429,16 @@ function resultMailHtml_(r, o) {
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0"><tr><td style="border:1px solid ' + c.line + ';border-left:4px solid ' + (crit ? c.red : c.amber) + ';border-radius:8px;padding:10px 12px">' +
       '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'Critical error · ' + esc_(i.kind) : 'Non-critical') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
       '<div dir="auto" style="color:' + c.ink + '">' + esc_(i.text) + '</div>' +
-      (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + esc_(i.comment) + '</div>' : '') + '</td></tr></table>';
+      (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + enHtml_(i.comment) + '</div>' : '') + '</td></tr></table>';
   }).join(''));
   else inner += mailSection_('Items', mailNote_(c.greenBg, c.green, c.green, '', 'All items were done right 👌'));
 
   // Feedback.
   if (fb.strengths || fb.improve || fb.coaching) {
     let f = '';
-    if (fb.strengths) f += mailNote_(c.greenBg, c.green, c.green, '💪 Strengths', esc_(fb.strengths));
-    if (fb.improve) f += mailNote_(c.amberBg, c.amber, c.amber, '🎯 Areas to improve', esc_(fb.improve));
-    if (fb.coaching) f += mailNote_(c.blueBg, c.blue, c.blue, '💡 Tip for next time', esc_(fb.coaching));
+    if (fb.strengths) f += mailNote_(c.greenBg, c.green, c.green, '💪 Strengths', enHtml_(fb.strengths));
+    if (fb.improve) f += mailNote_(c.amberBg, c.amber, c.amber, '🎯 Areas to improve', enHtml_(fb.improve));
+    if (fb.coaching) f += mailNote_(c.blueBg, c.blue, c.blue, '💡 Tip for next time', enHtml_(fb.coaching));
     inner += mailSection_('Feedback', f);
   }
 
@@ -546,8 +546,8 @@ function sendCoaching_(id) {
   let html = '<div dir="ltr" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
     '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-left:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><b>📝 Coaching session summary</b></div>' +
     '<p>Hi ' + esc_(r.agent) + ',</p><p>Here is a summary of our coaching session on <b dir="ltr">' + when + '</b> about evaluation <b dir="ltr">' + esc_(evalId_(r)) + '</b> (' + esc_(String(r.interactionDate || '').replace('T', ' ')) + ').</p>';
-  if (pts.length) html += '<p><b>What we worked on:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
-  if (r.coachNote) html += '<p><b>What we agreed:</b><br><span dir="auto">' + esc_(r.coachNote) + '</span></p>';
+  if (pts.length) html += '<p><b>What we worked on:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + enHtml_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
+  if (r.coachNote) html += '<p><b>What we agreed:</b><br>' + enHtml_(r.coachNote) + '</p>';
   html += '<p>We will listen to your first call after this session to make sure these points are in place.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – Quality Team</p></div>';
   const mail = { to: to, subject: '📝 Coaching session summary – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
     name: String(config_().senderName || 'Quality Team').trim() || 'Quality Team' };
@@ -903,6 +903,7 @@ function doPost(e) {
     if (body.action === 'quiz') return reply_(saveQuiz_(body)); // knowledge base quiz (needs a KB sign-in)
     if (body.action === 'kbOtpRequest') return reply_(kbOtpRequest_(body.email, body.via));
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
+    if (body.action === 'translate') return reply_(translateTexts_(body)); // English for Arabic typed text in emails
     if (body.action === 'kbAsk') return reply_(kbAsk_(body)); // knowledge base: an agent's question or suggestion for the client
     if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
     if (body.action === 'kbMiss') return reply_(kbMiss_(body)); // knowledge base: a search / Noor question that found nothing
@@ -1410,7 +1411,29 @@ function kbNewsNew_(markOnly) {
 function esc_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
 // Emails are English-only (Hussein's request). Arabic is kept only as someone's own words, shown as a quote.
 const AR_RE_ = /[\u0600-\u06FF]/;
-function quoteAr_(s) { return AR_RE_.test(String(s || '')) ? '<div dir="rtl" style="border-left:3px solid #c9b8c0;padding:4px 10px;margin:0 0 8px;color:#444;font-style:italic">' + esc_(s) + '</div>' : '<p style="margin:0 0 8px">' + esc_(s) + '</p>'; }
+function quoteAr_(s) { return '<div style="margin:0 0 8px">' + enHtml_(s) + '</div>'; }
+// Arabic typed text (comments, feedback, notes, questions) is machine-translated to English with the original kept small under it.
+function trEn_(s) {
+  s = String(s || '').trim();
+  if (!s || !AR_RE_.test(s)) return s;
+  const cache = CacheService.getScriptCache(), key = 'tr_' + hash_(s).slice(0, 40);
+  const hit = cache.get(key);
+  if (hit) return hit;
+  try { const t = LanguageApp.translate(s, 'ar', 'en'); if (t) { if (t.length < 90000) cache.put(key, t, 21600); return t; } } catch (e) {}
+  return '';
+}
+// HTML: English translation, then the Arabic original as a small quote. Text with no Arabic is shown as is.
+function enHtml_(s) {
+  s = String(s || '');
+  if (!AR_RE_.test(s)) return esc_(s);
+  const t = trEn_(s);
+  return (t ? esc_(t) + ' <span style="color:#9ca3af;font-size:11px">(auto-translated)</span>' : '') +
+    '<div dir="rtl" style="border-right:3px solid #d1d5db;padding:2px 8px;margin-top:4px;color:#6b7280;font-size:12px">' + esc_(s) + '</div>';
+}
+function translateTexts_(b) { // knowledge base and scorecard: translate up to 8 short texts before opening a ready email
+  const list = (Array.isArray(b.texts) ? b.texts : []).slice(0, 8).map(function (x) { return String(x || '').slice(0, 2000); });
+  return { ok: true, en: list.map(trEn_) };
+}
 function brEn_(b) { b = String(b || '').trim(); return /أبوظبي|ابوظبي/.test(b) ? 'Abu Dhabi' : /الفجيرة|الفجيره/.test(b) ? 'Fujairah' : b; }
 function mailBox_(title, body) {
   return '<div style="border:1px solid #eadbe2;border-radius:14px;padding:14px 16px;margin:12px 0;background:#fff"><div style="font-size:17px;font-weight:bold;color:#A63D63;margin-bottom:8px">' + title + '</div>' + body + '</div>';
@@ -1434,14 +1457,14 @@ function kbDailyDigest() {
   const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), parts = [];
   // 1) knowledge base updates
   const news = kbNewsNew_(false);
-  if (news.length) parts.push(mailBox_('📢 New in the Knowledge Base', news.map(function (n) { return '<p style="margin:0 0 10px">' + (n.date ? '<b>' + esc_(n.date) + ':</b> ' : '') + (n.en ? esc_(n.en) : quoteAr_(n.ar)) + '</p>'; }).join('')));
+  if (news.length) parts.push(mailBox_('📢 New in the Knowledge Base', news.map(function (n) { return '<p style="margin:0 0 10px">' + (n.date ? '<b>' + esc_(n.date) + ':</b> ' : '') + (n.en ? esc_(n.en) : enHtml_(n.ar)) + '</p>'; }).join('')));
   // 2) client answers to agents' questions
   const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME), done = [];
   if (ask && ask.getLastRow() > 1) {
     if (!ask.getRange(1, 12).getValue()) ask.getRange(1, 12).setValue('Sent to the floor').setFontWeight('bold');
     const vals = ask.getRange(2, 1, ask.getLastRow() - 1, 12).getValues();
     vals.forEach(function (r, i) { if (/answer|اتجاوب|تم/i.test(String(r[7])) && String(r[8]).trim() && !r[11]) done.push({ row: i + 2, q: r[5], a: r[8] }); });
-    if (done.length) parts.push(mailBox_('✅ The client answered your questions', done.slice(0, 15).map(function (x) { return '<p style="margin:0 0 4px"><b>Q:</b></p>' + quoteAr_(x.q) + '<p style="margin:0 0 12px;background:#E0F0EB;border-radius:10px;padding:8px 10px"><b>A:</b> <span dir="auto">' + esc_(x.a) + '</span></p>'; }).join('')));
+    if (done.length) parts.push(mailBox_('✅ The client answered your questions', done.slice(0, 15).map(function (x) { return '<p style="margin:0 0 4px"><b>Q:</b></p>' + quoteAr_(x.q) + '<p style="margin:0 0 12px;background:#E0F0EB;border-radius:10px;padding:8px 10px"><b>A:</b> ' + enHtml_(x.a) + '</p>'; }).join('')));
   }
   // 3) yesterday's quiz stars (the last day with daily quizzes before today)
   const rows = quizRows_(), staff = {};
@@ -1491,7 +1514,7 @@ function kbLeadsReport() {
     const from = Utilities.formatDate(new Date(now.getTime() - 7 * 864e5), tz, 'yyyy-MM-dd'), cnt = {}, asked = rows.filter(function (r) { return r.date >= from; }).length;
     rows.forEach(function (r) { if (r.date < from || !r.wrong) return; r.wrong.split(/\s*\|\s*/).forEach(function (w) { const k = w.replace(/^[^—]*—\s*/, '').trim() || w; if (k) cnt[k] = (cnt[k] || 0) + 1; }); });
     const top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 7);
-    if (top.length) parts.push(mailBox_('🎯 Most missed questions this week (' + asked + ' quizzes)', '<p style="margin:0 0 6px;color:#555;font-size:13px">Questions as written in the quiz:</p><ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li><span dir="auto">' + esc_(k) + '</span> <span style="color:#A63D63">(' + cnt[k] + ' times)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">These are the coaching priorities for next week.</p>'));
+    if (top.length) parts.push(mailBox_('🎯 Most missed questions this week (' + asked + ' quizzes)', '<ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li>' + enHtml_(k) + ' <span style="color:#A63D63">(' + cnt[k] + ' times)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">These are the coaching priorities for next week.</p>'));
   }
   const calls = bkLeadsBox_(today);
   if (calls) parts.unshift(calls);

@@ -1414,13 +1414,27 @@
     lines.push("", mx("لو عندك أي سؤال على التقييم كلّمني.", "If you have any question about this evaluation, let me know."), "", (r.evaluator ? r.evaluator + " – " : "") + mx("فريق الجودة", "Quality Team"));
     return { subject, body: lines.join("\n") };
   }
-  function composeMail(to, subject, body, cc) {
+  // Arabic typed text (comments, feedback, notes) is machine-translated by the script; the original stays under it.
+  const AR_RE = /[\u0600-\u06FF]/;
+  async function enMail(subject, body) {
+    const lines = String(body || "").split("\n"), idx = lines.map((l, i) => (AR_RE.test(l) ? i : -1)).filter((i) => i >= 0);
+    if (!connected() || (!idx.length && !AR_RE.test(subject))) return { subject, body };
+    const texts = idx.map((i) => lines[i]).concat(AR_RE.test(subject) ? [subject] : []).slice(0, 8);
+    let en = [];
+    try { en = (await Promise.race([apiPostJson({ action: "translate", texts }), new Promise((_, no) => setTimeout(() => no(new Error("slow")), 3500))]).en) || []; } catch (e) { return { subject, body }; }
+    idx.slice(0, 8).forEach((i, k) => { const tr = en[k]; if (tr && tr !== lines[i]) lines[i] = tr + " (auto-translated)\n    Arabic original: " + lines[i].replace(/^[-\s]+/, ""); });
+    const sj = AR_RE.test(subject) && en[texts.length - 1] ? en[texts.length - 1] : subject;
+    return { subject: sj, body: lines.join("\n") };
+  }
+  async function composeMail(to, subject0, body0, cc) {
+    const { subject, body } = await enMail(subject0, body0);
     const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
     if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to, cc, subject, body }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc, subject, body });
   }
   // Copy an email (subject + body) to paste anywhere, for when the mail button can't open a mail app.
-  async function copyMail(m, btn) {
+  async function copyMail(m0, btn) {
+    const m = Object.assign({}, m0, await enMail(m0.subject, m0.body));
     const text = (m.cc ? "CC: " + m.cc + "\n" : "") + mx("الموضوع: ", "Subject: ") + m.subject + "\n\n" + m.body;
     let ok = false;
     try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
