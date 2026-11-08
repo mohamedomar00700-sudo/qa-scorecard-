@@ -1434,6 +1434,7 @@ function translateTexts_(b) { // knowledge base and scorecard: translate up to 8
   const list = (Array.isArray(b.texts) ? b.texts : []).slice(0, 8).map(function (x) { return String(x || '').slice(0, 2000); });
   return { ok: true, en: list.map(trEn_) };
 }
+function bkPh_(r) { const p = String(r[BK_C.phone] || '').replace(/^'/, '').trim(); return p ? ' · 📞 <span dir="ltr">' + esc_(p) + '</span>' : ''; } // customer number in follow-up emails (Mohamed, 2026-11-08)
 function brEn_(b) { b = String(b || '').trim(); return /أبوظبي|ابوظبي/.test(b) ? 'Abu Dhabi' : /الفجيرة|الفجيره/.test(b) ? 'Fujairah' : b; }
 function mailBox_(title, body) {
   return '<div style="border:1px solid #eadbe2;border-radius:14px;padding:14px 16px;margin:12px 0;background:#fff"><div style="font-size:17px;font-weight:bold;color:#A63D63;margin-bottom:8px">' + title + '</div>' + body + '</div>';
@@ -1786,19 +1787,19 @@ function kbAssign_(b) {
   const log = sh.getRange(row, BK_C.log + 1);
   sh.getRange(row, BK_C.to + 1, 1, 2).setValues([[to, String(ro.emails[to] || '').toLowerCase()]]);
   log.setValue(String(log.getValue() || '') + ' | given to ' + to + ' · ' + who.name + ' · ' + bkNow_());
-  // tell the new agent right away (no customer number in email: it's in their follow-up calls tab)
+  // tell the new agent right away, with the customer's number
   const em = String(ro.emails[to] || '').trim();
   if (em) {
     const r = sh.getRange(row, 1, 1, BK_COLS.length).getValues()[0];
     try {
       MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'New follow-up call for you: ' + String(r[BK_C.cust]),
-        htmlBody: mailWrap_('A follow-up call was given to you', mailBox_('📞 From ' + esc_(who.name), '<p style="margin:0 0 6px">' + esc_(who.name) + ' gave you the booking follow-up of <b>' + esc_(r[BK_C.cust]) + '</b>, appointment ' + esc_(ymdOf_(r[BK_C.date])) + ' ' + esc_(hmOf_(r[BK_C.time])) + (r[BK_C.branch] ? ', ' + esc_(brEn_(r[BK_C.branch])) + ' branch' : '') + (r[BK_C.svc] && !AR_RE_.test(String(r[BK_C.svc])) ? ' (' + esc_(r[BK_C.svc]) + ')' : '') + '.</p>' +
-          '<p style="margin:0;color:#555">The number and all details are in the "📞 Follow-up calls" tab of the Knowledge Base. After the call, press the result.</p>')) });
+        htmlBody: mailWrap_('A follow-up call was given to you', mailBox_('📞 From ' + esc_(who.name), '<p style="margin:0 0 6px">' + esc_(who.name) + ' gave you the booking follow-up of <b>' + esc_(r[BK_C.cust]) + '</b>' + bkPh_(r) + ', appointment ' + esc_(ymdOf_(r[BK_C.date])) + ' ' + esc_(hmOf_(r[BK_C.time])) + (r[BK_C.branch] ? ', ' + esc_(brEn_(r[BK_C.branch])) + ' branch' : '') + (r[BK_C.svc] && !AR_RE_.test(String(r[BK_C.svc])) ? ' (' + esc_(r[BK_C.svc]) + ')' : '') + '.</p>' +
+          '<p style="margin:0;color:#555">All details are in the "📞 Follow-up calls" tab of the Knowledge Base. After the call, press the result.</p>')) });
     } catch (e) {}
   }
   return { ok: true, emailed: !!em };
 }
-// 10 am: each agent with calls today gets one short email (no customer numbers in email: the numbers are in the knowledge base).
+// 10 am: each agent with calls today gets one short email, with the customers' numbers.
 // Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
 function kbCallsReminder() {
   const tz = Session.getScriptTimeZone(), now = new Date();
@@ -1810,8 +1811,8 @@ function kbCallsReminder() {
   Object.keys(by).forEach(function (em) {
     const L = by[em].sort(function (a, b) { return a.c.call - b.c.call; });
     const body = mailBox_('📞 Your follow-up calls today (' + L.length + ')', '<ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
-      return '<li style="margin-bottom:6px"><b>' + esc_(names[x.c.call]) + '</b>: ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + '</li>';
-    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">Numbers and details are in the "📞 Follow-up calls" tab of the Knowledge Base. After each call, press the result so the reminder stops.</p>');
+      return '<li style="margin-bottom:6px"><b>' + esc_(names[x.c.call]) + '</b>: ' + esc_(x.r[BK_C.cust]) + bkPh_(x.r) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + '</li>';
+    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">All details are in the "📞 Follow-up calls" tab of the Knowledge Base. After each call, press the result so the reminder stops.</p>');
     MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'Your follow-up calls today: ' + L.length, htmlBody: mailWrap_('Good morning 🌸', body) }); sent++;
   });
   // the management copy: every call for today, per agent, with who is off (Operations team leads, Owner, Chief)
@@ -1825,7 +1826,7 @@ function kbCallsReminder() {
     const list = Object.keys(per).sort().map(function (n) {
       const off = bkOffOn_(n, today, ro);
       return '<p style="margin:10px 0 4px"><b>' + esc_(n) + '</b> (' + per[n].length + ')' + (off ? ' <span style="color:#A63D63;font-weight:bold">· Off today: give the calls to someone else from the Knowledge Base</span>' : '') + '</p><ul style="margin:0;padding-inline-start:20px">' +
-        per[n].sort(function (a, b) { return a.c.call - b.c.call; }).map(function (x) { return '<li>' + esc_(names[x.c.call]) + ': ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + (x.c.tries ? ' · no answer ' + x.c.tries + 'x' : '') + '</li>'; }).join('') + '</ul>';
+        per[n].sort(function (a, b) { return a.c.call - b.c.call; }).map(function (x) { return '<li>' + esc_(names[x.c.call]) + ': ' + esc_(x.r[BK_C.cust]) + bkPh_(x.r) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + (x.c.tries ? ' · no answer ' + x.c.tries + 'x' : '') + '</li>'; }).join('') + '</ul>';
     }).join('');
     MailApp.sendEmail({ to: mgmt.join(','), name: KB_SENDER, subject: 'Booking follow-up calls today: ' + all.length, htmlBody: mailWrap_('Follow-up calls today', mailBox_('📞 Plan of the day', sum + list) + '<p style="color:#555;font-size:13px">At 3 pm the team leads report will show which calls are still open.</p>') });
     sent++;
