@@ -324,20 +324,20 @@ function pct_(x) {
 function catRows_(r, row) {
   const its = r.items || [];
   const nc = its.filter(function (i) { return i.kind === 'NC' && i.result && i.result !== 'N/A'; });
-  let out = row('البنود العادية (NC)', pct_(r.ncScore) + ' (' + nc.filter(function (i) { return i.result === 'Met'; }).length + ' من ' + nc.length + ')');
+  let out = row('Non-critical (NC)', pct_(r.ncScore) + ' (' + nc.filter(function (i) { return i.result === 'Met'; }).length + ' of ' + nc.length + ')');
   const buckets = [
-    ['CC', 'دقة الكومبلاينس (CC)', r.cc],
-    ['EU', 'دقة العميل (EU)', r.eu],
-    ['BC', 'دقة البيزنس (BC)', r.bc]
+    ['CC', 'Compliance accuracy (CC)', r.cc],
+    ['EU', 'End-user accuracy (EU)', r.eu],
+    ['BC', 'Business critical accuracy (BC)', r.bc]
   ];
   buckets.forEach(function (b) {
     const list = its.filter(function (i) { return i.kind === b[0] && i.result && i.result !== 'N/A'; });
     const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
     if (!list.length) {
-      out += row(b[1], 'مش منطبق');
+      out += row(b[1], 'not applicable');
     } else {
       const scorePct = pct_(b[2] !== undefined && b[2] !== null && b[2] !== '' ? b[2] : (errs ? 0 : 1));
-      const status = errs ? '<span style="color:#c62828">' + scorePct + ' (✗ ' + errs + ' ' + (errs === 1 ? 'غلطة' : 'أخطاء') + ')</span>' : '<span style="color:#1a7f37">' + scorePct + ' (✓ مفيش أخطاء)</span>';
+      const status = errs ? '<span style="color:#c62828">' + scorePct + ' (✗ ' + errs + ' ' + (errs === 1 ? 'error' : 'errors') + ')</span>' : '<span style="color:#1a7f37">' + scorePct + ' (✓ no errors)</span>';
       out += row(b[1], status);
     }
   });
@@ -352,7 +352,7 @@ const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
 
 function mailShell_(accent, kicker, title, inner, footer) {
   const c = MAIL_;
-  return '<div dir="rtl" style="margin:0;padding:0;background:' + c.bg + '">' +
+  return '<div dir="ltr" style="margin:0;padding:0;background:' + c.bg + '">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
     '<tr><td style="background:' + c.navy + ';padding:18px 24px;color:#ffffff">' +
@@ -369,7 +369,7 @@ function mailSection_(title, body) {
 }
 
 function mailNote_(bg, border, color, title, body) {
-  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="background:' + bg + ';border-right:4px solid ' + border + ';border-radius:8px;padding:12px 14px;color:' + color + '">' +
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="background:' + bg + ';border-left:4px solid ' + border + ';border-radius:8px;padding:12px 14px;color:' + color + '">' +
     (title ? '<div style="font-weight:bold;margin-bottom:4px">' + title + '</div>' : '') + '<div style="color:' + MAIL_.ink + '" dir="auto">' + body + '</div></td></tr></table>';
 }
 
@@ -377,25 +377,25 @@ function resultMailHtml_(r, o) {
   const c = MAIL_, its = r.items || [], fb = r.feedback || {};
   const score = Math.max(0, Math.min(1, Number(r.final) || 0)), pctTxt = pct_(r.final);
   // Look of the result: Wow / Program (not counted) / Extra target / passed / failed.
-  const look = o.isWow ? { accent: c.amber, bg: c.amberBg, pill: '🌟 WOW CALL', head: 'مكالمة استثنائية!', msg: 'المكالمة دي اتختارت كـ "مكالمة Wow" ومثال مميز في مكتبة التدريب. فخورين جداً بأدائك 👏' }
-    : o.prog ? { accent: c.gray, bg: c.grayBg, pill: 'غير محسوبة', head: 'عينة جودة البرنامج', msg: 'المكالمة دي اتسمعت ضمن عينة الكواليتي للأكاونت كله. النتيجة للمعلومة والتعلّم بس ومش محسوبة في تقييمك.' }
-    : o.coaching ? { accent: c.blue, bg: c.blueBg, pill: 'غير محسوبة', head: 'إكسترا تارجت', msg: 'التقييم ده إضافي للتعلّم ومش محسوب في السكور بتاعك.' }
-    : o.pass ? { accent: c.green, bg: c.greenBg, pill: '✓ PASSED', head: o.isGood ? 'مكالمة كويسة جداً 👍' : 'مبروك، عدّيت التقييم 🎉', msg: o.isGood ? 'المكالمة دي اتضافت كمثال كويس في مكتبة التدريب. كمّل على نفس المستوى!' : 'أداء كويس والتزام بمعايير الجودة. كمّل على نفس المستوى!' }
-    : { accent: c.red, bg: c.redBg, pill: '✗ FAILED', head: 'التقييم محتاج تحسين', msg: r.critical ? 'فيه خطأ حرج (Critical) في المكالمة، وده بيخلي النتيجة لا تعدّي. راجع النقط تحت علشان تتفاداها المرة الجاية.' : 'السكور أقل من نسبة النجاح (85%). راجع البنود اللي محتاجة تظبيط تحت.' };
-  const kind = o.post ? 'باسد كول بعد الكوتشينج' : o.coaching ? 'إكسترا تارجت' : o.prog ? 'عينة البرنامج' : o.cert ? 'تقييم السرتيفيكيشن' : 'تقييم الجودة';
+  const look = o.isWow ? { accent: c.amber, bg: c.amberBg, pill: '🌟 WOW CALL', head: 'Outstanding call!', msg: 'This call was selected as a "Wow call" and a standout example for the training library. Proud of your great work 👏' }
+    : o.prog ? { accent: c.gray, bg: c.grayBg, pill: 'NOT COUNTED', head: 'Program quality sample', msg: 'This call was heard in Quality\'s sample for the whole account. The result is for your information and learning only and does not count in your score.' }
+    : o.coaching ? { accent: c.blue, bg: c.blueBg, pill: 'NOT COUNTED', head: 'Extra target', msg: 'This is an extra evaluation for learning and does not count in your score.' }
+    : o.pass ? { accent: c.green, bg: c.greenBg, pill: '✓ PASSED', head: o.isGood ? 'Very good call 👍' : 'Congratulations, you passed 🎉', msg: o.isGood ? 'This call was added as a good example to the training library. Keep it up!' : 'Good performance in line with the quality standards. Keep it up!' }
+    : { accent: c.red, bg: c.redBg, pill: '✗ FAILED', head: 'Needs improvement', msg: r.critical ? 'There is a critical error in this call, so the evaluation cannot pass. Please review the points below to avoid it next time.' : 'The score is below the pass mark (85%). Please review the items to work on below.' };
+  const kind = o.post ? 'Passed call after coaching' : o.coaching ? 'Extra target' : o.prog ? 'Program sample' : o.cert ? 'Certification evaluation' : 'Quality evaluation';
   const scoreColor = o.prog || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
 
   // Hero: big score, pill, short message and a score bar with the 85% pass line.
   const barW = Math.round(score * 100);
-  let inner = '<p style="margin:0 0 14px">أهلاً <b>' + esc_(r.agent) + '</b>،<br>' +
-    (o.post ? 'ده تقييم أول مكالمة ليك بعد الكوتشينج' + (r.followOfId ? ' على التقييم <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + '، لـ'
-      : o.coaching ? 'ده تقييم إكسترا تارجت لـ' : o.prog ? 'ده تقييم من عينة جودة البرنامج لـ' : o.cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') +
-    o.form + ' يوم <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
+  let inner = '<p style="margin:0 0 14px">Hi <b>' + esc_(r.agent) + '</b>,<br>' +
+    (o.post ? 'This is the evaluation of your first call after coaching' + (r.followOfId ? ' on evaluation <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + ': your '
+      : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
+    o.form + ' on <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + look.bg + ';border-radius:12px;border:1px solid ' + c.line + '"><tr>' +
       '<td width="130" align="center" valign="middle" style="padding:18px 8px">' +
         '<div style="font-size:38px;font-weight:bold;line-height:1;color:' + scoreColor + '" dir="ltr">' + pctTxt + '</div>' +
         '<div style="display:inline-block;margin-top:8px;padding:3px 12px;border-radius:999px;background:' + look.accent + ';color:#fff;font-size:12px;font-weight:bold" dir="ltr">' + look.pill + '</div></td>' +
-      '<td valign="middle" style="padding:18px 16px 18px 6px">' +
+      '<td valign="middle" style="padding:18px 6px 18px 16px">' +
         '<div style="font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</div>' +
         '<div style="font-size:13px;color:' + c.soft + ';margin-top:4px">' + look.msg + '</div>' +
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;direction:ltr"><tr>' +
@@ -407,15 +407,15 @@ function resultMailHtml_(r, o) {
 
   // Category tiles: Part A (NC) and the three critical buckets.
   const nc = its.filter(function (i) { return i.kind === 'NC' && i.result && i.result !== 'N/A'; });
-  const tiles = [['البنود العادية', 'NC', pct_(r.ncScore), nc.filter(function (i) { return i.result === 'Met'; }).length + ' من ' + nc.length, null]];
-  [['CC', 'الكومبلاينس'], ['EU', 'العميل'], ['BC', 'البيزنس']].forEach(function (b) {
+  const tiles = [['Non-critical', 'NC', pct_(r.ncScore), nc.filter(function (i) { return i.result === 'Met'; }).length + ' of ' + nc.length, null]];
+  [['CC', 'Compliance'], ['EU', 'End user'], ['BC', 'Business']].forEach(function (b) {
     const list = its.filter(function (i) { return i.kind === b[0] && i.result && i.result !== 'N/A'; });
     const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
-    tiles.push([b[1], b[0], list.length ? (errs ? '✗ ' + errs : '✓') : '–', list.length ? (errs ? (errs === 1 ? 'غلطة حرجة' : 'أخطاء حرجة') : 'مفيش أخطاء') : 'مش منطبق', list.length ? !errs : null]);
+    tiles.push([b[1], b[0], list.length ? (errs ? '✗ ' + errs : '✓') : '–', list.length ? (errs ? (errs === 1 ? 'critical error' : 'critical errors') : 'no errors') : 'not applicable', list.length ? !errs : null]);
   });
-  inner += mailSection_('السكور بالتفصيل', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + tiles.map(function (t, k) {
+  inner += mailSection_('Score by category', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + tiles.map(function (t, k) {
     const col = t[4] === null ? c.ink : t[4] ? c.green : c.red;
-    return '<td width="25%" valign="top" style="padding:' + (k ? '0 6px 0 0' : '0') + '"><div style="border:1px solid ' + c.line + ';border-radius:10px;padding:10px 6px;text-align:center">' +
+    return '<td width="25%" valign="top" style="padding:' + (k ? '0 0 0 6px' : '0') + '"><div style="border:1px solid ' + c.line + ';border-radius:10px;padding:10px 6px;text-align:center">' +
       '<div style="font-size:11px;color:' + c.soft + '">' + t[0] + ' <span dir="ltr">(' + t[1] + ')</span></div>' +
       '<div style="font-size:20px;font-weight:bold;color:' + col + ';margin:2px 0" dir="ltr">' + t[2] + '</div>' +
       '<div style="font-size:11px;color:' + c.soft + '">' + t[3] + '</div></div></td>';
@@ -424,47 +424,47 @@ function resultMailHtml_(r, o) {
   // What needs fixing: critical errors first, each with the evaluator's comment.
   const missed = its.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
     .sort(function (a, b) { return (b.result === 'Error') - (a.result === 'Error'); });
-  if (missed.length) inner += mailSection_('البنود اللي محتاجة تتظبط (' + missed.length + ')', missed.map(function (i) {
+  if (missed.length) inner += mailSection_('Items to work on (' + missed.length + ')', missed.map(function (i) {
     const crit = i.result === 'Error';
-    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0"><tr><td style="border:1px solid ' + c.line + ';border-right:4px solid ' + (crit ? c.red : c.amber) + ';border-radius:8px;padding:10px 12px">' +
-      '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'خطأ حرج · ' + esc_(i.kind) : 'بند عادي') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0"><tr><td style="border:1px solid ' + c.line + ';border-left:4px solid ' + (crit ? c.red : c.amber) + ';border-radius:8px;padding:10px 12px">' +
+      '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'Critical error · ' + esc_(i.kind) : 'Non-critical') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
       '<div dir="auto" style="color:' + c.ink + '">' + esc_(i.text) + '</div>' +
       (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + esc_(i.comment) + '</div>' : '') + '</td></tr></table>';
   }).join(''));
-  else inner += mailSection_('البنود', mailNote_(c.greenBg, c.green, c.green, '', 'كل البنود اتطبقت صح 👌'));
+  else inner += mailSection_('Items', mailNote_(c.greenBg, c.green, c.green, '', 'All items were done right 👌'));
 
   // Feedback.
   if (fb.strengths || fb.improve || fb.coaching) {
     let f = '';
-    if (fb.strengths) f += mailNote_(c.greenBg, c.green, c.green, '💪 نقاط القوة', esc_(fb.strengths));
-    if (fb.improve) f += mailNote_(c.amberBg, c.amber, c.amber, '🎯 محتاج تحسين', esc_(fb.improve));
-    if (fb.coaching) f += mailNote_(c.blueBg, c.blue, c.blue, '💡 نصيحة للمرة الجاية', esc_(fb.coaching));
-    inner += mailSection_('الفيدباك', f);
+    if (fb.strengths) f += mailNote_(c.greenBg, c.green, c.green, '💪 Strengths', esc_(fb.strengths));
+    if (fb.improve) f += mailNote_(c.amberBg, c.amber, c.amber, '🎯 Areas to improve', esc_(fb.improve));
+    if (fb.coaching) f += mailNote_(c.blueBg, c.blue, c.blue, '💡 Tip for next time', esc_(fb.coaching));
+    inner += mailSection_('Feedback', f);
   }
 
   // Call details.
   const phone = String(r.phone || '').replace(/\D/g, '');
   const det = [
-    ['رقم التقييم', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>'],
-    r.callId ? ['رقم المكالمة (Call ID)', '<span dir="ltr">' + esc_(r.callId) + '</span>'] : null,
-    ['النوع', kind + ' · ' + o.form],
-    ['التاريخ والوقت', '<span dir="ltr">' + esc_(o.when) + '</span>'],
-    r.callTalk ? ['مدة الكلام', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>'] : (r.duration ? ['المدة', '<span dir="ltr">' + esc_(r.duration) + '</span>'] : null),
-    r.callPbx || r.callExt ? ['على سيستم التليفونات', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>'] : null,
-    phone ? ['رقم العميل', 'بينتهي بـ <span dir="ltr">' + phone.slice(-4) + '</span>'] : null,
-    r.odooRef ? ['Odoo', /^https?:\/\//.test(String(r.odooRef)) ? '<a href="' + esc_(r.odooRef) + '" style="color:' + c.blue + '">فتح الليد</a>' : '<span dir="ltr">' + esc_(r.odooRef) + '</span>'] : null,
-    o.isWow ? ['التصنيف', '🌟 مكالمة Wow'] : o.isGood ? ['التصنيف', '👍 مكالمة كويسة جداً'] : null,
-    ['المقيّم', esc_(r.evaluator)]
+    ['Evaluation ID', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>'],
+    r.callId ? ['Call ID', '<span dir="ltr">' + esc_(r.callId) + '</span>'] : null,
+    ['Type', kind + ' · ' + o.form],
+    ['Date and time', '<span dir="ltr">' + esc_(o.when) + '</span>'],
+    r.callTalk ? ['Talk time', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>'] : (r.duration ? ['Duration', '<span dir="ltr">' + esc_(r.duration) + '</span>'] : null),
+    r.callPbx || r.callExt ? ['On the phone system', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>'] : null,
+    phone ? ['Customer number', 'ending <span dir="ltr">' + phone.slice(-4) + '</span>'] : null,
+    r.odooRef ? ['Odoo', /^https?:\/\//.test(String(r.odooRef)) ? '<a href="' + esc_(r.odooRef) + '" style="color:' + c.blue + '">Open the lead</a>' : '<span dir="ltr">' + esc_(r.odooRef) + '</span>'] : null,
+    o.isWow ? ['Call tag', '🌟 Wow call'] : o.isGood ? ['Call tag', '👍 Very good call'] : null,
+    ['Evaluator', esc_(r.evaluator)]
   ].filter(Boolean);
-  inner += mailSection_('تفاصيل ' + (o.form === 'واتساب' ? 'المحادثة' : 'المكالمة'), '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' + c.line + ';border-radius:10px;border-collapse:separate">' +
+  inner += mailSection_(o.form === 'WhatsApp chat' ? 'Chat details' : 'Call details', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' + c.line + ';border-radius:10px;border-collapse:separate">' +
     det.map(function (d, k) {
       return '<tr><td width="40%" style="padding:8px 12px;color:' + c.soft + ';font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[0] + '</td>' +
         '<td style="padding:8px 12px;font-weight:bold;font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[1] + '</td></tr>';
     }).join('') + '</table>');
 
-  const footer = 'لو عندك أي سؤال على التقييم، رد على الإيميل ده أو كلّم <b>' + esc_(r.evaluator || 'فريق الجودة') + '</b>.<br>' +
+  const footer = 'If you have any question about this evaluation, reply to this email or talk to <b>' + esc_(r.evaluator || 'the Quality team') + '</b>.<br>' +
     '<span dir="ltr">' + esc_(evalId_(r)) + '</span> · ' + esc_(String(config_().senderName || 'Quality Team')) + ' · Tres Jolie';
-  return mailShell_(look.accent, esc_(kind), (o.prog || o.coaching ? '📊 ' : '📋 ') + 'نتيجة التقييم · ' + esc_(r.agent), inner, footer);
+  return mailShell_(look.accent, esc_(kind), (o.prog || o.coaching ? '📊 ' : '📋 ') + 'Evaluation result · ' + esc_(r.agent), inner, footer);
 }
 
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
@@ -479,13 +479,13 @@ function emailAgent_(r) {
   const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = purpose === 'program';
   // Program level (Quality's account sample) is emailed too, so it's on record and the agent knows the call was heard; it says clearly it doesn't count.
   try {
-    const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
+    const form = r.form === 'whatsapp' ? 'WhatsApp chat' : 'call';
     const when = String(r.interactionDate || '').replace('T', ' ');
     const pass = r.result === 'Pass';
     const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
     const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 إكسترا تارجت – ' : prog ? '📊 عينة البرنامج (غير محسوبة) – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Passed call after coaching – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
@@ -543,13 +543,13 @@ function sendCoaching_(id) {
   const tz = Session.getScriptTimeZone();
   const when = Utilities.formatDate(new Date(r.coachedAt), tz, 'yyyy-MM-dd HH:mm');
   const pts = (r.items || []).filter(function (i) { return (r.coachPoints || []).indexOf((i.kind === 'NC' ? 'N' : '') + i.id) !== -1; });
-  let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
-    '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><b>📝 ملخص جلسة الكوتشينج</b></div>' +
-    '<p>أهلاً ' + esc_(r.agent) + '،</p><p>ده ملخص جلسة الكوتشينج اللي عملناها مع بعض يوم <b dir="ltr">' + when + '</b> على التقييم <b dir="ltr">' + esc_(evalId_(r)) + '</b> (' + esc_(String(r.interactionDate || '').replace('T', ' ')) + ').</p>';
-  if (pts.length) html += '<p><b>النقاط اللي اتكلمنا فيها:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
-  if (r.coachNote) html += '<p><b>اتفقنا على:</b><br><span dir="auto">' + esc_(r.coachNote) + '</span></p>';
-  html += '<p>هنسمع أول مكالمة ليك بعد الكوتشينج علشان نتأكد إن النقاط دي بقت تمام.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – فريق الجودة</p></div>';
-  const mail = { to: to, subject: '📝 ملخص جلسة الكوتشينج – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
+  let html = '<div dir="ltr" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
+    '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-left:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><b>📝 Coaching session summary</b></div>' +
+    '<p>Hi ' + esc_(r.agent) + ',</p><p>Here is a summary of our coaching session on <b dir="ltr">' + when + '</b> about evaluation <b dir="ltr">' + esc_(evalId_(r)) + '</b> (' + esc_(String(r.interactionDate || '').replace('T', ' ')) + ').</p>';
+  if (pts.length) html += '<p><b>What we worked on:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
+  if (r.coachNote) html += '<p><b>What we agreed:</b><br><span dir="auto">' + esc_(r.coachNote) + '</span></p>';
+  html += '<p>We will listen to your first call after this session to make sure these points are in place.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – Quality Team</p></div>';
+  const mail = { to: to, subject: '📝 Coaching session summary – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
     name: String(config_().senderName || 'Quality Team').trim() || 'Quality Team' };
   const cc = [coachEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
   if (coachEmail) mail.replyTo = coachEmail;
@@ -796,10 +796,9 @@ function otpRequest_(email) {
   cache.put('otp_' + em, JSON.stringify({ h: hash_(em + ':' + code), at: Date.now(), tries: old && old.h === hash_(em + ':' + code) ? old.tries : 0 }), OTP_MINUTES * 60);
   MailApp.sendEmail({
     to: em, name: 'QA Scorecard', subject: 'QA Scorecard sign-in code: ' + code,
-    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
-      'كود الدخول على السكور كارد: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
-      'الكود شغال ' + OTP_MINUTES + ' دقايق. لو مش إنت اللي طلبته تجاهل الإيميل ده.</div>' +
-      '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin-top:12px">Your QA Scorecard sign-in code is ' + code + '. It works for ' + OTP_MINUTES + ' minutes.</div>'
+    htmlBody: '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:15px">Hi ' + String(who.name).replace(/[<>&]/g, '') + ',<br><br>' +
+      'Your QA Scorecard sign-in code: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+      'It works for ' + OTP_MINUTES + ' minutes. If you did not ask for it, ignore this email.</div>'
   });
   return { ok: true };
 }
@@ -1109,19 +1108,18 @@ function kbOtpRequest_(email, via) {
     if (!leads.length) return { ok: false, error: 'no_leads' };
     const nm = String(who.name).replace(/[<>&]/g, '');
     MailApp.sendEmail({
-      to: leads.join(','), name: 'Knowledge Base', subject: 'كود دخول الكويز لـ ' + nm + ': ' + code,
-      htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">' + nm + ' (' + em + ') طالب يدخل كويز النولدج بيز، وإيميله لسه مش شغال.<br><br>' +
-        'الكود: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
-        'قوله الكود بنفسك بعد ما تتأكد إنه هو. الكود شغال ' + OTP_MINUTES + ' دقايق، ولو محدش طلبه تجاهل الإيميل.</div>'
+      to: leads.join(','), name: 'Knowledge Base', subject: 'Knowledge Base quiz code for ' + nm + ': ' + code,
+      htmlBody: '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:15px">' + nm + ' (' + em + ') is asking to sign in to the Knowledge Base quiz, and their email is not working yet.<br><br>' +
+        'Code: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+        'Give them the code yourself after you check it is really them. It works for ' + OTP_MINUTES + ' minutes; if nobody asked for it, ignore this email.</div>'
     });
     return { ok: true, via: 'lead' };
   }
   MailApp.sendEmail({
     to: em, name: 'Knowledge Base', subject: 'Knowledge Base quiz code: ' + code,
-    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px">أهلاً ' + String(who.name).replace(/[<>&]/g, '') + '،<br><br>' +
-      'كود الدخول على كويز النولدج بيز: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
-      'الكود شغال ' + OTP_MINUTES + ' دقايق. لو مش إنتي/إنت اللي طلبته تجاهل الإيميل ده.</div>' +
-      '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin-top:12px">Your Knowledge Base quiz code is ' + code + '. It works for ' + OTP_MINUTES + ' minutes.</div>'
+    htmlBody: '<div dir="ltr" style="font-family:Arial,sans-serif;font-size:15px">Hi ' + String(who.name).replace(/[<>&]/g, '') + ',<br><br>' +
+      'Your Knowledge Base quiz code: <b style="font-size:22px;letter-spacing:3px">' + code + '</b><br>' +
+      'It works for ' + OTP_MINUTES + ' minutes. If you did not ask for it, ignore this email.</div>'
   });
   return { ok: true };
 }
@@ -1410,14 +1408,18 @@ function kbNewsNew_(markOnly) {
   return markOnly ? [] : fresh.map(function (r) { return { date: String(r[0] || ''), ar: String(r[1] || ''), en: String(r[2] || '') }; });
 }
 function esc_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
+// Emails are English-only (Hussein's request). Arabic is kept only as someone's own words, shown as a quote.
+const AR_RE_ = /[\u0600-\u06FF]/;
+function quoteAr_(s) { return AR_RE_.test(String(s || '')) ? '<div dir="rtl" style="border-left:3px solid #c9b8c0;padding:4px 10px;margin:0 0 8px;color:#444;font-style:italic">' + esc_(s) + '</div>' : '<p style="margin:0 0 8px">' + esc_(s) + '</p>'; }
+function brEn_(b) { b = String(b || '').trim(); return /أبوظبي|ابوظبي/.test(b) ? 'Abu Dhabi' : /الفجيرة|الفجيره/.test(b) ? 'Fujairah' : b; }
 function mailBox_(title, body) {
   return '<div style="border:1px solid #eadbe2;border-radius:14px;padding:14px 16px;margin:12px 0;background:#fff"><div style="font-size:17px;font-weight:bold;color:#A63D63;margin-bottom:8px">' + title + '</div>' + body + '</div>';
 }
 function mailWrap_(title, inner) {
-  return '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;background:#f7f2f4;padding:18px;color:#1d2731;font-size:15px;line-height:1.7">' +
+  return '<div dir="ltr" style="font-family:Tahoma,Arial,sans-serif;background:#f7f2f4;padding:18px;color:#1d2731;font-size:15px;line-height:1.7">' +
     '<div style="max-width:620px;margin:0 auto"><div style="background:#1d2731;color:#fff;border-radius:14px;padding:16px 18px;font-size:20px;font-weight:bold">' + title + '</div>' + inner +
-    '<div style="text-align:center;margin:18px 0"><a href="' + KB_LINK + '" style="background:#2F7565;color:#fff;text-decoration:none;padding:11px 22px;border-radius:12px;font-weight:bold">افتح النولدج بيز</a></div>' +
-    '<div style="color:#7a8590;font-size:12px;text-align:center">إيميل أوتوماتيك من النولدج بيز بتاع أكاونت H&P.</div></div></div>';
+    '<div style="text-align:center;margin:18px 0"><a href="' + KB_LINK + '" style="background:#2F7565;color:#fff;text-decoration:none;padding:11px 22px;border-radius:12px;font-weight:bold">Open the Knowledge Base</a></div>' +
+    '<div style="color:#7a8590;font-size:12px;text-align:center">Automatic email from the H&P account Knowledge Base.</div></div></div>';
 }
 function quizRows_() { // [{date, kind, period, name, score, total, wrong}]
   const qs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(QUIZ_NAME), tz = Session.getScriptTimeZone();
@@ -1432,14 +1434,14 @@ function kbDailyDigest() {
   const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), parts = [];
   // 1) knowledge base updates
   const news = kbNewsNew_(false);
-  if (news.length) parts.push(mailBox_('📢 تحديثات جديدة في النولدج بيز', news.map(function (n) { return '<p style="margin:0 0 10px">' + (n.date ? '<b>' + esc_(n.date) + ':</b> ' : '') + esc_(n.ar || n.en) + '</p>'; }).join('')));
+  if (news.length) parts.push(mailBox_('📢 New in the Knowledge Base', news.map(function (n) { return '<p style="margin:0 0 10px">' + (n.date ? '<b>' + esc_(n.date) + ':</b> ' : '') + (n.en ? esc_(n.en) : quoteAr_(n.ar)) + '</p>'; }).join('')));
   // 2) client answers to agents' questions
   const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME), done = [];
   if (ask && ask.getLastRow() > 1) {
     if (!ask.getRange(1, 12).getValue()) ask.getRange(1, 12).setValue('Sent to the floor').setFontWeight('bold');
     const vals = ask.getRange(2, 1, ask.getLastRow() - 1, 12).getValues();
     vals.forEach(function (r, i) { if (/answer|اتجاوب|تم/i.test(String(r[7])) && String(r[8]).trim() && !r[11]) done.push({ row: i + 2, q: r[5], a: r[8] }); });
-    if (done.length) parts.push(mailBox_('✅ الكلاينت رد على استفساراتكم', done.slice(0, 15).map(function (x) { return '<p style="margin:0 0 4px"><b>س: ' + esc_(x.q) + '</b></p><p style="margin:0 0 12px;background:#E0F0EB;border-radius:10px;padding:8px 10px">ج: ' + esc_(x.a) + '</p>'; }).join('')));
+    if (done.length) parts.push(mailBox_('✅ The client answered your questions', done.slice(0, 15).map(function (x) { return '<p style="margin:0 0 4px"><b>Q:</b></p>' + quoteAr_(x.q) + '<p style="margin:0 0 12px;background:#E0F0EB;border-radius:10px;padding:8px 10px"><b>A:</b> <span dir="auto">' + esc_(x.a) + '</span></p>'; }).join('')));
   }
   // 3) yesterday's quiz stars (the last day with daily quizzes before today)
   const rows = quizRows_(), staff = {};
@@ -1451,8 +1453,8 @@ function kbDailyDigest() {
     const stars = d.filter(function (r) { return r.score === best; }).map(function (r) { return r.name; });
     const all = {}; rows.forEach(function (r) { if (r.kind === 'daily') (all[nameKey_(r.name)] = all[nameKey_(r.name)] || { name: r.name, d: [] }).d.push(r.date); });
     const streaks = Object.keys(all).filter(function (k) { return !staff[k]; }).map(function (k) { return { name: all[k].name, n: streak_(all[k].d, last) }; }).filter(function (x) { return x.n >= 3; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 3);
-    if (best >= 4) parts.push(mailBox_('🌟 نجوم كويز ' + last, '<p style="margin:0 0 8px">برافو على <b>' + esc_(stars.join('، ')) + '</b>: ' + best + ' من ' + (d[0].total || 5) + ' في كويز يوم ' + last + '. شكراً على المجهود، وده بيبان في مكالماتكم 👏</p>' +
-      '<p style="margin:0;color:#555">' + d.length + ' من التيم حلّوا الكويز.' + (streaks.length ? ' 🔥 أطول ستريك: ' + streaks.map(function (s) { return esc_(s.name) + ' (' + s.n + ' يوم)'; }).join('، ') + '.' : '') + '</p>'));
+    if (best >= 4) parts.push(mailBox_('🌟 Quiz stars of ' + last, '<p style="margin:0 0 8px">Well done <b>' + esc_(stars.join(', ')) + '</b>: ' + best + ' of ' + (d[0].total || 5) + ' in the quiz of ' + last + '. Thank you for the effort, it shows in your calls 👏</p>' +
+      '<p style="margin:0;color:#555">' + d.length + ' team members did the quiz.' + (streaks.length ? ' 🔥 Longest streaks: ' + streaks.map(function (s) { return esc_(s.name) + ' (' + s.n + ' days)'; }).join(', ') + '.' : '') + '</p>'));
     props.setProperty('kbStarDay', last);
   }
   // 4) monthly champions, once, in the first days of the month
@@ -1460,8 +1462,8 @@ function kbDailyDigest() {
   if (Number(Utilities.formatDate(now, tz, 'd')) <= 5 && props.getProperty('kbChampMonth') !== lastMonth) {
     const b = pulse_({ month: lastMonth }).board.slice(0, 3);
     if (b.length) {
-      parts.unshift(mailBox_('🏆 أبطال كويز شهر ' + lastMonth, b.map(function (x, i) { return '<p style="margin:0 0 6px;font-size:16px">' + ['🥇', '🥈', '🥉'][i] + ' <b>' + esc_(x.name) + '</b>: ' + x.points + ' نقطة، دقة ' + x.pct + '%' + (x.monthly != null ? '، الكويز الشهري ' + x.monthly + '%' : '') + '</p>'; }).join('') +
-        '<p style="margin:8px 0 0">ألف مبروك، وشكراً إنكم بتذاكروا كل يوم. الشهر الجديد بدأ والدوري اتصفّر، يلا! 💪</p>'));
+      parts.unshift(mailBox_('🏆 Quiz champions of ' + lastMonth, b.map(function (x, i) { return '<p style="margin:0 0 6px;font-size:16px">' + ['🥇', '🥈', '🥉'][i] + ' <b>' + esc_(x.name) + '</b>: ' + x.points + ' points, accuracy ' + x.pct + '%' + (x.monthly != null ? ', monthly quiz ' + x.monthly + '%' : '') + '</p>'; }).join('') +
+        '<p style="margin:8px 0 0">Congratulations, and thank you for studying every day. The new month has started and the league is reset. Let\'s go! 💪</p>'));
       props.setProperty('kbChampMonth', lastMonth);
     }
   }
@@ -1469,7 +1471,7 @@ function kbDailyDigest() {
   const to = rosterPeople_().map(function (p) { return p.email; });
   if (!to.length) return 'no emails';
   const q = rosterPeople_().filter(function (p) { return isQualityRole_(p.role); })[0];
-  MailApp.sendEmail({ to: to.join(','), name: KB_SENDER, replyTo: q ? q.email : undefined, subject: 'النولدج بيز: الجديد النهارده ' + today, htmlBody: mailWrap_('صباح الخير يا تيم H&P 🌸', parts.join('')) });
+  MailApp.sendEmail({ to: to.join(','), name: KB_SENDER, replyTo: q ? q.email : undefined, subject: 'Knowledge Base: what\'s new today ' + today, htmlBody: mailWrap_('Good morning, H&P team 🌸', parts.join('')) });
   if (ask) done.forEach(function (x) { ask.getRange(x.row, 12).setValue(new Date()); });
   return 'sent to ' + to.length;
 }
@@ -1482,23 +1484,23 @@ function kbLeadsReport() {
   const ro = readRoster_(), doneMap = {};
   rows.forEach(function (r) { if (r.kind === 'daily' && r.date === today) doneMap[nameKey_(r.name)] = r; });
   const done = ro.agents.filter(function (a) { return doneMap[nameKey_(a)]; }), notYet = ro.agents.filter(function (a) { return !doneMap[nameKey_(a)]; });
-  const parts = [mailBox_('📝 كويز النهارده', '<p style="margin:0 0 6px"><b>حلّوه (' + done.length + '):</b> ' + (done.map(function (a) { return esc_(a) + ' ' + doneMap[nameKey_(a)].score + '/' + doneMap[nameKey_(a)].total; }).join('، ') || '–') + '</p>' +
-    '<p style="margin:0"><b>لسه (' + notYet.length + '):</b> ' + (esc_(notYet.join('، ')) || 'كله حلّ 👏') + '</p><p style="margin:6px 0 0;color:#777;font-size:13px">لو حد أجازة النهارده هيبان هنا في "لسه"، تجاهله.</p>')];
+  const parts = [mailBox_('📝 Today\'s quiz', '<p style="margin:0 0 6px"><b>Done (' + done.length + '):</b> ' + (done.map(function (a) { return esc_(a) + ' ' + doneMap[nameKey_(a)].score + '/' + doneMap[nameKey_(a)].total; }).join(', ') || '–') + '</p>' +
+    '<p style="margin:0"><b>Not yet (' + notYet.length + '):</b> ' + (esc_(notYet.join(', ')) || 'Everyone did it 👏') + '</p><p style="margin:6px 0 0;color:#777;font-size:13px">Anyone off today shows under "Not yet"; ignore them.</p>')];
   // Thursdays (or whenever asked): the questions the team got wrong most in the last 7 days
   if (wd === '4') {
     const from = Utilities.formatDate(new Date(now.getTime() - 7 * 864e5), tz, 'yyyy-MM-dd'), cnt = {}, asked = rows.filter(function (r) { return r.date >= from; }).length;
     rows.forEach(function (r) { if (r.date < from || !r.wrong) return; r.wrong.split(/\s*\|\s*/).forEach(function (w) { const k = w.replace(/^[^—]*—\s*/, '').trim() || w; if (k) cnt[k] = (cnt[k] || 0) + 1; }); });
     const top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 7);
-    if (top.length) parts.push(mailBox_('🎯 أكتر أسئلة اتغلط فيها الأسبوع ده (' + asked + ' كويز)', '<ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li>' + esc_(k) + ' <span style="color:#A63D63">(' + cnt[k] + ' مرة)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">دي أولويات الكوتشينج للأسبوع الجاي.</p>'));
+    if (top.length) parts.push(mailBox_('🎯 Most missed questions this week (' + asked + ' quizzes)', '<p style="margin:0 0 6px;color:#555;font-size:13px">Questions as written in the quiz:</p><ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li><span dir="auto">' + esc_(k) + '</span> <span style="color:#A63D63">(' + cnt[k] + ' times)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">These are the coaching priorities for next week.</p>'));
   }
   const calls = bkLeadsBox_(today);
   if (calls) parts.unshift(calls);
   const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME);
   if (ask && ask.getLastRow() > 1) {
     const waiting = ask.getRange(2, 8, ask.getLastRow() - 1, 1).getValues().filter(function (r) { const s = String(r[0] || 'New'); return !/answer|اتجاوب|تم|not|no need|مش محتاج|ملغي/i.test(s); }).length;
-    if (waiting) parts.push(mailBox_('❓ استفسارات مستنية الكلاينت', '<p style="margin:0">فيه ' + waiting + ' استفسار/اقتراح من الإيجنتس في تاب "Agent questions" في شيت QA Evaluations.</p>'));
+    if (waiting) parts.push(mailBox_('❓ Questions waiting for the client', '<p style="margin:0">There are ' + waiting + ' questions/suggestions from the agents in the "Agent questions" tab of the QA Evaluations sheet.</p>'));
   }
-  MailApp.sendEmail({ to: leads.join(','), name: KB_SENDER, subject: 'تقرير الكويز ' + today, htmlBody: mailWrap_('تقرير النولدج بيز للتيم ليدرز', parts.join('')) });
+  MailApp.sendEmail({ to: leads.join(','), name: KB_SENDER, subject: 'Quiz report ' + today, htmlBody: mailWrap_('Knowledge Base report for team leads', parts.join('')) });
   return 'sent';
 }
 
@@ -1766,9 +1768,9 @@ function kbAssign_(b) {
   if (em) {
     const r = sh.getRange(row, 1, 1, BK_COLS.length).getValues()[0];
     try {
-      MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'مكالمة متابعة جديدة ليك: ' + String(r[BK_C.cust]),
-        htmlBody: mailWrap_('مكالمة متابعة اتحولتلك', mailBox_('📞 من ' + esc_(who.name), '<p style="margin:0 0 6px">' + esc_(who.name) + ' حوّل لك متابعة حجز <b>' + esc_(r[BK_C.cust]) + '</b>، ميعاده ' + esc_(ymdOf_(r[BK_C.date])) + ' ' + esc_(hmOf_(r[BK_C.time])) + (r[BK_C.branch] ? ' في فرع ' + esc_(r[BK_C.branch]) : '') + (r[BK_C.svc] ? ' (' + esc_(r[BK_C.svc]) + ')' : '') + '.</p>' +
-          '<p style="margin:0;color:#555">الرقم وكل التفاصيل في تبويب "📞 مكالمات المتابعة" في النولدج بيز. بعد المكالمة دوس على النتيجة.</p>')) });
+      MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'New follow-up call for you: ' + String(r[BK_C.cust]),
+        htmlBody: mailWrap_('A follow-up call was given to you', mailBox_('📞 From ' + esc_(who.name), '<p style="margin:0 0 6px">' + esc_(who.name) + ' gave you the booking follow-up of <b>' + esc_(r[BK_C.cust]) + '</b>, appointment ' + esc_(ymdOf_(r[BK_C.date])) + ' ' + esc_(hmOf_(r[BK_C.time])) + (r[BK_C.branch] ? ', ' + esc_(brEn_(r[BK_C.branch])) + ' branch' : '') + (r[BK_C.svc] && !AR_RE_.test(String(r[BK_C.svc])) ? ' (' + esc_(r[BK_C.svc]) + ')' : '') + '.</p>' +
+          '<p style="margin:0;color:#555">The number and all details are in the "📞 Follow-up calls" tab of the Knowledge Base. After the call, press the result.</p>')) });
     } catch (e) {}
   }
   return { ok: true, emailed: !!em };
@@ -1780,14 +1782,14 @@ function kbCallsReminder() {
   if (Utilities.formatDate(now, tz, 'u') === '5') return 'friday';
   const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), ro = readRoster_(), by = {};
   bkAll_(today).forEach(function (x) { if ((x.c.state === 'due' || x.c.state === 'late') && !bkOffOn_(String(x.r[BK_C.to]), today, ro)) { const em = String(x.r[BK_C.toEmail] || ro.emails[x.r[BK_C.to]] || '').trim(); if (em) (by[em] = by[em] || []).push(x); } });
-  const names = ['', 'تأكيد الميعاد (قبلها بيوم)', 'تذكير يوم الميعاد', 'بعد الزيارة: راح؟ ورأيه إيه؟'];
+  const names = ['', 'Confirm the appointment (the day before)', 'Reminder on the day', 'After the visit: did they go, and how was it?'];
   let sent = 0;
   Object.keys(by).forEach(function (em) {
     const L = by[em].sort(function (a, b) { return a.c.call - b.c.call; });
-    const body = mailBox_('📞 مكالمات المتابعة النهارده (' + L.length + ')', '<ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
-      return '<li style="margin-bottom:6px"><b>' + esc_(names[x.c.call]) + '</b>: ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(x.r[BK_C.branch]) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(متأخرة)</span>' : '') + '</li>';
-    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">الأرقام والتفاصيل في تبويب "📞 مكالمات المتابعة" في النولدج بيز. بعد كل مكالمة دوس على النتيجة علشان التذكير يقف.</p>');
-    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'مكالمات المتابعة النهارده: ' + L.length, htmlBody: mailWrap_('صباح الخير 🌸', body) }); sent++;
+    const body = mailBox_('📞 Your follow-up calls today (' + L.length + ')', '<ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
+      return '<li style="margin-bottom:6px"><b>' + esc_(names[x.c.call]) + '</b>: ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + '</li>';
+    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">Numbers and details are in the "📞 Follow-up calls" tab of the Knowledge Base. After each call, press the result so the reminder stops.</p>');
+    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'Your follow-up calls today: ' + L.length, htmlBody: mailWrap_('Good morning 🌸', body) }); sent++;
   });
   // the management copy: every call for today, per agent, with who is off (Operations team leads, Owner, Chief)
   const mgmt = rosterPeople_().filter(function (p) { return isEvalRole_(p.role) && /operation|اوبريشن|أوبريشن|owner|chief/i.test(p.role); }).map(function (p) { return p.email; });
@@ -1796,13 +1798,13 @@ function kbCallsReminder() {
     const per = {}; all.forEach(function (x) { const n = String(x.r[BK_C.to]); (per[n] = per[n] || []).push(x); });
     const cnt = [0, 0, 0, 0]; all.forEach(function (x) { cnt[x.c.call]++; });
     const late = all.filter(function (x) { return x.c.state === 'late'; }).length;
-    const sum = '<p style="margin:0 0 10px">' + all.length + ' مكالمة النهارده: ' + cnt[1] + ' تأكيد، ' + cnt[2] + ' تذكير يوم الميعاد، ' + cnt[3] + ' بعد الزيارة' + (late ? '، منهم <b style="color:#A63D63">' + late + ' متأخرة</b>' : '') + '.</p>';
+    const sum = '<p style="margin:0 0 10px">' + all.length + ' calls today: ' + cnt[1] + ' confirmations, ' + cnt[2] + ' same-day reminders, ' + cnt[3] + ' after-visit calls' + (late ? ', of which <b style="color:#A63D63">' + late + ' late</b>' : '') + '.</p>';
     const list = Object.keys(per).sort().map(function (n) {
       const off = bkOffOn_(n, today, ro);
-      return '<p style="margin:10px 0 4px"><b>' + esc_(n) + '</b> (' + per[n].length + ')' + (off ? ' <span style="color:#A63D63;font-weight:bold">· أجازة النهارده: اديها لحد تاني من النولدج بيز</span>' : '') + '</p><ul style="margin:0;padding-inline-start:20px">' +
-        per[n].sort(function (a, b) { return a.c.call - b.c.call; }).map(function (x) { return '<li>' + esc_(names[x.c.call]) + ': ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(x.r[BK_C.branch]) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(متأخرة)</span>' : '') + (x.c.tries ? ' · مردش ' + x.c.tries + ' مرة' : '') + '</li>'; }).join('') + '</ul>';
+      return '<p style="margin:10px 0 4px"><b>' + esc_(n) + '</b> (' + per[n].length + ')' + (off ? ' <span style="color:#A63D63;font-weight:bold">· Off today: give the calls to someone else from the Knowledge Base</span>' : '') + '</p><ul style="margin:0;padding-inline-start:20px">' +
+        per[n].sort(function (a, b) { return a.c.call - b.c.call; }).map(function (x) { return '<li>' + esc_(names[x.c.call]) + ': ' + esc_(x.r[BK_C.cust]) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + (x.c.state === 'late' ? ' <span style="color:#A63D63">(late)</span>' : '') + (x.c.tries ? ' · no answer ' + x.c.tries + 'x' : '') + '</li>'; }).join('') + '</ul>';
     }).join('');
-    MailApp.sendEmail({ to: mgmt.join(','), name: KB_SENDER, subject: 'مكالمات متابعة الحجوزات النهارده: ' + all.length, htmlBody: mailWrap_('مكالمات المتابعة النهارده', mailBox_('📞 خطة اليوم', sum + list) + '<p style="color:#555;font-size:13px">الساعة 3 هيوصلكم في تقرير التيم ليدرز اللي لسه متعملش.</p>') });
+    MailApp.sendEmail({ to: mgmt.join(','), name: KB_SENDER, subject: 'Booking follow-up calls today: ' + all.length, htmlBody: mailWrap_('Follow-up calls today', mailBox_('📞 Plan of the day', sum + list) + '<p style="color:#555;font-size:13px">At 3 pm the team leads report will show which calls are still open.</p>') });
     sent++;
   }
   return 'sent ' + sent;
@@ -1812,10 +1814,10 @@ function bkLeadsBox_(today) {
   const ro = readRoster_(), open = bkAll_(today).filter(function (x) { return x.c.state === 'due' || x.c.state === 'late'; });
   if (!open.length) return '';
   const per = {}; open.forEach(function (x) { const n = String(x.r[BK_C.to]); (per[n] = per[n] || []).push(x); });
-  return mailBox_('📞 مكالمات متابعة الحجوزات لسه متعملتش (' + open.length + ')', Object.keys(per).sort().map(function (n) {
+  return mailBox_('📞 Booking follow-up calls still open (' + open.length + ')', Object.keys(per).sort().map(function (n) {
     const off = bkOffOn_(n, today, ro), late = per[n].filter(function (x) { return x.c.state === 'late'; }).length;
-    return '<p style="margin:0 0 6px"><b>' + esc_(n) + '</b>: ' + per[n].length + ' مكالمة' + (late ? '، منهم ' + late + ' متأخرة' : '') + (off ? ' <span style="color:#A63D63">· أجازة النهارده، اديها لحد تاني</span>' : '') + '</p>';
-  }).join('') + '<p style="margin:6px 0 0;color:#777;font-size:13px">التفاصيل وتحويل المكالمة لحد تاني من تبويب "📞 مكالمات المتابعة" في النولدج بيز.</p>');
+    return '<p style="margin:0 0 6px"><b>' + esc_(n) + '</b>: ' + per[n].length + ' calls' + (late ? ', ' + late + ' late' : '') + (off ? ' <span style="color:#A63D63">· off today, give them to someone else</span>' : '') + '</p>';
+  }).join('') + '<p style="margin:6px 0 0;color:#777;font-size:13px">Details, and giving a call to someone else, are in the "📞 Follow-up calls" tab of the Knowledge Base.</p>');
 }
 
 
