@@ -1933,7 +1933,7 @@ function promises_() {
         else if (!dataTo || lastDataMin < to) item.status = after ? 'late' : 'pending';
         else item.status = after ? 'late' : before ? 'early' : 'missed';
         if (hit) item.match = { id: hit.c.id, at: hit.c.day + ' ' + hit.c.time, by: callAgent_(hit.c.from, ro).name || callAgent_(hit.c.from, ro).pbx, status: hit.c.status, talk: hit.c.talk };
-      } else item.status = q.mark ? (q.mark.ok ? 'sent' : 'notsent') : 'pending';
+      } else item.status = q.mark ? (q.mark.ok ? 'sent' : q.mark.blocked ? 'blocked' : 'notsent') : 'pending';
       out.push(item);
     });
   });
@@ -1948,7 +1948,8 @@ function promiseMark_(b, me) {
     const r = JSON.parse(sh.getRange(at, JSON_COL).getValue());
     const q = (r.promises || [])[Number(b.i)];
     if (!q) return { ok: false, error: 'Not found' };
-    q.mark = b.clear ? null : { ok: !!b.sent, by: me.name || 'Owner', at: new Date().toISOString() };
+    // blocked = our WhatsApp number was blocked, so the agent couldn't send it (not the agent's fault; counted apart)
+    q.mark = b.clear ? null : { ok: !!b.sent, blocked: !b.sent && !!b.blocked, by: me.name || 'Owner', at: new Date().toISOString() };
     sh.getRange(at, JSON_COL).setValue(JSON.stringify(r));
     return { ok: true, record: r };
   } finally {
