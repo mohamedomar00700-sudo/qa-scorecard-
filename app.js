@@ -379,7 +379,7 @@
       box.append(h("div", { class: "pr-head" }, h("div", {}, h("b", { text: "🤝 " + t("pr_title") }), h("div", { class: "hint", text: t("pr_hint") })),
         h("div", { class: "pr-add" },
           h("button", { type: "button", class: "ghost", text: "📞 " + t("pr_add_call"), onclick: () => { list().push({ kind: "call", due: "", time: "" }); saveDraft(); draw(); } }),
-          h("button", { type: "button", class: "ghost", text: "💬 " + t("pr_add_wa"), onclick: () => { list().push({ kind: "wa", what: "offers", due: (a.header.interactionDate || today()).slice(0, 10) }); saveDraft(); draw(); } }))));
+          h("button", { type: "button", class: "ghost", text: "💬 " + t("pr_add_wa"), onclick: () => { list().push({ kind: "wa", what: "offers", due: "" }); saveDraft(); draw(); } }))));
       list().forEach((q, i) => {
         const set = (k, v) => { q[k] = v; saveDraft(); };
         const row = h("div", { class: "pr-row" }, h("span", { class: "pr-kind", text: q.kind === "call" ? "📞 " + t("pr_call") : "💬 " + t("pr_wa") }));
