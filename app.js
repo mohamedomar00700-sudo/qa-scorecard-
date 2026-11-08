@@ -604,7 +604,7 @@
       const settle = async () => { const wait = 1800 - (Date.now() - t0); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); stop(); };
       try {
         for (;;) {
-          const j = await apiPostJson({ action: "pickCall", agent, from, to, widen: !prog, prev, why: why || "" });
+          const j = await apiPostJson({ action: "pickCall", agent, from, to, widen: !prog, workDays: prog ? 0 : Math.max(1, Number(teamCfg.pickDays) || 3), prev, why: why || "" });
           if (prev && log.length) { log[log.length - 1] = Object.assign({}, log[log.length - 1], { why }); prev = ""; a.header.pickLog = log; delete a.header.callId; saveDraft(); }
           if (j.call) {
             const c = j.call;
@@ -619,7 +619,7 @@
             a.header.pickLog = log;
             busy = false; pickCall.fresh = true;
             saveDraft(); renderHeader(); checkSameCall();
-            if (j.wider) alert(t("call_wider", { n: Number(teamCfg.pickDays) || 7 }));
+            if (j.wider) alert(t("call_wider", { n: Number(teamCfg.pickDays) || 3 }));
             return;
           }
           // Nothing left for this agent: on Program level the next agent is drawn; otherwise tell the evaluator.
@@ -3324,7 +3324,7 @@
     if ($("#setPassedSla")) $("#setPassedSla").value = teamCfg.passedSlaHours || 48;
     $("#setPickMode").value = teamCfg.pickMode === "manual" ? "manual" : "auto";
     const pmSync = () => { const auto = $("#setPickMode").value !== "manual", w = pickWindow(today()); $("#setPickFrom").disabled = $("#setPickTo").disabled = auto; if (auto) { $("#setPickFrom").value = w[0]; $("#setPickTo").value = w[1]; } else { $("#setPickFrom").value = teamCfg.pickFrom || "08:00"; $("#setPickTo").value = teamCfg.pickTo || "18:00"; } };
-    $("#setPickMode").onchange = pmSync; pmSync(); $("#setPickDays").value = teamCfg.pickDays || 7;
+    $("#setPickMode").onchange = pmSync; pmSync(); $("#setPickDays").value = teamCfg.pickDays || 3;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
     $("#setSenderName").value = teamCfg.senderName || "Quality Team";
     $("#setCallsSource").value = teamCfg.callsSource ? "https://docs.google.com/spreadsheets/d/" + teamCfg.callsSource + "/edit" : "";
@@ -3343,7 +3343,7 @@
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));
       if (!(n >= 0 && n <= 100)) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
-      const pf = $("#setPickFrom").value || "10:00", pt = $("#setPickTo").value || "21:30", pd = Math.round(Number($("#setPickDays").value) || 7);
+      const pf = $("#setPickFrom").value || "10:00", pt = $("#setPickTo").value || "21:30", pd = Math.round(Number($("#setPickDays").value) || 3);
       if (pt <= pf || pd < 1 || pd > 31) { m.className = "msg err"; m.textContent = t("own_bad"); return; }
       const cc = $("#setCcResults").value.split(/[,;\s]+/).filter(Boolean);
       if (cc.some((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) { m.className = "msg err"; m.textContent = t("own_bad_cc"); return; }
