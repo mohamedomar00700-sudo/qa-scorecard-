@@ -50,6 +50,7 @@ function roster_() {
   if (!sh.getRange(1, 6).getValue() || sh.getRange(1, 6).getValue() === 'New hire (Yes / No)') sh.getRange(1, 6).setValue('Certified date (YYYY-MM-DD)').setFontWeight('bold');
   if (!sh.getRange(1, 7).getValue()) sh.getRange(1, 7).setValue('Cert status (Exception / Retraining / Dropped, blank = from evaluations)').setFontWeight('bold');
   if (!sh.getRange(1, 8).getValue()) sh.getRange(1, 8).setValue('Cert status note (date · approved by · reason)').setFontWeight('bold');
+  if (!sh.getRange(1, 9).getValue()) sh.getRange(1, 9).setValue('PBX ext (raw call data, e.g. 5006)').setFontWeight('bold');
   return sh;
 }
 
@@ -75,9 +76,9 @@ function nameKey_(s) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, inactive: [] };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [] };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
     if (name && String(r[2]).toLowerCase() === 'no') out.inactive.push(name);
     if (!name || String(r[2]).toLowerCase() === 'no') return;
@@ -92,6 +93,7 @@ function readRoster_() {
       if (/^\d{4}-\d{2}-\d{2}$/.test(cd)) out.certDates[name] = cd;
       const cs = certStatusKey_(r[6]);
       if (cs) out.certStatus[name] = { s: cs, note: String(r[7] || '').trim() };
+      String(r[8] || '').split(/[^0-9]+/).filter(String).forEach(function (x) { out.exts[x] = name; });
     }
   });
   out.agents.sort(); out.evaluators.sort();
@@ -714,7 +716,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -745,6 +747,16 @@ function setConfig_(c) {
   if (c.senderName !== undefined) {
     const sn = String(c.senderName).trim().slice(0, 60);
     cur.senderName = sn || 'Quality Team';
+  }
+  if (c.callsSource !== undefined) {
+    const src = String(c.callsSource || '').trim();
+    if (!src) cur.callsSource = '';
+    else {
+      const id = sheetIdOf_(src);
+      if (!id) return { ok: false, error: 'calls_bad_link' };
+      try { SpreadsheetApp.openById(id).getName(); } catch (err) { return { ok: false, error: 'calls_no_access' }; }
+      cur.callsSource = id;
+    }
   }
   PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
   return { ok: true, config: cur };
@@ -791,6 +803,8 @@ function doPost(e) {
     if (body.action === 'setCertStatus') return reply_(setCertStatus_(body.name, body.status, body.note, { name: me.name || String(body.by || '').slice(0, 80) }));
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'kbDash') return reply_(kbDashForEval_(body, me)); // knowledge base quiz numbers on the scorecard dashboard
+    if (body.action === 'pickCall') return reply_(pickCall_(body, me)); // random call from the raw call data
+    if (body.action === 'callsInfo') return reply_(me.owner ? callsInfo_() : { ok: false, error: 'not_owner' });
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
@@ -821,7 +835,10 @@ function doPost(e) {
       if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
       const twin = sameEvaluatorTwin_(sh, r);
       if (twin) return reply_({ ok: true, duplicateOf: twin });
+      const takenBy = callTakenBy_(sh, r);
+      if (takenBy) return reply_({ ok: false, error: 'call_taken', takenBy: takenBy });
       sh.appendRow(row_(r, new Date()));
+      if (r.callId && !r.test) markPick_(r.callId, evalId_(r));
       format_(sh, sh.getLastRow());
       syncItems_(r, new Date());
     } finally {
@@ -1672,4 +1689,190 @@ function bkLeadsBox_(today) {
     const off = bkOffOn_(n, today, ro), late = per[n].filter(function (x) { return x.c.state === 'late'; }).length;
     return '<p style="margin:0 0 6px"><b>' + esc_(n) + '</b>: ' + per[n].length + ' مكالمة' + (late ? '، منهم ' + late + ' متأخرة' : '') + (off ? ' <span style="color:#A63D63">· أجازة النهارده، اديها لحد تاني</span>' : '') + '</p>';
   }).join('') + '<p style="margin:6px 0 0;color:#777;font-size:13px">التفاصيل وتحويل المكالمة لحد تاني من تبويب "📞 مكالمات المتابعة" في النولدج بيز.</p>');
+}
+
+
+// ---------- Raw call data: random calls straight from the phone system's call log ----------
+// The owner puts the link of the raw call data Google Sheet (the phone system export, updated every working day) in
+// Settings. The tool then picks a real call at random on the server: ANSWERED calls with 1 minute or more of talk time
+// for that agent, never a call that was already evaluated, picked in the last 3 days, or turned down with a reason.
+// Every pick is written to the 'Call picks' tab, so who picked what, and why a call was skipped, can always be checked.
+// Agents are matched to the Roster by their extension (Roster column I), else by name.
+const PICKS_NAME = 'Call picks';
+const PICK_COLS = ['Picked at', 'Call ID', 'Call time', 'Agent', 'Picked by', 'Status', 'Reason', 'Evaluation ID'];
+const PICK_HOLD_DAYS = 3; // a call picked but not evaluated goes back into the pool after this
+const CALL_MIN_TALK = 60;
+
+function sheetIdOf_(s) {
+  s = String(s || '').trim();
+  const m = /\/d\/([a-zA-Z0-9_-]{20,})/.exec(s);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
+}
+function picksSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(PICKS_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(PICKS_NAME);
+    sh.appendRow(PICK_COLS);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, PICK_COLS.length).setFontWeight('bold');
+  }
+  return sh;
+}
+// "04/11/2026 06:33:32 PM", "2026-11-04 18:33:32" or a date cell → { day: '2026-11-04', time: '18:33' }
+function callWhen_(v, tz) {
+  if (v instanceof Date) return { day: Utilities.formatDate(v, tz, 'yyyy-MM-dd'), time: Utilities.formatDate(v, tz, 'HH:mm') };
+  const s = String(v || '').trim();
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?/i.exec(s);
+  if (m) {
+    let hh = +m[4];
+    if (m[6]) { const pm = /p/i.test(m[6]); if (pm && hh < 12) hh += 12; if (!pm && hh === 12) hh = 0; }
+    return { day: m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2), time: ('0' + hh).slice(-2) + ':' + m[5] };
+  }
+  m = /^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})/.exec(s);
+  if (m) return { day: m[1] + '-' + m[2] + '-' + m[3], time: ('0' + m[4]).slice(-2) + ':' + m[5] };
+  return null;
+}
+// Matches "Yara Mohamed<5006>" to a Roster agent: by extension (Roster column I) first, then by name.
+function callAgent_(from, ro) {
+  const m = /^(.*?)\s*<\s*(\d+)\s*>\s*$/.exec(String(from || ''));
+  const pbx = (m ? m[1] : String(from || '')).trim(), ext = m ? m[2] : '';
+  if (ext && ro.exts[ext]) return { name: ro.exts[ext], pbx: pbx, ext: ext };
+  const k = nameKey_(pbx);
+  if (!k) return { name: '', pbx: pbx, ext: ext };
+  let hit = ro.agents.filter(function (n) { return nameKey_(n) === k; });
+  if (!hit.length && k.length >= 4) hit = ro.agents.filter(function (n) { const y = nameKey_(n); return y.length >= 4 && (y.indexOf(k) === 0 || k.indexOf(y) === 0); });
+  return { name: hit.length === 1 ? hit[0] : '', pbx: pbx, ext: ext };
+}
+// The raw call data, read fresh every time (it is updated at the end of every working day).
+function readCalls_() {
+  const id = sheetIdOf_(config_().callsSource);
+  if (!id) throw new Error('calls_off');
+  let ss;
+  try { ss = SpreadsheetApp.openById(id); } catch (err) { throw new Error('calls_no_access'); }
+  const sh = ss.getSheets()[0], tz = ss.getSpreadsheetTimeZone();
+  const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
+  const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim().toLowerCase(); });
+  const col = function (names) { for (let i = 0; i < names.length; i++) { const at = head.indexOf(names[i]); if (at !== -1) return at; } return -1; };
+  const c = { id: col(['id', 'call id']), time: col(['time', 'start time', 'date']), from: col(['call from', 'from']), to: col(['call to', 'to']),
+    status: col(['last status', 'status']), talk: col(['handling duration', 'talk duration', 'talk time']), type: col(['communication type', 'type']) };
+  if (c.id < 0 || c.time < 0 || c.from < 0 || c.status < 0 || c.talk < 0) throw new Error('calls_bad_columns');
+  const width = Math.max(c.id, c.time, c.from, c.to, c.status, c.talk, c.type) + 1;
+  const out = [];
+  sh.getRange(2, 1, lastRow - 1, width).getValues().forEach(function (r) {
+    const when = callWhen_(r[c.time], tz), cid = String(r[c.id] || '').trim();
+    if (!when || !cid) return;
+    out.push({ id: cid, day: when.day, time: when.time, from: String(r[c.from] || ''), to: c.to >= 0 ? String(r[c.to] || '').replace(/[^\d+]/g, '') : '',
+      status: String(r[c.status] || '').trim().toUpperCase(), talk: Number(r[c.talk]) || 0, type: c.type >= 0 ? String(r[c.type] || '') : '' });
+  });
+  return out;
+}
+// Calls that can't be picked again: evaluated, turned down with a reason, or picked in the last few days.
+function usedCalls_() {
+  const used = {};
+  const ph = picksSheet_();
+  if (ph.getLastRow() > 1) {
+    const hold = Date.now() - PICK_HOLD_DAYS * 864e5;
+    ph.getRange(2, 1, ph.getLastRow() - 1, PICK_COLS.length).getValues().forEach(function (r) {
+      const st = String(r[5]), at = new Date(r[0]).getTime() || 0;
+      if (st === 'evaluated' || st === 'skipped' || (st === 'picked' && at >= hold)) used[String(r[1])] = st;
+    });
+  }
+  const sh = sheet_(), n = sh.getLastRow() - 1;
+  if (n > 0) sh.getRange(2, JSON_COL, n, 1).getValues().forEach(function (x) {
+    const m = /"callId":"([^"]+)"/.exec(String(x[0]));
+    if (m && !/"test":true/.test(String(x[0]))) used[m[1]] = 'evaluated';
+  });
+  return used;
+}
+// Another (non-test) evaluation already has this call → its evaluation ID.
+function callTakenBy_(sh, r) {
+  if (!r.callId || r.test) return '';
+  const n = sh.getLastRow() - 1; if (n < 1) return '';
+  const json = sh.getRange(2, JSON_COL, n, 1).getValues();
+  for (let i = 0; i < json.length; i++) {
+    const s = String(json[i][0]);
+    if (s.indexOf('"callId":"' + r.callId + '"') === -1) continue;
+    let x; try { x = JSON.parse(s); } catch (e) { continue; }
+    if (x && x.id !== r.id && !x.test && x.callId === r.callId) return evalId_(x);
+  }
+  return '';
+}
+function markPick_(callId, evalId) {
+  const ph = picksSheet_(), n = ph.getLastRow() - 1;
+  if (n < 1) return;
+  const ids = ph.getRange(2, 2, n, 1).getValues();
+  for (let i = n - 1; i >= 0; i--) if (String(ids[i][0]) === String(callId)) { ph.getRange(i + 2, 6, 1, 3).setValues([['evaluated', '', evalId]]); return; }
+}
+// body: { agent, from, to (YYYY-MM-DD, inclusive), widen (go back up to 31 days if nothing in range), prev, why }
+function pickCall_(b, me) {
+  const ro = readRoster_();
+  const agent = String(b.agent || '').trim();
+  if (!agent) return { ok: false, error: 'pick_need_agent' };
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  let from = ymd.test(b.from) ? b.from : '', to = ymd.test(b.to) ? b.to : '';
+  if (!from || !to) return { ok: false, error: 'Bad range' };
+  let calls;
+  try { calls = readCalls_(); } catch (err) { return { ok: false, error: err.message }; }
+  const dataTo = calls.reduce(function (m, x) { return x.day > m ? x.day : m; }, '');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ph = picksSheet_();
+    // A re-pick turns the previous call down, with its reason, so it never comes back.
+    if (b.prev && b.why) {
+      const n = ph.getLastRow() - 1;
+      if (n > 0) {
+        const rows = ph.getRange(2, 1, n, PICK_COLS.length).getValues();
+        for (let i = n - 1; i >= 0; i--) if (String(rows[i][1]) === String(b.prev) && String(rows[i][5]) === 'picked') { ph.getRange(i + 2, 6, 1, 2).setValues([['skipped', String(b.why).slice(0, 60)]]); break; }
+      }
+    }
+    const used = usedCalls_(), key = nameKey_(agent), mine = {};
+    const pool = function (f, t) {
+      return calls.filter(function (x) {
+        if (x.status !== 'ANSWERED' || x.talk < CALL_MIN_TALK || x.day < f || x.day > t || used[x.id]) return false;
+        if (!(x.from in mine)) mine[x.from] = nameKey_(callAgent_(x.from, ro).name) === key;
+        return mine[x.from];
+      });
+    };
+    let list = pool(from, to), wider = false;
+    if (!list.length && b.widen) {
+      const d = new Date(to + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 31);
+      const far = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+      if (far < from) { list = pool(far, to); wider = list.length > 0; }
+    }
+    if (!list.length) return { ok: true, none: true, dataTo: dataTo, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
+    const x = list[Math.floor(Math.random() * list.length)];
+    ph.appendRow([new Date(), x.id, x.day + ' ' + x.time, agent, me.name || 'Owner', 'picked', '', '']);
+    return { ok: true, wider: wider, dataTo: dataTo, pool: list.length,
+      call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk } };
+  } finally {
+    lock.releaseLock();
+  }
+}
+// Owner check in Settings: how much data there is and which phone system names aren't matched to the Roster.
+function callsInfo_() {
+  let calls;
+  try { calls = readCalls_(); } catch (err) { return { ok: false, error: err.message }; }
+  const ro = readRoster_(), agents = {};
+  let from = '', to = '', ok = 0;
+  calls.forEach(function (x) {
+    if (!from || x.day < from) from = x.day;
+    if (x.day > to) to = x.day;
+    const good = x.status === 'ANSWERED' && x.talk >= CALL_MIN_TALK;
+    if (good) ok++;
+    const a = agents[x.from] || (agents[x.from] = Object.assign(callAgent_(x.from, ro), { calls: 0, good: 0 }));
+    a.calls++; if (good) a.good++;
+  });
+  const list = Object.keys(agents).map(function (k) { return agents[k]; }).sort(function (p, q) { return q.good - p.good; });
+  const matched = {}; list.forEach(function (a) { if (a.name) matched[nameKey_(a.name)] = 1; });
+  return { ok: true, rows: calls.length, good: ok, from: from, to: to, agents: list,
+    rosterMissing: ro.agents.filter(function (n) { return !matched[nameKey_(n)]; }) };
+}
+// Run once from the editor (select it, then Run) if Google asks for permission to open the raw call data sheet.
+function authorizeCalls() {
+  const id = sheetIdOf_(config_().callsSource);
+  Logger.log(id ? SpreadsheetApp.openById(id).getName() : 'Put the raw call data link in the tool Settings first.');
 }
