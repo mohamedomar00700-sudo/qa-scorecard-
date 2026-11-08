@@ -1439,6 +1439,7 @@
   }
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
+  const autoMailed = (r) => mailable(r) && (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent];
   const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
   async function markMailed(r) {
     if (r.mailedAt) return;
@@ -1599,7 +1600,8 @@
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
-        mailable(r) ? outlookButton(r, true) : null,
+        // Sent automatically by the system (the designed email): no Outlook button, so the agent doesn't get it twice.
+        mailable(r) ? (autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : outlookButton(r, true)) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
