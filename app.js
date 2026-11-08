@@ -1344,6 +1344,7 @@
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
+  const phoneDiv = (r) => (r && r.phone ? h("div", { class: "meta", dir: "ltr", text: "📞 " + normPhone(r.phone) }) : null); // customer number under the call date (Mohamed, 2026-11-08)
   const refText = (r) => [r.phone ? "\u2066" + r.phone + "\u2069" : "", r.odooRef ? "Odoo " + r.odooRef : ""].filter(Boolean).join(" · ");
   // Result email sent from the evaluator's own work mailbox (Outlook): the tool opens a ready email,
   // the evaluator checks it and presses Send, so it goes out from their address and stays in their Sent items.
@@ -1375,7 +1376,7 @@
     const form = r.form === "whatsapp" ? mx("واتساب", "WhatsApp chat") : mx("مكالمة", "call");
     const when = whenText(r);
     const phone = String(r.phone || "").replace(/\D/g, "");
-    const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? mx("رقم العميل بينتهي بـ ", "customer number ending ") + phone.slice(-4) : ""].filter(Boolean).join(" · ");
+    const ref = [r.odooRef ? "Odoo: " + r.odooRef : "", phone ? mx("رقم العميل ", "customer number ") + normPhone(r.phone) : ""].filter(Boolean).join(" · ");
     const missed = (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error");
     const fb = r.feedback || {};
     const cert = purposeOf(r) === "certcall";
@@ -2300,7 +2301,7 @@
       const crit = r.critical ? " · " + t("co_crit", { n: r.critical }) : "";
       const failCell = h("td", {}, h("div", {}, h("b", { text: r.agent || "–" }), " · ", h("span", { class: "pill bad", text: pct(r.final) }), crit),
         h("span", { class: "pill na", style: "font-size:11px", text: t("p_" + purposeOf(r)).split(" (")[0] }),
-        h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(r) }) }),
+        h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(r) }) }), phoneDiv(r),
         h("div", { class: "meta", text: t("co_eval_by", { e: r.evaluator || "–", d: dtText(failStart(r)) }) }),
         h("div", { class: "meta eval-id-tag", text: evalIdOf(r) }));
       const coachCell = h("td", {}, c.coached
@@ -2310,7 +2311,7 @@
         : [h("span", { class: "pill " + (c.step === "c_late" ? "bad" : "warn"), text: c.step === "c_late" ? t("co_overdue", { h: hrs(c.toCoach - c.sla) }) : t("co_left", { h: hrs(c.sla - c.toCoach) }) })]);
       const passedCell = h("td", {}, c.fu
         ? [h("span", { class: "pill " + (c.fu.result === "Pass" ? "good" : "bad"), text: (c.fu.result === "Pass" ? "✓ " : "✗ ") + pct(c.fu.final) }),
-          h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(c.fu) }) + " · " + t("co_after", { h: hrs(hoursBetween(c.cAt, c.fu.interactionDate)) }) }),
+          h("div", { class: "meta", dir: "auto", text: t("co_call_at", { d: whenText(c.fu) }) + " · " + t("co_after", { h: hrs(hoursBetween(c.cAt, c.fu.interactionDate)) }) }), phoneDiv(c.fu),
           h("div", { class: "meta eval-id-tag", text: evalIdOf(c.fu) })]
         : c.coached ? [h("span", { class: "pill " + (c.step === "p_late" ? "bad" : "warn"), text: c.step === "p_late" ? t("co_p_overdue", { h: hrs(c.toPassed) }) : t("co_p_wait", { h: hrs(c.toPassed) }) }),
           h("div", { class: "meta", text: t("co_p_rule", { d: dtText(c.cAt) }) })]
@@ -2373,7 +2374,7 @@
           : done ? h("span", { class: "pill warn", text: t("fu_waiting") })
           : nextEval && !coachTime(r) ? h("span", { class: "pill good", text: t("copc_followup_done", { d: callDay(nextEval) }) })
           : h("span", { class: "pill na", text: t("fu_after_coach") }));
-        tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
+        tb.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), phoneDiv(r), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
           h("td", { class: "num" }, h("span", { class: "pill bad", text: pct(r.final) })), cCell, fCell));
       });
       kids.push(h("h3", { text: t("copc_fail_followup_head") }), h("div", { class: "table-wrap" }, tb),
@@ -2900,7 +2901,7 @@
     // Recent evaluations
     const recent = mine.slice().sort((a, b) => whenText(b).localeCompare(whenText(a))).slice(0, 8);
     const rt = h("table", {}, h("tr", {}, ["c_when", "c_agent", who ? null : "evaluator", "c_purpose", "final", ""].filter(Boolean).map((k) => h("th", { text: k ? t(k) : "" }))));
-    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
+    recent.forEach((r) => rt.append(h("tr", {}, h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), phoneDiv(r), h("div", { class: "meta eval-id-tag", text: evalIdOf(r) })), h("td", { text: r.agent || "–" }), who ? null : h("td", { text: r.evaluator || "–" }),
       h("td", {}, h("span", { class: "pill " + (purposeOf(r) === "live" ? "good" : "info"), text: t("p_" + purposeOf(r)).replace(/\s*\(.*\)$/, "") }), r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside").replace(/\s*\(.*\)$/, "") }) : null),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })),
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null))));
@@ -2968,10 +2969,10 @@
     return out;
   }
   function recordRows(list) {
-    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
+    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
-      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", r.odooRef || "", r.outcome || "", r.odooTag || "",
+      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", r.phone ? normPhone(r.phone) : "", r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
@@ -2985,9 +2986,9 @@
     [...new Set(list.map((r) => r.form))].forEach((form) => {
       const recs = list.filter((r) => r.form === form), cols = [];
       [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
-      const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
+      const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Customer number", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
       const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
-        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", purposeLabel(r), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", r.phone ? normPhone(r.phone) : "", purposeLabel(r), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
           r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
           ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
       const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {

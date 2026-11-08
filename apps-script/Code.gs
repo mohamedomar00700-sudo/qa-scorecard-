@@ -451,7 +451,7 @@ function resultMailHtml_(r, o) {
     ['Date and time', '<span dir="ltr">' + esc_(o.when) + '</span>'],
     r.callTalk ? ['Talk time', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>'] : (r.duration ? ['Duration', '<span dir="ltr">' + esc_(r.duration) + '</span>'] : null),
     r.callPbx || r.callExt ? ['On the phone system', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>'] : null,
-    phone ? ['Customer number', 'ending <span dir="ltr">' + phone.slice(-4) + '</span>'] : null,
+    phone ? ['Customer number', '<span dir="ltr">' + esc_(String(r.phone).trim()) + '</span>'] : null,
     r.odooRef ? ['Odoo', /^https?:\/\//.test(String(r.odooRef)) ? '<a href="' + esc_(r.odooRef) + '" style="color:' + c.blue + '">Open the lead</a>' : '<span dir="ltr">' + esc_(r.odooRef) + '</span>'] : null,
     o.isWow ? ['Call tag', '🌟 Wow call'] : o.isGood ? ['Call tag', '👍 Very good call'] : null,
     ['Evaluator', esc_(r.evaluator)]
