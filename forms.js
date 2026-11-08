@@ -1,7 +1,7 @@
 // Scorecard items. Edit this file to change items, weights, examples, explanations or coaching tips.
 // Each item has an "ar" block with the Arabic text shown when the tool is switched to Arabic.
 window.FORMS = {
- "version": "v2.3-draft",
+ "version": "v2.4-draft",
  "forms": {
   "calls": {
    "name": "Calls",
@@ -550,9 +550,9 @@ window.FORMS = {
       "example": "الفرع والعنوان، المواعيد، الاستشارة المجانية، تحضيرات الليزر، رسوم الحلاقة.",
       "coach": "استخدم قايمة الحجز: الفرع والعنوان، المواعيد، الاستشارة المجانية، تحضيرات الليزر، رسوم الحلاقة.",
       "explain": "المعلومات الناقصة (العنوان، التحضيرات، الرسوم) بتبوّظ الزيارة أو بتفاجئ العميل.",
-      "vs": "المعلومة ماتقالتش خالص ← C9. اتقالت بس ماتلخصتش في الآخر ← N11. سعر غلط ← C8."
+      "vs": "المعلومة ماتقالتش خالص ← C9. اتقالت بس ماتلخصتش في الآخر ← N11. سعر غلط ← C8. وعد يبعتها على الواتساب ومبعتهاش ← C13 مش C9."
      },
-     "vs": "Information never given at all → C9. Given but not recapped at the end → N11. Wrong price → C8."
+     "vs": "Information never given at all → C9. Given but not recapped at the end → N11. Wrong price → C8. Promised to send it on WhatsApp and didn't → C13, not C9."
     },
     {
      "bucket": "EU",
@@ -612,21 +612,21 @@ window.FORMS = {
     },
     {
      "bucket": "EU",
-     "item": "Does not call back at the promised time",
+     "item": "Does not do what was promised to the customer (call back at the promised time, or send what was promised on WhatsApp right after the call)",
      "applies": [
       "ALL"
      ],
-     "example": "Promised callback missed with no reason in Odoo.",
-     "coach": "Set the callback as an Odoo activity with a reminder and call at the promised time.",
-     "explain": "A missed promised callback tells the customer we don't keep our word.",
+     "example": "Promised callback missed, or offers / location promised on WhatsApp not sent after the call, with no reason in Odoo. Not an error if our WhatsApp number was blocked and that is noted in Odoo (and a colleague asked to send it).",
+     "coach": "Set every promise as an Odoo activity with a reminder: call at the promised time, and send what you promised on WhatsApp as soon as the call ends. If WhatsApp is blocked, note it in Odoo and use 📲 in the knowledge base so a colleague sends it.",
+     "explain": "A promise we don't keep (a call or a message) tells the customer we don't keep our word.",
      "ar": {
-      "item": "مش بيتصل في ميعاد المكالمة اللي وعد بيه",
-      "example": "وعد بمكالمة وفاتت من غير سبب مكتوب على أودوو.",
-      "coach": "حط المكالمة كـ Activity على أودوو بتذكير، واتصل في الميعاد اللي وعدت بيه.",
-      "explain": "المكالمة اللي اتوعد بيها وماتعملتش بتقول للعميل إننا مش بنلتزم بكلامنا.",
-      "vs": "C13 = مكالمة اتوعد بيها العميل ده بالذات وماتعملتش. قواعد الاتصال العامة (مواعيد الاتصال، عدد المحاولات) ← C20."
+      "item": "مش بينفّذ اللي وعد بيه العميل (يتصل في الميعاد اللي وعد بيه، أو يبعت اللي وعد بيه على الواتساب بعد المكالمة على طول)",
+      "example": "وعد بمكالمة وفاتت، أو وعد يبعت العروض / اللوكيشن على الواتساب ومبعتهاش بعد المكالمة، من غير سبب مكتوب على أودوو. مش غلط لو رقم الواتساب بتاعنا عليه بلوك ومكتوب ده على أودوو (واتطلب من زميلة تبعت).",
+      "coach": "حط كل وعد كـ Activity على أودوو بتذكير: اتصل في الميعاد اللي وعدت بيه، وابعت اللي وعدت بيه على الواتساب أول ما المكالمة تخلص. ولو الواتساب عليه بلوك، اكتب ده على أودوو واستخدم 📲 في النولدج بيز علشان زميلة تبعت.",
+      "explain": "الوعد اللي مبيتنفّذش (مكالمة أو رسالة) بيقول للعميل إننا مش بنلتزم بكلامنا.",
+      "vs": "C13 = وعد للعميل ده بالذات مااتنفّذش (مكالمة في ميعاد، أو واتساب كان المفروض يتبعت بعد المكالمة على طول). معلومة ماتقالتش في المكالمة نفسها ← C9. قواعد الاتصال العامة (مواعيد الاتصال، عدد المحاولات) ← C20. وعد ميعاده لسه مجاش بيتابع في صفحة الوعود، مش هنا."
      },
-     "vs": "C13 = a callback promised to this customer and missed. General calling rules (calling hours, number of attempts) → C20."
+     "vs": "C13 = a promise to this customer not kept (a call back at a time, or WhatsApp that had to be sent right after the call). Information not said in the call itself → C9. General calling rules (calling hours, number of attempts) → C20. A promise not due yet is followed on the Promises page, not here."
     },
     {
      "bucket": "EU",
@@ -752,9 +752,9 @@ window.FORMS = {
       "example": "ساب جمل السكريبت الإجبارية، أو اتصل بره المواعيد المسموحة، أو عدد محاولات أكتر أو أقل من نظام الليدز.",
       "coach": "التزم بجمل السكريبت الإجبارية ومواعيد الاتصال وقواعد عدد المحاولات.",
       "explain": "تعليمات الشغل بتخلي كل المكالمات بنفس المستوى وملتزمة بقواعد العميل.",
-      "vs": "استخدم C20 بس لو مفيش بند تاني مناسب. مكالمة اتوعد بيها وماتعملتش ← C13. اسم مركز غلط ← C16. غلطات أودوو ← C21–C23."
+      "vs": "استخدم C20 بس لو مفيش بند تاني مناسب. وعد مااتنفّذش (مكالمة أو واتساب) ← C13. اسم مركز غلط ← C16. غلطات أودوو ← C21–C23."
      },
-     "vs": "Use C20 only when no other item fits. Missed promised callback → C13. Wrong clinic name → C16. Odoo mistakes → C21–C23."
+     "vs": "Use C20 only when no other item fits. Promise not kept (call back or WhatsApp) → C13. Wrong clinic name → C16. Odoo mistakes → C21–C23."
     },
     {
      "bucket": "BC",
@@ -788,9 +788,9 @@ window.FORMS = {
       "example": "مفيش Next activity على ليد محتاج مكالمة تانية.",
       "coach": "اكتب ملاحظات واضحة وحدد الـ Next activity (ميعاد المكالمة الجاية) لكل ليد محتاج متابعة.",
       "explain": "من غير ملاحظات وNext activity، محدش هيعرف يتصل بالعميل إمتى أو اتقال إيه.",
-      "vs": "C22 = ملاحظات ناقصة أو الـ Next activity مش متحدد. حالة الليد / النتيجة ← C21. المكالمة الموعودة نفسها ماتعملتش ← C13. أخطاء كتابة بسيطة ← N18."
+      "vs": "C22 = ملاحظات ناقصة أو الـ Next activity مش متحدد. حالة الليد / النتيجة ← C21. الوعد نفسه مااتنفّذش (المكالمة أو الواتساب) ← C13. أخطاء كتابة بسيطة ← N18."
      },
-     "vs": "C22 = notes missing or next activity not set. Lead stage / result → C21. Missed the promised call itself → C13. Small typos → N18."
+     "vs": "C22 = notes missing or next activity not set. Lead stage / result → C21. The promise itself not kept (the call or the WhatsApp) → C13. Small typos → N18."
     },
     {
      "bucket": "BC",
