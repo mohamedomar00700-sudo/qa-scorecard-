@@ -719,7 +719,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -751,6 +751,7 @@ function setConfig_(c) {
     const sn = String(c.senderName).trim().slice(0, 60);
     cur.senderName = sn || 'Quality Team';
   }
+  if (c.promiseTolMin !== undefined) { const tm = Number(c.promiseTolMin); if (tm >= 5 && tm <= 720) cur.promiseTolMin = Math.round(tm); }
   if (c.callsSource !== undefined) {
     const src = String(c.callsSource || '').trim();
     if (!src) cur.callsSource = '';
@@ -807,6 +808,7 @@ function doPost(e) {
     if (body.action === 'setConfig') return reply_(setConfig_(body.config));
     if (body.action === 'kbDash') return reply_(kbDashForEval_(body, me)); // knowledge base quiz numbers on the scorecard dashboard
     if (body.action === 'pickCall') return reply_(pickCall_(body, me)); // random call from the raw call data
+    if (body.action === 'promiseMark') return reply_(promiseMark_(body, me)); // WhatsApp promise sent / not sent
     if (body.action === 'callsInfo') return reply_(me.owner ? callsInfo_() : { ok: false, error: 'not_owner' });
     if (body.action === 'addKb') return reply_(addKb_(body.update));
     if (body.action === 'updateRecord') {
@@ -865,6 +867,7 @@ function doGet(e) {
   const me = who_(p);
   if (!me) return reply_({ ok: false, error: p.session ? 'signed_out' : 'Wrong access key' });
   if (p.action === 'config') return reply_({ ok: true, config: config_() });
+  if (p.action === 'promises') return reply_(promises_());
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
@@ -1878,4 +1881,70 @@ function callsInfo_() {
 function authorizeCalls() {
   const id = sheetIdOf_(config_().callsSource);
   Logger.log(id ? SpreadsheetApp.openById(id).getName() : 'Put the raw call data link in the tool Settings first.');
+}
+
+
+// ---------- Promises to customers (call back at a time, send offers / location on WhatsApp) ----------
+// The evaluator notes the promise in the evaluation; the call's own score never changes because of it. Promised calls
+// are checked against the raw call data: any call to the same number (last 9 digits) from 30 minutes before the promised
+// time to promiseTolMin after it is on time (no time given = any time that day). COPC: call backs are deferred
+// interactions, measured On Time against a target cycle time. WhatsApp promises are marked sent / not sent by hand.
+function phoneKey_(v) { const d = String(v || '').replace(/\D/g, ''); return d.length >= 7 ? d.slice(-9) : ''; }
+function promises_() {
+  const sh = sheet_(), n = sh.getLastRow() - 1;
+  const recs = [];
+  if (n > 0) sh.getRange(2, JSON_COL, n, 1).getValues().forEach(function (x) {
+    const s = String(x[0]); if (s.indexOf('"promises"') === -1) return;
+    try { const r = JSON.parse(s); if (r && !r.test && Array.isArray(r.promises) && r.promises.length) recs.push(r); } catch (e) {}
+  });
+  let calls = [], dataTo = '', callsErr = '';
+  if (recs.some(function (r) { return r.promises.some(function (q) { return q.kind === 'call'; }); })) {
+    try { calls = readCalls_(); calls.forEach(function (c) { if (c.day > dataTo) dataTo = c.day; }); } catch (err) { callsErr = err.message; }
+  }
+  const byNum = {};
+  calls.forEach(function (c) { const k = phoneKey_(c.to); if (k) (byNum[k] = byNum[k] || []).push(c); });
+  const tol = Number(config_().promiseTolMin) || 60, ro = readRoster_();
+  const mins = function (day, hm) { const t = String(hm || '00:00').split(':'); return Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), +t[0] || 0, +t[1] || 0) / 60000; };
+  const lastDataMin = dataTo ? mins(dataTo, '23:59') : 0;
+  const out = [];
+  recs.forEach(function (r) {
+    const evalCall = String(r.interactionDate || '').replace('T', ' ');
+    const startMin = evalCall.length >= 16 ? mins(evalCall.slice(0, 10), evalCall.slice(11, 16)) + 1 : 0;
+    r.promises.forEach(function (q, i) {
+      const item = { evalId: evalId_(r), id: r.id, agent: r.agent, evaluator: r.evaluator, callAt: evalCall, i: i, kind: q.kind, what: q.what || '', due: q.due || '', time: q.time || '', mark: q.mark || null, status: 'pending' };
+      if (q.kind === 'call') {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(item.due)) { item.status = 'nodate'; out.push(item); return; }
+        const from = item.time ? mins(item.due, item.time) - 30 : mins(item.due, '00:00');
+        const to = item.time ? mins(item.due, item.time) + tol : mins(item.due, '23:59');
+        const list = (byNum[phoneKey_(r.phone)] || []).map(function (c) { return { c: c, m: mins(c.day, c.time) }; })
+          .filter(function (x) { return x.m >= startMin && x.c.id !== r.callId; }).sort(function (a, b) { return a.m - b.m; });
+        const inWin = list.filter(function (x) { return x.m >= from && x.m <= to; })[0];
+        const after = list.filter(function (x) { return x.m > to; })[0], before = list.filter(function (x) { return x.m < from; })[0];
+        const hit = inWin || after || before;
+        if (!phoneKey_(r.phone)) item.status = 'nophone';
+        else if (inWin) item.status = 'ontime';
+        else if (!dataTo || lastDataMin < to) item.status = after ? 'late' : 'pending';
+        else item.status = after ? 'late' : before ? 'early' : 'missed';
+        if (hit) item.match = { id: hit.c.id, at: hit.c.day + ' ' + hit.c.time, by: callAgent_(hit.c.from, ro).name || callAgent_(hit.c.from, ro).pbx, status: hit.c.status, talk: hit.c.talk };
+      } else item.status = q.mark ? (q.mark.ok ? 'sent' : 'notsent') : 'pending';
+      out.push(item);
+    });
+  });
+  return { ok: true, items: out, dataTo: dataTo, callsError: callsErr, tolMin: tol };
+}
+function promiseMark_(b, me) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_(), at = findRow_(sh, b.id);
+    if (at === -1) return { ok: false, error: 'Not found' };
+    const r = JSON.parse(sh.getRange(at, JSON_COL).getValue());
+    const q = (r.promises || [])[Number(b.i)];
+    if (!q) return { ok: false, error: 'Not found' };
+    q.mark = b.clear ? null : { ok: !!b.sent, by: me.name || 'Owner', at: new Date().toISOString() };
+    sh.getRange(at, JSON_COL).setValue(JSON.stringify(r));
+    return { ok: true, record: r };
+  } finally {
+    lock.releaseLock();
+  }
 }

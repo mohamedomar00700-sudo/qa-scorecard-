@@ -419,3 +419,23 @@ button.cp-go:hover .cp-go-dice { transform: rotate(200deg) scale(1.1); }
 @media (max-width: 600px) { .cp-rolling { padding: 14px; gap: 12px; } .cp-dice { width: 48px; height: 48px; font-size: 26px; } .cp-id code { font-size: 15px; } .cp-copy { margin-inline-start: 0; } }
 @media (prefers-reduced-motion: reduce) { .cp-dice span, .cp-bar span, .cp-steps li.now::before, .cp-card.fresh, .cp-card.fresh .cp-badge, .view.active, .toast { animation: none !important; } }
 @media print { .cp-rolling, .cp-repick, .cp-copy { display: none !important; } .cp-card { box-shadow: none; } }
+
+/* promises to the customer */
+.promises-box { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: var(--radius, 12px); padding: 12px 14px; display: grid; gap: 10px; }
+.pr-head { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; }
+.pr-head .hint { margin: 2px 0 0; }
+.pr-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.pr-add button { border: 1px solid var(--line); border-radius: 999px; font-weight: 600; color: var(--brand); }
+.pr-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; padding: 10px; border-radius: 10px; background: var(--bg); }
+.pr-row label { flex: 1 1 140px; }
+.pr-kind { font-weight: 700; align-self: center; min-width: 120px; }
+.pr-del { align-self: center; }
+.pill.pr-st.ontime, .pill.pr-st.sent { background: var(--ok-soft); color: var(--ok); }
+.pill.pr-st.missed, .pill.pr-st.notsent { background: var(--bad-soft); color: var(--bad); }
+.pill.pr-st.late, .pill.pr-st.early { background: #fff4d6; color: #8a5a00; }
+.pill.pr-st.pending, .pill.pr-st.nophone, .pill.pr-st.nodate { background: var(--na-soft); color: var(--na); }
+.pr-marks { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.pr-marks button { padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px; }
+.pr-marks button.on-good { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.pr-marks button.on-bad { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+.tile.good .tile-v { color: var(--ok); } .tile.bad .tile-v { color: var(--bad); }
