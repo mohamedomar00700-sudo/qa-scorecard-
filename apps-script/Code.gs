@@ -344,6 +344,129 @@ function catRows_(r, row) {
   return out;
 }
 
+// ---------- result email (HTML, built from tables + inline styles so Gmail and Outlook show it the same) ----------
+const MAIL_ = { navy: '#1e3a6e', ink: '#1f2937', soft: '#6b7280', line: '#e5e7eb', bg: '#f1f4f9', card: '#ffffff',
+  green: '#15803d', greenBg: '#ecfdf3', red: '#b91c1c', redBg: '#fef2f2', amber: '#b45309', amberBg: '#fffbeb',
+  blue: '#1d4ed8', blueBg: '#eff6ff', gray: '#475569', grayBg: '#f1f5f9' };
+const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
+
+function mailShell_(accent, kicker, title, inner, footer) {
+  const c = MAIL_;
+  return '<div dir="rtl" style="margin:0;padding:0;background:' + c.bg + '">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
+    '<tr><td style="background:' + c.navy + ';padding:18px 24px;color:#ffffff">' +
+      '<div style="font-size:12px;letter-spacing:.5px;color:#c7d2fe">' + kicker + '</div>' +
+      '<div style="font-size:20px;font-weight:bold;margin-top:2px">' + title + '</div></td></tr>' +
+    '<tr><td style="height:5px;background:' + accent + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
+    '<tr><td style="padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
+    '<tr><td style="background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
+    '</table></td></tr></table></div>';
+}
+
+function mailSection_(title, body) {
+  return '<div style="margin:22px 0 8px;font-size:15px;font-weight:bold;color:' + MAIL_.navy + '">' + title + '</div>' + body;
+}
+
+function mailNote_(bg, border, color, title, body) {
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="background:' + bg + ';border-right:4px solid ' + border + ';border-radius:8px;padding:12px 14px;color:' + color + '">' +
+    (title ? '<div style="font-weight:bold;margin-bottom:4px">' + title + '</div>' : '') + '<div style="color:' + MAIL_.ink + '" dir="auto">' + body + '</div></td></tr></table>';
+}
+
+function resultMailHtml_(r, o) {
+  const c = MAIL_, its = r.items || [], fb = r.feedback || {};
+  const score = Math.max(0, Math.min(1, Number(r.final) || 0)), pctTxt = pct_(r.final);
+  // Look of the result: Wow / Program (not counted) / Extra target / passed / failed.
+  const look = o.isWow ? { accent: c.amber, bg: c.amberBg, pill: '🌟 WOW CALL', head: 'مكالمة استثنائية!', msg: 'المكالمة دي اتختارت كـ "مكالمة Wow" ومثال مميز في مكتبة التدريب. فخورين جداً بأدائك 👏' }
+    : o.prog ? { accent: c.gray, bg: c.grayBg, pill: 'غير محسوبة', head: 'عينة جودة البرنامج', msg: 'المكالمة دي اتسمعت ضمن عينة الكواليتي للأكاونت كله. النتيجة للمعلومة والتعلّم بس ومش محسوبة في تقييمك.' }
+    : o.coaching ? { accent: c.blue, bg: c.blueBg, pill: 'غير محسوبة', head: 'إكسترا تارجت', msg: 'التقييم ده إضافي للتعلّم ومش محسوب في السكور بتاعك.' }
+    : o.pass ? { accent: c.green, bg: c.greenBg, pill: '✓ PASSED', head: o.isGood ? 'مكالمة كويسة جداً 👍' : 'مبروك، عدّيت التقييم 🎉', msg: o.isGood ? 'المكالمة دي اتضافت كمثال كويس في مكتبة التدريب. كمّل على نفس المستوى!' : 'أداء كويس والتزام بمعايير الجودة. كمّل على نفس المستوى!' }
+    : { accent: c.red, bg: c.redBg, pill: '✗ FAILED', head: 'التقييم محتاج تحسين', msg: r.critical ? 'فيه خطأ حرج (Critical) في المكالمة، وده بيخلي النتيجة لا تعدّي. راجع النقط تحت علشان تتفاداها المرة الجاية.' : 'السكور أقل من نسبة النجاح (85%). راجع البنود اللي محتاجة تظبيط تحت.' };
+  const kind = o.post ? 'باسد كول بعد الكوتشينج' : o.coaching ? 'إكسترا تارجت' : o.prog ? 'عينة البرنامج' : o.cert ? 'تقييم السرتيفيكيشن' : 'تقييم الجودة';
+  const scoreColor = o.prog || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
+
+  // Hero: big score, pill, short message and a score bar with the 85% pass line.
+  const barW = Math.round(score * 100);
+  let inner = '<p style="margin:0 0 14px">أهلاً <b>' + esc_(r.agent) + '</b>،<br>' +
+    (o.post ? 'ده تقييم أول مكالمة ليك بعد الكوتشينج' + (r.followOfId ? ' على التقييم <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + '، لـ'
+      : o.coaching ? 'ده تقييم إكسترا تارجت لـ' : o.prog ? 'ده تقييم من عينة جودة البرنامج لـ' : o.cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') +
+    o.form + ' يوم <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + look.bg + ';border-radius:12px;border:1px solid ' + c.line + '"><tr>' +
+      '<td width="130" align="center" valign="middle" style="padding:18px 8px">' +
+        '<div style="font-size:38px;font-weight:bold;line-height:1;color:' + scoreColor + '" dir="ltr">' + pctTxt + '</div>' +
+        '<div style="display:inline-block;margin-top:8px;padding:3px 12px;border-radius:999px;background:' + look.accent + ';color:#fff;font-size:12px;font-weight:bold" dir="ltr">' + look.pill + '</div></td>' +
+      '<td valign="middle" style="padding:18px 16px 18px 6px">' +
+        '<div style="font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</div>' +
+        '<div style="font-size:13px;color:' + c.soft + ';margin-top:4px">' + look.msg + '</div>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;direction:ltr"><tr>' +
+          (barW > 0 ? '<td width="' + barW + '%" style="height:8px;background:' + scoreColor + ';border-radius:4px;font-size:0;line-height:0">&nbsp;</td>' : '') +
+          (barW < 100 ? '<td style="height:8px;background:#dfe3ea;border-radius:4px;font-size:0;line-height:0">&nbsp;</td>' : '') +
+        '</tr></table>' +
+        '<div style="font-size:11px;color:' + c.soft + ';margin-top:4px;direction:ltr;text-align:left">0% · pass 85% · 100%</div>' +
+      '</td></tr></table>';
+
+  // Category tiles: Part A (NC) and the three critical buckets.
+  const nc = its.filter(function (i) { return i.kind === 'NC' && i.result && i.result !== 'N/A'; });
+  const tiles = [['البنود العادية', 'NC', pct_(r.ncScore), nc.filter(function (i) { return i.result === 'Met'; }).length + ' من ' + nc.length, null]];
+  [['CC', 'الكومبلاينس'], ['EU', 'العميل'], ['BC', 'البيزنس']].forEach(function (b) {
+    const list = its.filter(function (i) { return i.kind === b[0] && i.result && i.result !== 'N/A'; });
+    const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
+    tiles.push([b[1], b[0], list.length ? (errs ? '✗ ' + errs : '✓') : '–', list.length ? (errs ? (errs === 1 ? 'غلطة حرجة' : 'أخطاء حرجة') : 'مفيش أخطاء') : 'مش منطبق', list.length ? !errs : null]);
+  });
+  inner += mailSection_('السكور بالتفصيل', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + tiles.map(function (t, k) {
+    const col = t[4] === null ? c.ink : t[4] ? c.green : c.red;
+    return '<td width="25%" valign="top" style="padding:' + (k ? '0 6px 0 0' : '0') + '"><div style="border:1px solid ' + c.line + ';border-radius:10px;padding:10px 6px;text-align:center">' +
+      '<div style="font-size:11px;color:' + c.soft + '">' + t[0] + ' <span dir="ltr">(' + t[1] + ')</span></div>' +
+      '<div style="font-size:20px;font-weight:bold;color:' + col + ';margin:2px 0" dir="ltr">' + t[2] + '</div>' +
+      '<div style="font-size:11px;color:' + c.soft + '">' + t[3] + '</div></div></td>';
+  }).join('') + '</tr></table>');
+
+  // What needs fixing: critical errors first, each with the evaluator's comment.
+  const missed = its.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
+    .sort(function (a, b) { return (b.result === 'Error') - (a.result === 'Error'); });
+  if (missed.length) inner += mailSection_('البنود اللي محتاجة تتظبط (' + missed.length + ')', missed.map(function (i) {
+    const crit = i.result === 'Error';
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0"><tr><td style="border:1px solid ' + c.line + ';border-right:4px solid ' + (crit ? c.red : c.amber) + ';border-radius:8px;padding:10px 12px">' +
+      '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'خطأ حرج · ' + esc_(i.kind) : 'بند عادي') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
+      '<div dir="auto" style="color:' + c.ink + '">' + esc_(i.text) + '</div>' +
+      (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + esc_(i.comment) + '</div>' : '') + '</td></tr></table>';
+  }).join(''));
+  else inner += mailSection_('البنود', mailNote_(c.greenBg, c.green, c.green, '', 'كل البنود اتطبقت صح 👌'));
+
+  // Feedback.
+  if (fb.strengths || fb.improve || fb.coaching) {
+    let f = '';
+    if (fb.strengths) f += mailNote_(c.greenBg, c.green, c.green, '💪 نقاط القوة', esc_(fb.strengths));
+    if (fb.improve) f += mailNote_(c.amberBg, c.amber, c.amber, '🎯 محتاج تحسين', esc_(fb.improve));
+    if (fb.coaching) f += mailNote_(c.blueBg, c.blue, c.blue, '💡 نصيحة للمرة الجاية', esc_(fb.coaching));
+    inner += mailSection_('الفيدباك', f);
+  }
+
+  // Call details.
+  const phone = String(r.phone || '').replace(/\D/g, '');
+  const det = [
+    ['رقم التقييم', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>'],
+    r.callId ? ['رقم المكالمة (Call ID)', '<span dir="ltr">' + esc_(r.callId) + '</span>'] : null,
+    ['النوع', kind + ' · ' + o.form],
+    ['التاريخ والوقت', '<span dir="ltr">' + esc_(o.when) + '</span>'],
+    r.callTalk ? ['مدة الكلام', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>'] : (r.duration ? ['المدة', '<span dir="ltr">' + esc_(r.duration) + '</span>'] : null),
+    r.callPbx || r.callExt ? ['على سيستم التليفونات', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>'] : null,
+    phone ? ['رقم العميل', 'بينتهي بـ <span dir="ltr">' + phone.slice(-4) + '</span>'] : null,
+    r.odooRef ? ['Odoo', /^https?:\/\//.test(String(r.odooRef)) ? '<a href="' + esc_(r.odooRef) + '" style="color:' + c.blue + '">فتح الليد</a>' : '<span dir="ltr">' + esc_(r.odooRef) + '</span>'] : null,
+    o.isWow ? ['التصنيف', '🌟 مكالمة Wow'] : o.isGood ? ['التصنيف', '👍 مكالمة كويسة جداً'] : null,
+    ['المقيّم', esc_(r.evaluator)]
+  ].filter(Boolean);
+  inner += mailSection_('تفاصيل ' + (o.form === 'واتساب' ? 'المحادثة' : 'المكالمة'), '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' + c.line + ';border-radius:10px;border-collapse:separate">' +
+    det.map(function (d, k) {
+      return '<tr><td width="40%" style="padding:8px 12px;color:' + c.soft + ';font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[0] + '</td>' +
+        '<td style="padding:8px 12px;font-weight:bold;font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[1] + '</td></tr>';
+    }).join('') + '</table>');
+
+  const footer = 'لو عندك أي سؤال على التقييم، رد على الإيميل ده أو كلّم <b>' + esc_(r.evaluator || 'فريق الجودة') + '</b>.<br>' +
+    '<span dir="ltr">' + esc_(evalId_(r)) + '</span> · ' + esc_(String(config_().senderName || 'Quality Team')) + ' · Tres Jolie';
+  return mailShell_(look.accent, esc_(kind), (o.prog || o.coaching ? '📊 ' : '📋 ') + 'نتيجة التقييم · ' + esc_(r.agent), inner, footer);
+}
+
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
@@ -358,49 +481,9 @@ function emailAgent_(r) {
   try {
     const form = r.form === 'whatsapp' ? 'واتساب' : 'مكالمة';
     const when = String(r.interactionDate || '').replace('T', ' ');
-    const phone = String(r.phone || '').replace(/\D/g, '');
-    const ref = [r.odooRef ? 'Odoo: ' + r.odooRef : '', phone ? 'رقم العميل بينتهي بـ ' + phone.slice(-4) : ''].filter(String).join(' · ');
     const pass = r.result === 'Pass';
-    const missed = (r.items || []).filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; });
-    const fb = r.feedback || {};
-    const row = function (k, v) { return '<tr><td style="padding:4px 10px;color:#555">' + k + '</td><td style="padding:4px 10px"><b>' + v + '</b></td></tr>'; };
-    const critPct = r.critical ? '<span style="color:#c62828">0% (' + r.critical + ' ' + (r.critical === 1 ? 'غلطة' : 'أخطاء') + ')</span>' : '<span style="color:#1a7f37">100% (مفيش أخطاء)</span>';
     const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
-    const banner = isWow
-      ? '<div style="background:linear-gradient(135deg,#fff8e1,#ffecb3);background-color:#fff8e1;border:2px solid #f59e0b;border-right:6px solid #d97706;color:#78350f;padding:14px 18px;border-radius:10px;margin-bottom:14px"><div style="font-size:18px;font-weight:bold;margin-bottom:6px">🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (' + pct_(r.final) + ')</div><div style="font-size:14px">🎉 <b>Congratulations!</b> المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ <b>"مكالمة Wow"</b> ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏</div></div>'
-      : prog
-        ? '<div style="background:#f1f3f4;border:1px solid #dadce0;border-right:5px solid #5f6368;color:#3c4043;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold;margin-bottom:4px">📊 عينة جودة البرنامج (Program level): مش محسوبة في تقييمك</div><div style="font-size:13px">المكالمة دي اتسمعت ضمن عينة الكواليتي للأكاونت كله. النتيجة تحت للمعلومة والتعلّم بس' + (pass ? '، وعدّت بنجاح (' + pct_(r.final) + ') 👏' : '، ومحتاجة شوية تظبيط (' + pct_(r.final) + ')') + '.</div></div>'
-      : coaching
-        ? '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-right:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:16px;font-weight:bold">💡 إكسترا تارجت (غير محسوب في السكور)</div></div>'
-        : pass && isGood
-          ? '<div style="background:#e6f4ea;border:1.5px solid #34a853;border-right:6px solid #1a7f37;color:#135c27;padding:13px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉👍 Congratulations! مكالمة كويسة جداً وعدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء ممتاز! المكالمة دي اتضافت كمثال كويس في مكتبة التدريب — استمر على نفس المستوى!</div></div>'
-          : pass
-            ? '<div style="background:#e6f4ea;border:1px solid #a8dab5;border-right:5px solid #1a7f37;color:#135c27;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – ' + pct_(r.final) + ')</div><div style="font-size:13px">أداء كويس والتزام بمعايير الجودة — كمّل على نفس المستوى!</div></div>'
-            : '<div style="background:#fce8e6;border:1px solid #f5c2c7;border-right:5px solid #c62828;color:#842029;padding:12px 16px;border-radius:8px;margin-bottom:14px"><div style="font-size:17px;font-weight:bold;margin-bottom:4px">⚠️ التقييم لم يجتز الحد المطلوب (FAILED – ' + pct_(r.final) + ')</div><div style="font-size:13px">' + (r.critical ? 'بسبب وجود خطأ حرج (Critical Error) في التقييم. راجع النقاط بالأسفل عشان تتفاداها المرة الجاية.' : 'السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل.') + '</div></div>';
-    const tagRow = isWow
-      ? row('تصنيف المكالمة', '<span style="color:#b45309">🌟🏆 مكالمة Wow (مثال مميز في مكتبة التدريب)</span>')
-      : isGood
-        ? row('تصنيف المكالمة', '<span style="color:#1a7f37">👍 مكالمة كويسة جداً (مكتبة التدريب)</span>')
-        : '';
-    let html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
-      banner +
-      '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ' : prog ? 'ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
-      '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
-      row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
-      (r.callId ? row('رقم المكالمة (Call ID)', '<span dir="ltr">' + esc_(r.callId) + '</span>') : '') +
-      (r.callPbx || r.callExt ? row('الإيجنت على سيستم التليفونات', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>') : '') +
-      (r.callTalk ? row('مدة الكلام', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>') : '') +
-      row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
-      tagRow +
-      row('دقة البنود الحرجة', critPct) +
-      catRows_(r, row) +
-      row('المقيّم', esc_(r.evaluator)) + '</table>';
-    if (missed.length) html += '<p><b>البنود اللي محتاجة تتظبط:</b></p><ul>' + missed.map(function (i) {
-      return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + esc_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
-    if (fb.strengths) html += '<p><b>نقاط القوة:</b><br><span dir="auto">' + esc_(fb.strengths) + '</span></p>';
-    if (fb.improve) html += '<p><b>محتاج تحسين:</b><br><span dir="auto">' + esc_(fb.improve) + '</span></p>';
-    if (fb.coaching) html += '<p><b>نصيحة للمرة الجاية:</b><br><span dir="auto">' + esc_(fb.coaching) + '</span></p>';
-    html += '<p>لو عندك أي سؤال على التقييم كلّم ' + esc_(r.evaluator || 'فريق الجودة') + '.</p></div>';
+    const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
     const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 مكالمة مميزة – ' : '') + (coaching ? '💡 إكسترا تارجت – ' : prog ? '📊 عينة البرنامج (غير محسوبة) – ' : post ? 'باسد كول بعد الكوتشينج – ' : cert ? 'تقييم السرتيفيكيشن – ' : 'تقييم الجودة – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
