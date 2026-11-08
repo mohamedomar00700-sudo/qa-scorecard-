@@ -2148,12 +2148,44 @@
         c.fu ? evalIdOf(c.fu) : "", c.fu ? whenText(c.fu) : "", c.fu ? pct(c.fu.final) : "", c.fu ? c.fu.result : "", t(stWord[c.step])];
     })];
   }
+  function promiseStats(items) {
+    const calls = items.filter((x) => x.kind === "call"), was = items.filter((x) => x.kind !== "call");
+    const done = calls.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status));
+    const n = (st, list) => (list || calls).filter((x) => x.status === st).length;
+    const pctOf = (a, b) => (b ? Math.round((a / b) * 1000) / 10 + "%" : "–");
+    // A WhatsApp promise that couldn't be sent because our number was blocked is not the agent's miss: left out of the rate.
+    const waDone = was.filter((x) => !["pending", "blocked"].includes(x.status));
+    return { calls, was, done, n, pctOf, waDone };
+  }
+  // Dashboard card: the same promise numbers for the dashboard's agent and dates (by promise day).
+  let prAt = 0;
+  async function renderDbPromises(f) {
+    const box = $("#dbPromises"); if (!box) return;
+    if (!connected()) { box.hidden = true; return; }
+    if (!prData || Date.now() - prAt > 5 * 60000) { if (prBusy) return; prBusy = true; try { prData = await apiGet({ action: "promises" }); prAt = Date.now(); } catch (e) { prData = null; } prBusy = false; }
+    if (!prData || prData.error) { box.hidden = true; return; }
+    const items = (prData.items || []).filter((x) => { const d = x.due || String(x.callAt).slice(0, 10); return (!f.agent || x.agent === f.agent) && (!f.from || d >= f.from) && (!f.to || d <= f.to); });
+    box.hidden = !items.length; box.innerHTML = "";
+    if (!items.length) return;
+    const { done, was, n, pctOf, waDone } = promiseStats(items);
+    const ok = done.length && n("ontime") / done.length >= 0.95;
+    const tile = (k, v, sub, cls) => h("div", { class: "tile" + (cls ? " " + cls : "") }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), sub ? h("div", { class: "tile-s", text: sub }) : null);
+    box.append(h("h2", { text: "🤝 " + t("pr_kpis") }), h("p", { class: "hint", text: t("pr_db_hint") }),
+      h("div", { class: "tiles" },
+        tile(t("pr_k_ontime"), pctOf(n("ontime"), done.length), t("pr_target95") + " · " + done.length, done.length ? (ok ? "good" : "bad") : ""),
+        tile(t("pr_s_late") + " / " + t("pr_s_missed"), n("late") + " / " + n("missed")),
+        tile(t("pr_s_pending"), String(n("pending"))),
+        tile(t("pr_k_wa"), pctOf(n("sent", was), waDone.length), t("pr_k_wa_s", { n: n("pending", was) })),
+        tile(t("pr_s_blocked"), String(n("blocked", was)), t("pr_blocked_s"))),
+      h("button", { type: "button", class: "ghost", text: t("pr_open") + " ←", onclick: () => $('nav button[data-view="promises"]').click() }));
+  }
+
   // ---------- Promises page: On Time for promised call backs (from the raw call data) and WhatsApp sent rate ----------
   let prData = null, prBusy = false;
   async function loadPromises() {
     if (!connected() || prBusy) return;
     prBusy = true;
-    try { prData = await apiGet({ action: "promises" }); } catch (e) { prData = { error: e.message, items: [] }; }
+    try { prData = await apiGet({ action: "promises" }); prAt = Date.now(); } catch (e) { prData = { error: e.message, items: [] }; }
     prBusy = false; renderPromises();
   }
   function renderPromises() {
@@ -2167,27 +2199,24 @@
     const items = (prData.items || []).filter((x) => inPer(x) && (!ag || x.agent === ag));
     const agents = [...new Set((prData.items || []).map((x) => x.agent).filter(Boolean))].sort();
     const selA = $("#prAgent"); if (selA.options.length !== agents.length + 1) { const v = selA.value; selA.innerHTML = ""; selA.append(h("option", { value: "", text: t("f_all_agents") }), ...agents.map((n) => h("option", { value: n, text: n }))); selA.value = v; }
-    const calls = items.filter((x) => x.kind === "call"), was = items.filter((x) => x.kind !== "call");
-    const done = calls.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status));
-    const n = (st, list) => (list || calls).filter((x) => x.status === st).length;
-    const pctOf = (a, b) => (b ? Math.round((a / b) * 1000) / 10 + "%" : "–");
-    const waDone = was.filter((x) => x.status !== "pending");
+    const { calls, was, done, n, pctOf, waDone } = promiseStats(items);
     const tile = (k, v, s, cls) => h("div", { class: "tile" + (cls ? " " + cls : "") }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), s ? h("div", { class: "tile-s", text: s }) : null);
     out.append(h("div", { class: "card" }, h("h2", { text: t("pr_kpis") }),
       h("p", { class: "hint", text: t("pr_rule", { m: prData.tolMin || 60, d: prData.dataTo || "–" }) + (prData.callsError ? " ⚠️ " + (t(prData.callsError) !== prData.callsError ? t(prData.callsError) : prData.callsError) : "") }),
       h("div", { class: "tiles" },
         tile(t("pr_k_ontime"), pctOf(n("ontime"), done.length), t("pr_target95"), done.length && n("ontime") / done.length >= 0.95 ? "good" : done.length ? "bad" : ""),
         tile(t("pr_s_ontime"), String(n("ontime"))), tile(t("pr_s_late"), String(n("late"))), tile(t("pr_s_early"), String(n("early"))), tile(t("pr_s_missed"), String(n("missed"))), tile(t("pr_s_pending"), String(n("pending"))),
-        tile(t("pr_k_wa"), pctOf(n("sent", was), waDone.length), t("pr_k_wa_s", { n: n("pending", was) })))));
+        tile(t("pr_k_wa"), pctOf(n("sent", was), waDone.length), t("pr_k_wa_s", { n: n("pending", was) })),
+        tile(t("pr_s_blocked"), String(n("blocked", was)), t("pr_blocked_s")))));
     // by agent
-    const rows = agents.filter((a) => !ag || a === ag).map((a) => { const c = calls.filter((x) => x.agent === a), dn = c.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status)), w = was.filter((x) => x.agent === a), wd = w.filter((x) => x.status !== "pending");
+    const rows = agents.filter((a) => !ag || a === ag).map((a) => { const c = calls.filter((x) => x.agent === a), dn = c.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status)), w = was.filter((x) => x.agent === a), wd = w.filter((x) => !["pending", "blocked"].includes(x.status));
       return [a, c.length, pctOf(c.filter((x) => x.status === "ontime").length, dn.length), c.filter((x) => x.status === "late").length, c.filter((x) => x.status === "missed").length, w.length, pctOf(w.filter((x) => x.status === "sent").length, wd.length)]; }).filter((r) => r[1] || r[5]);
     if (rows.length) out.append(h("div", { class: "card" }, h("h2", { text: t("pr_by_agent") }), h("table", {}, h("thead", {}, h("tr", {}, [t("f_agent"), t("pr_c_calls"), "On Time", t("pr_s_late"), t("pr_s_missed"), t("pr_c_wa"), t("pr_k_wa")].map((x) => h("th", { text: x })))),
       h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: i ? "num" : "", text: String(v) }))))))));
     // list
-    const order = { missed: 0, notsent: 1, late: 2, early: 3, pending: 4, nophone: 5, nodate: 6, ontime: 7, sent: 8 };
+    const order = { missed: 0, notsent: 1, late: 2, early: 3, pending: 4, blocked: 5, nophone: 6, nodate: 7, ontime: 8, sent: 9 };
     const list = items.slice().sort((x, y) => (order[x.status] - order[y.status]) || String(x.due).localeCompare(String(y.due)));
-    const mark = async (x, sent, clear) => { try { await apiPostJson({ action: "promiseMark", id: x.id, i: x.i, sent, clear: !!clear }); x.mark = clear ? null : { ok: sent, by: settings.who }; x.status = clear ? "pending" : sent ? "sent" : "notsent"; renderPromises(); } catch (e) { alert(e.message); } };
+    const mark = async (x, sent, blocked) => { try { await apiPostJson({ action: "promiseMark", id: x.id, i: x.i, sent, blocked: !!blocked }); x.mark = { ok: sent, blocked: !!blocked, by: settings.who }; x.status = sent ? "sent" : blocked ? "blocked" : "notsent"; renderPromises(); } catch (e) { alert(e.message); } };
     out.append(h("div", { class: "card" }, h("h2", { text: t("pr_list") }),
       list.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, [t("pr_c_status"), t("f_agent"), t("pr_c_promise"), t("pr_c_due"), t("pr_c_match"), "ID"].map((x) => h("th", { text: x })))),
         h("tbody", {}, list.map((x) => h("tr", {},
@@ -2199,6 +2228,7 @@
             x.kind !== "call" ? h("div", { class: "pr-marks" },
               h("button", { type: "button", class: "ghost" + (x.status === "sent" ? " on-good" : ""), text: "✓ " + t("pr_sent"), onclick: () => mark(x, true) }),
               h("button", { type: "button", class: "ghost" + (x.status === "notsent" ? " on-bad" : ""), text: "✗ " + t("pr_notsent"), onclick: () => mark(x, false) }),
+              h("button", { type: "button", class: "ghost" + (x.status === "blocked" ? " on-warn" : ""), text: "🚫 " + t("pr_blocked_btn"), title: t("pr_blocked_tip"), onclick: () => mark(x, false, true) }),
               x.mark ? h("span", { class: "meta", text: x.mark.by || "" }) : null) : null),
           h("td", { class: "eval-id-tag", text: x.evalId }))))))
       : h("div", { class: "empty", text: t("pr_none") })));
@@ -2430,6 +2460,7 @@
 
   function renderDashboard() {
     renderKbQuiz();
+    renderDbPromises({ agent: ($("#dbAgent") || {}).value || "", from: ($("#dbFrom") || {}).value || "", to: ($("#dbTo") || {}).value || "" });
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
