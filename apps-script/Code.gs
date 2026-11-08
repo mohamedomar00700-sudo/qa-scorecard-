@@ -719,7 +719,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 7, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -1843,6 +1843,13 @@ function pickCall_(b, me) {
         return mine[x.from];
       });
     };
+    // Agent level: the last N working days that have calls in the raw data (days off and Fridays have none).
+    const wd = Math.round(Number(b.workDays) || 0);
+    if (wd > 0) {
+      const days = {}; calls.forEach(function (x) { if (x.day <= to) days[x.day] = 1; });
+      const recent = Object.keys(days).sort().reverse().slice(0, wd);
+      if (recent.length) from = recent[recent.length - 1];
+    }
     let list = pool(from, to), wider = false;
     if (!list.length && b.widen) {
       const d = new Date(to + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 31);
