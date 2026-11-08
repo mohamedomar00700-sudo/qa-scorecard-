@@ -179,7 +179,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {}, aliases: j.aliases || roster.aliases || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
@@ -196,6 +196,14 @@
       for (const role of ["agents", "evaluators"]) server[role].sort((a, b) => a.localeCompare(b));
       roster = server;
       store(LS_ROSTER, roster);
+      // Names renamed on another device: move this device's copies (and the open form) to the new name.
+      const al = (n) => (n && roster.aliases[nameKey(n)]) || n;
+      if (Object.keys(roster.aliases).length) {
+        store(LS_EVALS, (store(LS_EVALS) || []).map((r) => Object.assign(r, { agent: al(r.agent), evaluator: al(r.evaluator) })));
+        for (const r of loaded.values()) { r.agent = al(r.agent); r.evaluator = al(r.evaluator); }
+        if (current && current.answers && current.answers.header) { const hd = current.answers.header; if (hd.agent) hd.agent = al(hd.agent); if (hd.evaluator) hd.evaluator = al(hd.evaluator); }
+        if (settings.evaluator && al(settings.evaluator) !== settings.evaluator) { settings.evaluator = al(settings.evaluator); store(LS_SETTINGS, settings); }
+      }
     } catch (e) { /* keep the cached list */ }
   }
   const LS_PENDING = "qa_roster_pending";
@@ -1268,6 +1276,8 @@
   function addRecords(list) {
     for (const r of list || []) {
       if (!r || !r.id || !r.form || !F.forms[r.form] || !Array.isArray(r.items) || deleted.has(r.id)) continue;
+      const al = roster.aliases || {};
+      for (const f of ["agent", "evaluator"]) { const to = r[f] && al[nameKey(r[f])]; if (to) r[f] = to; }
       const had = loaded.get(r.id);
       if (!had || stamp(r) >= stamp(had)) loaded.set(r.id, r);
     }

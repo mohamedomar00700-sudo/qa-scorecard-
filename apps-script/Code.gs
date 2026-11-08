@@ -48,6 +48,7 @@ function roster_() {
   if (!sh.getRange(1, 4).getValue()) sh.getRange(1, 4).setValue('Email').setFontWeight('bold');
   if (!sh.getRange(1, 5).getValue()) sh.getRange(1, 5).setValue('Days off (e.g. Fri, Sat)').setFontWeight('bold');
   if (!sh.getRange(1, 6).getValue() || sh.getRange(1, 6).getValue() === 'New hire (Yes / No)') sh.getRange(1, 6).setValue('Certified date (YYYY-MM-DD)').setFontWeight('bold');
+  if (!sh.getRange(1, 10).getValue()) sh.getRange(1, 10).setValue('Old names (comma-separated, matched to this name)').setFontWeight('bold');
   if (!sh.getRange(1, 7).getValue()) sh.getRange(1, 7).setValue('Cert status (Exception / Retraining / Dropped, blank = from evaluations)').setFontWeight('bold');
   if (!sh.getRange(1, 8).getValue()) sh.getRange(1, 8).setValue('Cert status note (date · approved by · reason)').setFontWeight('bold');
   if (!sh.getRange(1, 9).getValue()) sh.getRange(1, 9).setValue('PBX ext (raw call data, e.g. 5006)').setFontWeight('bold');
@@ -74,12 +75,22 @@ function nameKey_(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, '');
 }
 
+// Put a record under the current names when it carries an old (renamed) agent or evaluator name.
+function aliasFix_(r, ro) {
+  const a = (ro && ro.aliases) || {};
+  let hit = false;
+  ['agent', 'evaluator'].forEach(function (f) { const to = r && r[f] && a[nameKey_(r[f])]; if (to && to !== r[f]) { r[f] = to; hit = true; } });
+  return hit;
+}
+
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [] };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [], aliases: {} };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues().forEach(function (r) {
     const name = String(r[0] || '').trim();
+    // Old names (after a rename) point to the current name, so records saved under them group with it.
+    if (name) String(r[9] || '').split(/[,;\n]+/).forEach(function (x) { x = x.trim(); if (x && nameKey_(x) !== nameKey_(name)) out.aliases[nameKey_(x)] = name; });
     if (name && String(r[2]).toLowerCase() === 'no') out.inactive.push(name);
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
@@ -135,10 +146,16 @@ function renamePerson_(role, from, to) {
       rows.forEach(function (r) {
         if (!roleMatches_(r[1], role)) return;
         if (nameKey_(r[0]) === nameKey_(from) || nameKey_(r[0]) === nameKey_(to)) {
-          if (!kept) { r[0] = to; r[2] = 'Yes'; kept = true; } else { r[2] = 'No'; }
+          if (!kept) { r[0] = to; r[2] = 'Yes'; kept = true; r.at = true; } else { r[2] = 'No'; }
         }
       });
-      rng.setValues(rows);
+      rng.setValues(rows.map(function (r) { return r.slice(0, 3); }));
+      // Remember the old name next to the new one: devices that still hold it, and saves made with it, are mapped to the new name.
+      rows.forEach(function (r, i) {
+        if (!r.at || nameKey_(from) === nameKey_(to)) return;
+        const c = ro.getRange(i + 2, 10), old = String(c.getValue() || '').split(/\s*,\s*/).filter(String);
+        if (!old.some(function (x) { return nameKey_(x) === nameKey_(from); })) c.setValue(old.concat([from]).join(', '));
+      });
     }
     if (!kept) ro.appendRow([to, role === 'evaluators' ? 'Evaluator' : 'Agent', 'Yes']);
     const sh = sheet_();
@@ -833,7 +850,7 @@ function doPost(e) {
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
       if (!me.owner) body.record.editedBy = me.name;
-      levelFix_(body.record, readRoster_());
+      { const ro = readRoster_(); aliasFix_(body.record, ro); levelFix_(body.record, ro); }
       return reply_(updateRecord_(body.record));
     }
     if (body.action === 'sendCoaching') {
@@ -848,7 +865,9 @@ function doPost(e) {
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     if (!me.owner) r.evaluator = me.name; // a signed-in evaluator always saves under their own name
     const fixedFrom = r.purpose || 'live';
-    levelFix_(r, readRoster_());
+    const ro0 = readRoster_();
+    aliasFix_(r, ro0);
+    levelFix_(r, ro0);
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     const sh = sheet_();
@@ -890,7 +909,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive, aliases: ro.aliases,
       config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
@@ -902,13 +921,13 @@ function doGet(e) {
   const savedAt = since ? sh.getRange(2, 1, n, 1).getValues().flat() : [];
   const editCol = COLUMNS.indexOf('Edited at') + 1;
   const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
-  const records = [];
+  const records = [], ro = readRoster_();
   json.forEach(function (s, i) {
     if (since) {
       const t1 = new Date(savedAt[i]).getTime() || 0, t2 = new Date(editedAt[i] || 0).getTime() || 0;
       if (Math.max(t1, t2) < since) return;
     }
-    try { records.push(JSON.parse(s)); } catch (err) {}
+    try { const r = JSON.parse(s); aliasFix_(r, ro); records.push(r); } catch (err) {}
   });
   return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
 }
