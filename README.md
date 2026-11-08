@@ -31,6 +31,15 @@ Agents and evaluators are chosen from one shared list (the "Roster" tab in the G
 
 After updating `Code.gs` later: Deploy > Manage deployments > Edit > Version: **New version** > Deploy. The link stays the same.
 
+## Random calls from the raw call data
+
+The owner can paste the link of the phone system's raw call data Google Sheet in Settings (Team settings). The sheet
+stays where it is; the Apps Script reads it on every pick, so it only has to be shared (view access) with the Google
+account that runs the script. From then on, the random call on the calls form is drawn on the server from answered
+calls of 1 minute or more for that agent, and a call that was already evaluated, turned down, or picked in the last 3
+days is never drawn again. Every pick goes to the "Call picks" tab. Agents are matched by their extension (Roster
+column I) or by name; "Check the data" in Settings lists anyone who isn't matched.
+
 ## Privacy
 
 The tool itself holds no evaluation data. Evaluations live only in the Google Sheet. Do not put customer names or phone numbers in comments; use the Odoo lead ref.

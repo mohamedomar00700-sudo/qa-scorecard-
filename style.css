@@ -273,3 +273,7 @@ tr.muted td { color: var(--muted); }
 .cs-form .hint { flex-basis: 100%; margin: 0; }
 .cs-form input { flex: 1 1 260px; min-width: 0; }
 .names li:has(.cs-form) { flex-wrap: wrap; }
+.picker.busy { opacity: .6; pointer-events: none; }
+.call-card { font-size: 15px; margin: 4px 0; }
+.call-card code { background: var(--card, #fff); border: 1px solid var(--line, #d6dde8); border-radius: 4px; padding: 1px 6px; user-select: all; }
+.call-card button.small { padding: 2px 8px; font-size: 13px; }
