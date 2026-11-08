@@ -2968,11 +2968,12 @@
     });
     return out;
   }
+  const phoneCell = (r) => (r.phone ? { v: normPhone(r.phone), t: "s" } : ""); // text, so Excel does not show 9.71E+11
   function recordRows(list) {
     const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
-      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", r.phone ? normPhone(r.phone) : "", r.odooRef || "", r.outcome || "", r.odooTag || "",
+      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", phoneCell(r), r.odooRef || "", r.outcome || "", r.odooTag || "",
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
@@ -2988,7 +2989,7 @@
       [...recs].sort((x, y) => String(x.savedAt || "").localeCompare(String(y.savedAt || ""))).forEach((r) => (r.items || []).forEach((i) => { const c = cols.find((c) => c.k === itemKey(i)); if (c) c.i = i; else cols.push({ k: itemKey(i), i }); })); // newest wording wins
       const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Customer number", "Purpose", "Final score", "Result", "Critical errors", "Non-critical missed", ...cols.map((c) => c.k + " [" + itemCat(c.i) + "] " + c.i.text)];
       const rows = recs.map((r) => { const by = {}; (r.items || []).forEach((i) => (by[itemKey(i)] = i));
-        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", r.phone ? normPhone(r.phone) : "", purposeLabel(r), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
+        return [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", phoneCell(r), purposeLabel(r), r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
           r.critical || 0, (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length,
           ...cols.map((c) => { const i = by[c.k]; return i ? i.result + ((i.result === "Not met" || i.result === "Error") && i.comment ? ": " + i.comment : "") : ""; })]; });
       const sum = [["Item", "Category", "Item text", "Evaluated (not N/A)", "Errors / Not met", "Error rate"], ...cols.map((c) => {
