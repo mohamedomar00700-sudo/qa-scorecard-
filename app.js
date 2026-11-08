@@ -357,13 +357,47 @@
         if (key === "evaluator") { saveDraft(); renderHeader(); return; } // the evaluation level depends on who scores (Quality vs operations)
         if (key === "interactionDate") { a.header.kbVersion = kbFor(input.value); const kb = $("#hd_kbVersion"); if (kb) kb.value = a.header.kbVersion; }
         if (["odooRef", "phone", "interactionDate", "purpose"].includes(key)) checkSameCall();
-        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt"]) delete a.header[k]; } saveDraft(); renderHeader(); return; }
+        if (key === "selection") { if (input.value !== "random") { delete a.header.pick; delete a.header.pickAgent; for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "promises"]) delete a.header[k]; } saveDraft(); renderHeader(); return; }
         if (key === "outcome") { const st = F.odoo.stages.find((s) => s.name === input.value); if (!st || !st.tags.includes(a.header.odooTag)) a.header.odooTag = ""; saveDraft(); renderHeader(); return; }
         saveDraft(); updateScore();
       });
       box.append(h("label", {}, lab + (req ? " *" : ""), input, progHint ? h("span", { class: "hint", text: progHint }) : null));
       if (key === "selection" && (a.header.selection || "random") === "random") box.append(pickerFor(a));
     }
+    if (!["roleplay", "calibration"].includes(purposeOf(a.header))) box.append(promisesField(a));
+  }
+
+  // ---------- Promises made to the customer in this call (call back at a time, send offers / location on WhatsApp) ----------
+  // They never change this call's score. Promised calls are checked later against the raw call data (Promises page);
+  // WhatsApp promises are marked sent / not sent there. Something due right away (send the location now) and not done
+  // is still scored in the call itself.
+  function promisesField(a) {
+    const box = h("div", { class: "promises-box" });
+    const list = () => (a.header.promises = a.header.promises || []);
+    const draw = () => {
+      box.innerHTML = "";
+      box.append(h("div", { class: "pr-head" }, h("div", {}, h("b", { text: "🤝 " + t("pr_title") }), h("div", { class: "hint", text: t("pr_hint") })),
+        h("div", { class: "pr-add" },
+          h("button", { type: "button", class: "ghost", text: "📞 " + t("pr_add_call"), onclick: () => { list().push({ kind: "call", due: "", time: "" }); saveDraft(); draw(); } }),
+          h("button", { type: "button", class: "ghost", text: "💬 " + t("pr_add_wa"), onclick: () => { list().push({ kind: "wa", what: "offers", due: (a.header.interactionDate || today()).slice(0, 10) }); saveDraft(); draw(); } }))));
+      list().forEach((q, i) => {
+        const set = (k, v) => { q[k] = v; saveDraft(); };
+        const row = h("div", { class: "pr-row" }, h("span", { class: "pr-kind", text: q.kind === "call" ? "📞 " + t("pr_call") : "💬 " + t("pr_wa") }));
+        if (q.kind === "wa") {
+          const sel = h("select", {}, ["offers", "location", "prices", "other"].map((o) => h("option", { value: o, text: t("pr_what_" + o) })));
+          sel.value = q.what || "offers"; sel.onchange = () => set("what", sel.value);
+          row.append(h("label", {}, t("pr_what"), sel));
+        }
+        const d = h("input", { type: "date", value: q.due || "" }); d.onchange = () => set("due", d.value);
+        row.append(h("label", {}, t(q.kind === "call" ? "pr_due" : "pr_wa_due"), d));
+        if (q.kind === "call") { const tm = h("input", { type: "time", value: q.time || "" }); tm.onchange = () => set("time", tm.value); row.append(h("label", {}, t("pr_time"), tm)); }
+        row.append(h("button", { type: "button", class: "ghost pr-del", title: t("pr_del"), text: "✕", onclick: () => { list().splice(i, 1); saveDraft(); draw(); } }));
+        box.append(row);
+      });
+      if (list().some((q) => q.kind === "call")) box.append(h("div", { class: "hint", text: t("pr_time_hint") }));
+    };
+    draw();
+    return box;
   }
 
   // Random call picker: a random working day in the last week and a random time in working hours; the evaluator takes
@@ -1045,6 +1079,8 @@
       else if (a.header.interactionDate && new Date(a.header.interactionDate).getTime() <= coachTime(o)) problems.push(t("fu_before", { d: dtText(o.coachedAt) }));
     }
     if (!a.header.odooRef && !a.header.phone) problems.push(t("ref_needed"));
+    if ((a.header.promises || []).some((q) => !q.due)) problems.push(t("pr_need_day"));
+    if ((a.header.promises || []).some((q) => q.kind === "call") && !a.header.phone) problems.push(t("pr_need_phone"));
     if (a.header.interactionDate && purposeOf(a.header) !== "roleplay") {
       const when = new Date(a.header.interactionDate), now = Date.now();
       if (isNaN(when) || when.getTime() > now + 10 * 60000) problems.push(t("bad_future"));
@@ -1294,7 +1330,7 @@
     if (typing) return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { renderCoachingView(); renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { if ($("#view-promises").classList.contains("active")) { prData = null; renderPromises(); } renderCoachingView(); renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -2112,6 +2148,62 @@
         c.fu ? evalIdOf(c.fu) : "", c.fu ? whenText(c.fu) : "", c.fu ? pct(c.fu.final) : "", c.fu ? c.fu.result : "", t(stWord[c.step])];
     })];
   }
+  // ---------- Promises page: On Time for promised call backs (from the raw call data) and WhatsApp sent rate ----------
+  let prData = null, prBusy = false;
+  async function loadPromises() {
+    if (!connected() || prBusy) return;
+    prBusy = true;
+    try { prData = await apiGet({ action: "promises" }); } catch (e) { prData = { error: e.message, items: [] }; }
+    prBusy = false; renderPromises();
+  }
+  function renderPromises() {
+    const out = $("#prOut"); if (!out) return;
+    $("#prPeriod").onchange = renderPromises; $("#prAgent").onchange = renderPromises; $("#prReload").onclick = () => { prData = null; renderPromises(); };
+    out.innerHTML = "";
+    if (!prData) { out.append(h("div", { class: "empty", text: connected() ? "…" : t("pr_need_sheet") })); if (connected()) loadPromises(); return; }
+    if (prData.error) { out.append(h("div", { class: "msg err", text: prData.error })); return; }
+    const per = $("#prPeriod").value, ag = $("#prAgent").value, now = today();
+    const inPer = (x) => { const d = x.due || x.callAt.slice(0, 10); if (per === "month") return d.slice(0, 7) === now.slice(0, 7); if (per === "last") { const lm = addDays(now.slice(0, 8) + "01", -1).slice(0, 7); return d.slice(0, 7) === lm; } if (per === "30") return d >= addDays(now, -30); return true; };
+    const items = (prData.items || []).filter((x) => inPer(x) && (!ag || x.agent === ag));
+    const agents = [...new Set((prData.items || []).map((x) => x.agent).filter(Boolean))].sort();
+    const selA = $("#prAgent"); if (selA.options.length !== agents.length + 1) { const v = selA.value; selA.innerHTML = ""; selA.append(h("option", { value: "", text: t("f_all_agents") }), ...agents.map((n) => h("option", { value: n, text: n }))); selA.value = v; }
+    const calls = items.filter((x) => x.kind === "call"), was = items.filter((x) => x.kind !== "call");
+    const done = calls.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status));
+    const n = (st, list) => (list || calls).filter((x) => x.status === st).length;
+    const pctOf = (a, b) => (b ? Math.round((a / b) * 1000) / 10 + "%" : "–");
+    const waDone = was.filter((x) => x.status !== "pending");
+    const tile = (k, v, s, cls) => h("div", { class: "tile" + (cls ? " " + cls : "") }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), s ? h("div", { class: "tile-s", text: s }) : null);
+    out.append(h("div", { class: "card" }, h("h2", { text: t("pr_kpis") }),
+      h("p", { class: "hint", text: t("pr_rule", { m: prData.tolMin || 60, d: prData.dataTo || "–" }) + (prData.callsError ? " ⚠️ " + (t(prData.callsError) !== prData.callsError ? t(prData.callsError) : prData.callsError) : "") }),
+      h("div", { class: "tiles" },
+        tile(t("pr_k_ontime"), pctOf(n("ontime"), done.length), t("pr_target95"), done.length && n("ontime") / done.length >= 0.95 ? "good" : done.length ? "bad" : ""),
+        tile(t("pr_s_ontime"), String(n("ontime"))), tile(t("pr_s_late"), String(n("late"))), tile(t("pr_s_early"), String(n("early"))), tile(t("pr_s_missed"), String(n("missed"))), tile(t("pr_s_pending"), String(n("pending"))),
+        tile(t("pr_k_wa"), pctOf(n("sent", was), waDone.length), t("pr_k_wa_s", { n: n("pending", was) })))));
+    // by agent
+    const rows = agents.filter((a) => !ag || a === ag).map((a) => { const c = calls.filter((x) => x.agent === a), dn = c.filter((x) => ["ontime", "late", "early", "missed"].includes(x.status)), w = was.filter((x) => x.agent === a), wd = w.filter((x) => x.status !== "pending");
+      return [a, c.length, pctOf(c.filter((x) => x.status === "ontime").length, dn.length), c.filter((x) => x.status === "late").length, c.filter((x) => x.status === "missed").length, w.length, pctOf(w.filter((x) => x.status === "sent").length, wd.length)]; }).filter((r) => r[1] || r[5]);
+    if (rows.length) out.append(h("div", { class: "card" }, h("h2", { text: t("pr_by_agent") }), h("table", {}, h("thead", {}, h("tr", {}, [t("f_agent"), t("pr_c_calls"), "On Time", t("pr_s_late"), t("pr_s_missed"), t("pr_c_wa"), t("pr_k_wa")].map((x) => h("th", { text: x })))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: i ? "num" : "", text: String(v) }))))))));
+    // list
+    const order = { missed: 0, notsent: 1, late: 2, early: 3, pending: 4, nophone: 5, nodate: 6, ontime: 7, sent: 8 };
+    const list = items.slice().sort((x, y) => (order[x.status] - order[y.status]) || String(x.due).localeCompare(String(y.due)));
+    const mark = async (x, sent, clear) => { try { await apiPostJson({ action: "promiseMark", id: x.id, i: x.i, sent, clear: !!clear }); x.mark = clear ? null : { ok: sent, by: settings.who }; x.status = clear ? "pending" : sent ? "sent" : "notsent"; renderPromises(); } catch (e) { alert(e.message); } };
+    out.append(h("div", { class: "card" }, h("h2", { text: t("pr_list") }),
+      list.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, [t("pr_c_status"), t("f_agent"), t("pr_c_promise"), t("pr_c_due"), t("pr_c_match"), "ID"].map((x) => h("th", { text: x })))),
+        h("tbody", {}, list.map((x) => h("tr", {},
+          h("td", {}, h("span", { class: "pill pr-st " + x.status, text: t("pr_st_" + x.status) })),
+          h("td", { text: x.agent || "–" }),
+          h("td", { text: x.kind === "call" ? "📞 " + t("pr_call") : "💬 " + t("pr_what_" + (x.what || "other")) }),
+          h("td", { dir: "ltr", text: (x.due || "–") + (x.time ? " " + hm12(x.time) : "") }),
+          h("td", {}, x.match ? h("div", { dir: "auto", text: x.match.at.slice(5) + " · " + x.match.by + " · " + x.match.status }) : null,
+            x.kind !== "call" ? h("div", { class: "pr-marks" },
+              h("button", { type: "button", class: "ghost" + (x.status === "sent" ? " on-good" : ""), text: "✓ " + t("pr_sent"), onclick: () => mark(x, true) }),
+              h("button", { type: "button", class: "ghost" + (x.status === "notsent" ? " on-bad" : ""), text: "✗ " + t("pr_notsent"), onclick: () => mark(x, false) }),
+              x.mark ? h("span", { class: "meta", text: x.mark.by || "" }) : null) : null),
+          h("td", { class: "eval-id-tag", text: x.evalId }))))))
+      : h("div", { class: "empty", text: t("pr_none") })));
+  }
+
   function renderCoachingView() {
     const out = $("#coOut"); if (!out) return;
     const all = allRecords().filter((r) => !r.test);
