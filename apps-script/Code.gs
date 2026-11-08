@@ -154,10 +154,29 @@ function renamePerson_(role, from, to) {
       sh.getRange(2, col, n, 1).setValues(names);
       sh.getRange(2, JSON_COL, n, 1).setValues(json);
     }
+    // The same name in the other tabs, so totals and lists don't split between the old and new name.
+    renameIn_(PICKS_NAME, [4, 5], from, to);
+    renameIn_(BK_NAME, [3, 5], from, to);
+    renameIn_(QUIZ_NAME, [5], from, to);
+    renameIn_(ASK_NAME, [2], from, to);
   } finally {
     lock.releaseLock();
   }
   return { ok: true };
+}
+
+// Replace an exact name in the given columns of one tab (skipped if the tab doesn't exist).
+function renameIn_(tab, cols, from, to) {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
+  if (!sh || sh.getLastRow() < 2) return;
+  const n = sh.getLastRow() - 1;
+  cols.forEach(function (c) {
+    if (c > sh.getLastColumn()) return;
+    const rng = sh.getRange(2, c, n, 1), v = rng.getValues();
+    let hit = false;
+    v.forEach(function (x) { if (String(x[0]) === from) { x[0] = to; hit = true; } });
+    if (hit) rng.setValues(v);
+  });
 }
 
 // Take a person off the list (Active = No). Past evaluations keep the name.
