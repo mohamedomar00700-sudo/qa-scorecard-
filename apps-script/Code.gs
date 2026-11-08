@@ -351,6 +351,9 @@ function emailAgent_(r) {
       '<p>أهلاً ' + esc_(r.agent) + '،</p><p>' + (post ? 'ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم ' + esc_(r.followOfId || '') + '، لـ' : coaching ? 'ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ' : prog ? 'ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ' : cert ? 'ده تقييم السرتيفيكيشن لـ' : 'ده تقييم الجودة لـ') + form + ' بتاريخ <span dir="ltr">' + esc_(when) + '</span>' + (ref ? ' (' + esc_(ref) + ')' : '') + '.</p>' +
       '<table style="border-collapse:collapse;background:#f6f6f6;border-radius:6px">' +
       row('رقم التقييم (Evaluation ID)', '<span dir="ltr">' + esc_(evalId_(r)) + '</span>') +
+      (r.callId ? row('رقم المكالمة (Call ID)', '<span dir="ltr">' + esc_(r.callId) + '</span>') : '') +
+      (r.callPbx || r.callExt ? row('الإيجنت على سيستم التليفونات', '<span dir="ltr">' + esc_(r.callPbx || r.agent) + (r.callExt ? ' · User ID ' + esc_(r.callExt) : '') + '</span>') : '') +
+      (r.callTalk ? row('مدة الكلام', '<span dir="ltr">' + Math.floor(r.callTalk / 60) + ':' + ('0' + Math.round(r.callTalk % 60)).slice(-2) + '</span>') : '') +
       row('النتيجة النهائية', '<span style="color:' + (pass ? '#1a7f37' : '#c62828') + '">' + pct_(r.final) + ' – ' + (pass ? 'ناجح' : 'محتاج تحسين') + '</span>') +
       tagRow +
       row('دقة البنود الحرجة', critPct) +
@@ -1847,7 +1850,7 @@ function pickCall_(b, me) {
     const x = list[Math.floor(Math.random() * list.length)];
     ph.appendRow([new Date(), x.id, x.day + ' ' + x.time, agent, me.name || 'Owner', 'picked', '', '']);
     return { ok: true, wider: wider, dataTo: dataTo, pool: list.length,
-      call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk } };
+      call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk, pbx: callAgent_(x.from, ro).pbx, ext: callAgent_(x.from, ro).ext } };
   } finally {
     lock.releaseLock();
   }
