@@ -60,6 +60,23 @@
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
     $$("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
     $$("[data-i18n-ph]").forEach((el) => (el.placeholder = t(el.dataset.i18nPh)));
+    syncChips();
+  }
+  // Short filter lists (period, status, level) show as one-tap chips. The select stays in the page (visually hidden)
+  // so the existing code, saved choices and the PDF filter line keep working.
+  function syncChips() {
+    $$("select[data-chips]").forEach((sel) => {
+      const lbl = sel.closest("label"); if (!lbl) return;
+      let row = lbl.nextElementSibling && lbl.nextElementSibling.classList.contains("chip-field") ? lbl.nextElementSibling : null;
+      if (!row) {
+        row = h("div", { class: "chip-field" }); lbl.after(row); lbl.classList.add("sr-only");
+        sel.addEventListener("change", syncChips); sel.addEventListener("input", syncChips);
+      }
+      row.innerHTML = "";
+      row.append(h("span", { class: "chip-field-k", text: (lbl.querySelector("span") || {}).textContent || "" }),
+        h("div", { class: "chip-row" }, [...sel.options].filter((o) => !o.hidden).map((o) => h("button", { type: "button", class: "chip" + (o.value === sel.value ? " active" : ""), text: o.textContent,
+          onclick: () => { if (sel.value === o.value) return; sel.value = o.value; sel.dispatchEvent(new Event("input", { bubbles: true })); sel.dispatchEvent(new Event("change", { bubbles: true })); syncChips(); } }))));
+    });
   }
 
   const toCsv = (rows) => "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\n");
@@ -1350,7 +1367,7 @@
     if (typing) return;
     loadFromSheet();
   }, 60000);
-  function refreshViews() { if ($("#view-promises").classList.contains("active")) { prData = null; renderPromises(); } renderCoachingView(); renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); }
+  function refreshViews() { if ($("#view-promises").classList.contains("active")) { prData = null; renderPromises(); } renderCoachingView(); renderMyWork(); renderCalibration(); renderDashboard(); renderReports(); renderCertification(); renderGuide(); renderRecords(); renderKb(); syncChips(); }
 
   // ---------- saved evaluations: find, open to correct, delete ----------
   // Phone numbers are wrapped in a left-to-right isolate so "+971…" never flips in Arabic.
@@ -2273,8 +2290,67 @@
       : h("div", { class: "empty", text: t("pr_none") })));
   }
 
+  // ---------- repeated failure: critical errors ladder (chosen by Mohamed, 2026-11-09) ----------
+  // Agent level critical errors only, in call-date order. Each critical moves the agent up one stage (max 4) and starts that
+  // stage's clean window (stage 1: 2 months, 2: 3 months, 3 and 4: 4 months). A window that passes with no critical moves the
+  // agent DOWN one stage, and the next stage's window starts where the last one ended. COPC 3.4.2: failing agents get more
+  // monitoring and 1-on-1 coaching; repeat critical errors mean removal from customer contact until corrective action works.
+  // The tool only shows the stage and the next step; warnings and decisions follow HR's rules.
+  const RF_WIN = [0, 2, 3, 4, 4];
+  const addMonths = (day, n) => { const d = new Date(day + "T12:00:00"), dd = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); d.setDate(Math.min(dd, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return ymdOf(d); };
+  function rfLadder(list) {
+    const ev = list.filter((r) => !r.test && purposeOf(r) === "live" && r.critical > 0 && callDay(r)).sort((a, b) => callDay(a).localeCompare(callDay(b)));
+    let stage = 0, until = "";
+    const hist = [];
+    const decay = (day) => { while (stage > 0 && until && day > until) { const from = until; stage--; until = stage ? addMonths(from, RF_WIN[stage]) : ""; hist.push({ kind: "down", day: from, stage }); } };
+    ev.forEach((r) => {
+      decay(callDay(r));
+      stage = Math.min(4, stage + 1); until = addMonths(callDay(r), RF_WIN[stage]);
+      hist.push({ kind: "up", day: callDay(r), stage, r });
+    });
+    decay(today());
+    return { stage, until, hist, last: ev[ev.length - 1] || null, n: ev.length };
+  }
+  const rfAction = (st) => [
+    tl("نضيف. مفيش إجراء.", "Clean. No action."),
+    tl("جلسة كوتشينج خلال 48 ساعة، وبعدها كوتشينج كول.", "Coaching session within 48 hours, then a coaching call."),
+    tl("تقييمات زيادة (مثلاً 2 زيادة في الأسبوع) + خطة تحسين مكتوبة (PIP) مع الليدر.", "Extra evaluations (e.g. 2 more a week) + a written improvement plan (PIP) with the team leader."),
+    tl("يتشال من المكالمات، ويتعمله ريترينينج وريسيرتيفيكيشن قبل ما يرجع.", "Off the phones: retraining and re-certification before returning."),
+    tl("قعدة مع الليدر وHR وحسين: فرصة أخيرة أو إنهاء.", "Meeting with the team leader, HR and Hussein: last chance or termination."),
+  ][st];
+  const rfName = (st) => (st ? tl("مرحلة ", "Stage ") + st : tl("نضيف", "Clean"));
+  function renderRepeatFailure() {
+    const box = $("#coRf"); if (!box) return;
+    box.innerHTML = "";
+    const all = allRecords().filter((r) => !r.test);
+    const agents = [...new Set([...(roster.agents || []), ...all.filter((r) => purposeOf(r) === "live").map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+    const pick = ($("#coAgent") || {}).value || "";
+    const rows = agents.filter((a) => !pick || a === pick).map((a) => Object.assign({ a }, rfLadder(all.filter((r) => nameKey(r.agent) === nameKey(a))))).sort((x, y) => y.stage - x.stage || y.n - x.n || x.a.localeCompare(y.a));
+    const counts = [0, 1, 2, 3, 4].map((st) => rows.filter((r) => r.stage === st).length);
+    const td = today();
+    const left = (d) => Math.max(0, Math.round((new Date(d + "T12:00:00") - new Date(td + "T12:00:00")) / 864e5));
+    box.append(h("h2", { text: tl("🔁 تكرار الأخطاء الكريتيكال (Repeated failure)", "🔁 Repeated failure (critical errors)") }),
+      h("p", { class: "hint", text: tl("كل غلطة كريتيكال في Agent level بتطلّع الإيجنت مرحلة. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. البروجرام ليفل مش محسوب. الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
+        "Each Agent level critical error moves the agent up one stage. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Program level doesn't count. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
+      h("div", { class: "rf-ladder" }, [0, 1, 2, 3, 4].map((st) => h("div", { class: "rf-step s" + st }, h("div", { class: "rf-step-n", text: String(counts[st]) }), h("div", { class: "rf-step-k", text: rfName(st) }), h("div", { class: "rf-step-a", text: rfAction(st) })))));
+    const tb = h("table", {}, h("tr", {}, [tl("الإيجنت", "Agent"), tl("المرحلة", "Stage"), tl("المطلوب", "Next step"), tl("لازم يفضل نضيف لحد", "Clean until"), tl("آخر كريتيكال", "Last critical"), tl("السجل", "History")].map((x) => h("th", { text: x }))));
+    rows.forEach((x) => {
+      const last = x.last;
+      const crit = last ? (last.items || []).filter((i) => i.kind !== "NC" && i.result === "Error").map((i) => "[" + i.kind + "] " + (i.text || "").slice(0, 40)).join("، ") : "";
+      tb.append(h("tr", { class: x.stage ? "" : "muted" },
+        h("td", {}, h("b", { text: x.a })),
+        h("td", {}, h("span", { class: "rf-pill s" + x.stage, text: rfName(x.stage) })),
+        h("td", { class: "rf-act", text: x.stage ? rfAction(x.stage) : "–" }),
+        h("td", { dir: "ltr", class: "num" }, x.stage ? h("div", {}, h("div", { text: x.until }), h("div", { class: "meta", text: tl("فاضل ", "") + left(x.until) + tl(" يوم", " days left") })) : "–"),
+        h("td", {}, last ? h("div", {}, h("div", { dir: "ltr", text: callDay(last) + " · " + evalIdOf(last) }), h("div", { class: "meta", text: crit })) : "–"),
+        h("td", {}, h("div", { class: "rf-hist" }, x.hist.slice(-8).map((e) => h("span", { class: "pill " + (e.kind === "up" ? "bad" : "good"), dir: "ltr", title: e.kind === "up" ? evalIdOf(e.r) : tl("عدّى المدة نضيف", "Clean window passed"), text: (e.kind === "up" ? "▲ " : "▼ ") + e.stage + " · " + e.day.slice(5) }))))));
+    });
+    box.append(h("div", { class: "table-wrap" }, tb));
+    lastLists.repeat = rows;
+  }
   function renderCoachingView() {
     const out = $("#coOut"); if (!out) return;
+    renderRepeatFailure();
     const all = allRecords().filter((r) => !r.test);
     const days = Number($("#coPeriod").value) || 30, since = addDays(today(), -days);
     const failed = all.filter((r) => needsCoaching(r) && String(failStart(r)).slice(0, 10) >= since);
@@ -2813,7 +2889,6 @@
   const isMiss = (i) => i.result === "Not met" || i.result === "Error";
   function rpRange(p) {
     const d = new Date();
-    if (p === "lastweek") { const s = new Date(weekStart(ymdOf(d)) + "T00:00:00"); s.setDate(s.getDate() - 7); const e = new Date(s); e.setDate(e.getDate() + 6); return [ymdOf(s), ymdOf(e)]; }
     if (p === "all") return ["", ""];
     return periodRange(p);
   }
@@ -2869,6 +2944,7 @@
     RP_SECTIONS.forEach((k) => box.append(h("label", { class: "check" }, h("input", { type: "checkbox", checked: rpState.secs.includes(k) ? "" : null, onchange: (e) => {
       rpState.secs = e.target.checked ? RP_SECTIONS.filter((x) => x === k || rpState.secs.includes(x)) : rpState.secs.filter((x) => x !== k); store(LS_REPORT, rpState); renderReports(); } }), t("rp_s_" + k))));
     if (rpState.preset !== "custom") { const [a, b] = rpRange(rpState.preset); $("#rpFrom").value = a; $("#rpTo").value = b; }
+    syncChips();
     const f = { form: $("#rpForm").value, agent: $("#rpAgent").value, ev: $("#rpEvaluator").value, type: $("#rpType").value, level: $("#rpLevel").value || "agent", method: $("#rpMethod").value, from: $("#rpFrom").value, to: $("#rpTo").value };
     const pick = (from, to) => all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) && (!f.type || r.type === f.type) &&
       (!f.method || (r.method || "recording") === f.method) && (!from || callDay(r) >= from) && (!to || callDay(r) <= to) &&
@@ -2984,7 +3060,9 @@
     const d = new Date(), ymd = (x) => x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
     if (p === "month") return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), ymd(d)];
     if (p === "lastmonth") return [ymd(new Date(d.getFullYear(), d.getMonth() - 1, 1)), ymd(new Date(d.getFullYear(), d.getMonth(), 0))];
-    if (p === "week") return [weekStart(ymd(d)), ymd(d)];
+    // Weeks follow the month: 1-7, 8-14, 15-21, 22-end (same as the dashboard and the weekly targets).
+    if (p === "week") return mWeekRange(ymd(d).slice(0, 7), mWeekOf(ymd(d)));
+    if (p === "lastweek") { const [m, w] = prevMWeek(ymd(d).slice(0, 7), mWeekOf(ymd(d))); return mWeekRange(m, w); }
     return ["", ""];
   }
   const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"];
@@ -3001,6 +3079,55 @@
       avg: avg(counted.map((r) => r.final).filter((x) => x !== null && x !== undefined)),
       crit: list.reduce((s, r) => s + (r.critical || 0), 0),
     };
+  }
+  // "My work" target card: this week's and this month's numbers against the weekly targets, by CALL date.
+  // Team leaders see the team's Agent level count (target per agent × agents) and which agents still need calls this week;
+  // Quality sees the Program level count against its weekly target and who hasn't been heard yet this week.
+  function renderMyTarget(who, all) {
+    const box = $("#mwTarget"); if (!box) return;
+    box.innerHTML = "";
+    const td = today(), ym = td.slice(0, 7), w = mWeekOf(td), [wa, wb] = mWeekRange(ym, w);
+    const perAgent = Number(teamCfg.leaderWeekly) || 4, qWeek = Number(teamCfg.qualityWeekly) || 40;
+    const agents = (roster.agents || []).slice().sort((a, b) => a.localeCompare(b));
+    const inWeek = (r) => callDay(r) >= wa && callDay(r) <= wb, inMonth = (r) => callDay(r).slice(0, 7) === ym;
+    const mineOf = (l) => (who ? l.filter((r) => nameKey(r.evaluator) === nameKey(who)) : l);
+    const days = (new Date(wb + "T12:00:00") - new Date(wa + "T12:00:00")) / 864e5 + 1, gone = (new Date(td + "T12:00:00") - new Date(wa + "T12:00:00")) / 864e5 + 1;
+    const mDays = +monthEnd(ym).slice(8, 10), mGone = +td.slice(8, 10);
+    const meter = (title, n, target, sub, cls, month) => {
+      const pace = Math.ceil(target * (month ? mGone / mDays : gone / days)), f = target ? Math.min(1, n / target) : 0;
+      const st = n >= target ? ["good", "✓ " + tl("التارجت اتحقق", "Target met")] : n >= pace ? ["info", tl("ماشي في الميعاد", "On pace")] : ["warn", tl("المفروض لحد النهارده ", "Pace by today ") + pace];
+      return h("div", { class: "mt-meter" },
+        h("div", { class: "mt-k", text: title }),
+        h("div", { class: "mt-v", dir: "ltr" }, h("b", { text: String(n) }), " / " + target),
+        h("div", { class: "tg-bar" }, h("div", { class: "tg-fill " + (cls || st[0]), style: "width:" + (f * 100).toFixed(1) + "%" })),
+        h("div", { class: "mt-s" }, h("span", { class: "pill " + st[0], text: st[1] }), sub ? h("span", { class: "meta", text: sub }) : null));
+    };
+    const isQ = who && isQualityName(who), showL = !isQ, showQ = !who || isQ;
+    const kids = [h("div", { class: "tg-top" }, h("h2", { text: tl("التارجت · ", "Targets · ") + wkName(w) + " (" + wkDays(w) + ") · " + monthLabel(ym) }),
+      h("span", { class: "meta", text: tl("بتاريخ المكالمة", "by call date") }))];
+    const grid = h("div", { class: "mt-grid" });
+    if (showL) {
+      const live = all.filter((r) => purposeOf(r) === "live");
+      const wk = live.filter(inWeek), mo = live.filter(inMonth), lw = perAgent * (agents.length || 1);
+      grid.append(meter(tl("الليدرز · الأسبوع ده", "Team leaders · this week"), wk.length, lw, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(wk).length : ""),
+        meter(tl("الليدرز · الشهر ده", "Team leaders · this month"), mo.length, lw * 4, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(mo).length : "", "", true));
+      const need = agents.map((a) => [a, wk.filter((r) => nameKey(r.agent) === nameKey(a)).length]).filter(([, n]) => n < perAgent);
+      kids.push(grid);
+      kids.push(h("div", { class: "mt-need" }, h("b", { text: need.length ? tl("لسه محتاجين الأسبوع ده:", "Still needed this week:") : "✓ " + tl("كل الإيجنتس خدوا " + perAgent + " الأسبوع ده", "Every agent has " + perAgent + " this week") }),
+        ...need.map(([a, n]) => h("span", { class: "pill " + (n ? "warn" : "bad"), dir: "auto", text: a + " · " + n + "/" + perAgent }))));
+    }
+    if (showQ) {
+      const prog = all.filter((r) => purposeOf(r) === "program");
+      const wk = mineOf(prog.filter(inWeek)), mo = mineOf(prog.filter(inMonth));
+      const g2 = showL ? h("div", { class: "mt-grid" }) : grid;
+      g2.append(meter(tl("الكواليتي · الأسبوع ده", "Quality · this week"), wk.length, qWeek, "", "c2"), meter(tl("الكواليتي · الشهر ده", "Quality · this month"), mo.length, qWeek * 4, "", "c2", true));
+      if (!showL) kids.push(g2); else kids.push(g2);
+      const heard = new Set(prog.filter(inWeek).map((r) => nameKey(r.agent)));
+      const left = agents.filter((a) => !heard.has(nameKey(a)));
+      kids.push(h("div", { class: "mt-need" }, h("b", { text: left.length ? tl("لسه متسمعوش في عينة الأسبوع ده:", "Not heard in this week's sample yet:") : "✓ " + tl("كل الإيجنتس اتسمعوا الأسبوع ده", "Every agent heard this week") }),
+        ...left.map((a) => h("span", { class: "pill info", dir: "auto", text: a }))));
+    }
+    box.append(...kids);
   }
   function renderMyWork() {
     if (!$("#view-mywork")) return;
@@ -3037,6 +3164,7 @@
     section("#mwKpis", t("overview"), null, s.n ? h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub }))))
       : h("div", { class: "empty", text: all.length ? t("mw_none") : t("db_empty") }));
     renderCopcAlerts("#mwAlerts", mine, all);
+    renderMyTarget(who, all);
 
     // Agent coverage against the monthly target (agent-level evaluations by anyone, so the team sees who is still missing).
     const target = Number(teamCfg.monthlyTarget) || 0;
