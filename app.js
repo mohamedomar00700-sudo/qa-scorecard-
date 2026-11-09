@@ -1627,10 +1627,12 @@
     fillSelect($("#recEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     if ($("#recSearch") && /@/.test($("#recSearch").value)) $("#recSearch").value = "";
-    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase() };
+    const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase(), per: ($("#recPeriod") || {}).value || "" };
+    const [pFrom, pTo] = f.per ? periodRange(f.per) : ["", ""];
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
       (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
+      (!pFrom || callDay(r) >= pFrom) && (!pTo || callDay(r) <= pTo) &&
       (!f.q || [evalIdOf(r), r.id, r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
@@ -1638,21 +1640,31 @@
     if (unsent.length && f.sel !== "unsent") out.append(h("div", { class: "msg err" }, t("mail_unsent_banner", { n: unsent.length }), " ",
       h("button", { type: "button", text: t("mail_unsent_show"), onclick: () => { $("#recSel").value = "unsent"; renderRecords(); } })));
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
+    // Summary strip for what is listed; the coaching and email numbers filter the list when clicked.
+    const real = recs.filter((r) => !r.test), fins = real.map((r) => r.final).filter((x) => x !== null && x !== undefined);
+    const passN = real.filter((r) => r.result === "Pass").length, unc = real.filter((r) => needsCoaching(r) && !isCoached(r)).length, uns = recs.filter(mailPending).length;
+    const stat = (k, v, cls, on) => h(on ? "button" : "div", Object.assign({ class: "rec-stat" + (cls ? " " + cls : "") }, on ? { type: "button", onclick: on } : {}), h("b", { text: String(v) }), h("span", { text: k }));
+    out.append(h("div", { class: "rec-stats" },
+      stat(tl("تقييم", "evaluations"), recs.length),
+      stat(tl("متوسط النهائي", "average final"), pct(avg(fins)), avg(fins) !== null && avg(fins) < PASS ? "bad" : "good"),
+      stat(tl("نسبة النجاح", "pass rate"), pct(real.length ? passN / real.length : null)),
+      stat(tl("محتاجة كوتشينج", "need coaching"), unc, unc ? "warn" : "", unc ? () => { $("#recSel").value = "uncoached"; renderRecords(); } : null),
+      stat(tl("إيميل لسه متبعتش", "email not sent"), uns, uns ? "bad" : "", uns ? () => { $("#recSel").value = "unsent"; renderRecords(); } : null)));
     const fixable = f.p === "test" && connected() ? recs.filter((r) => r.test && canChange(r)) : [];
     if (fixable.length) out.append(h("div", { class: "msg" }, t("test_fix_hint", { n: fixable.length }), " ",
       h("button", { type: "button", text: t("test_fix_btn", { n: fixable.length }), onclick: (e) => { if (confirm(t("test_fix_confirm", { n: fixable.length }))) unmarkTest(fixable, e.currentTarget); } })));
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
-      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null,
+      h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null, h("details", { class: "row-more" }, h("summary", { title: tl("أكتر", "More"), text: "⋯" }), h("div", { class: "row-more-menu" },
         // Sent automatically by the system (the designed email): no Outlook button, so the agent doesn't get it twice.
         mailable(r) ? (autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : outlookButton(r, true)) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
-        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null),
+        canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null))),
       h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", title: t("c_eval_id"), text: evalIdOf(r), onclick: () => { navigator.clipboard && navigator.clipboard.writeText(evalIdOf(r)); toast("ok", t("eval_id_copied", { id: evalIdOf(r) })); } })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
       h("td", { text: formName(r.form) }), h("td", { text: typeLabel(r.form, r.type || "") || "–" }),
-      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : "info"), text: purposeTag(r) }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" && purposeOf(r) !== "postcoach" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), followBadge(r), r.followOfId ? h("div", { class: "meta", text: t("fu_of", { id: r.followOfId }) }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
+      h("td", {}, h("span", { class: "pill " + (r.test ? "na" : purposeOf(r) === "live" ? "good" : purposeOf(r) === "program" ? "prog" : "info"), title: purposeTag(r), text: String(purposeTag(r)).replace(/\s*\(.*\)\s*$/, "") }), r.callTag ? h("span", { class: "pill tag-" + r.callTag, text: t("tag_" + r.callTag) }) : null, r.method === "sidebyside" ? h("div", { class: "meta", text: t("m_sidebyside") }) : null, selectionOf(r) === "targeted" && purposeOf(r) !== "postcoach" ? h("div", { class: "meta", text: t("sel_targeted") }) : null, coachBadge(r), followBadge(r), r.followOfId ? h("div", { class: "meta", text: t("fu_of", { id: r.followOfId }) }) : null, mailPending(r) ? h("div", { class: "meta warn", text: "✉ " + t("mail_pending") }) : null, pickTrail(r) ? h("div", { class: "meta warn", title: pickTrail(r), text: "🎲 " + t("pick_repicked", { n: r.pickLog.length - 1 }) }) : null, r.sampleRef ? h("div", { class: "meta", text: r.sampleRef }) : null),
       h("td", { dir: "ltr", text: refText(r) || "–" }),
       h("td", { class: "num" }, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: pct(r.final) })))));
     out.append(tbl);
@@ -2316,7 +2328,7 @@
     tl("جلسة كوتشينج خلال 48 ساعة، وبعدها كوتشينج كول.", "Coaching session within 48 hours, then a coaching call."),
     tl("تقييمات زيادة (مثلاً 2 زيادة في الأسبوع) + خطة تحسين مكتوبة (PIP) مع الليدر.", "Extra evaluations (e.g. 2 more a week) + a written improvement plan (PIP) with the team leader."),
     tl("يتشال من المكالمات، ويتعمله ريترينينج وريسيرتيفيكيشن قبل ما يرجع.", "Off the phones: retraining and re-certification before returning."),
-    tl("قعدة مع الليدر وHR وحسين: فرصة أخيرة أو إنهاء.", "Meeting with the team leader, HR and Hussein: last chance or termination."),
+    tl("قعدة مع الليدر وHR ومدير الـ CX: فرصة أخيرة أو إنهاء.", "Meeting with the team leader, HR and the CX head: last chance or termination."),
   ][st];
   const rfName = (st) => (st ? tl("مرحلة ", "Stage ") + st : tl("نضيف", "Clean"));
   function renderRepeatFailure() {
@@ -3879,7 +3891,7 @@
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
     ["#coAgent", "#coType", "#coStatus", "#coPeriod"].forEach((x) => $(x) && $(x).addEventListener("input", renderCoachingView));
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch", "#recPeriod"].forEach((s) => $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctMode", "#ctForm", "#ctFrom", "#ctTo"].forEach((s) => { if ($(s)) $(s).addEventListener("input", renderCertification); });
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
