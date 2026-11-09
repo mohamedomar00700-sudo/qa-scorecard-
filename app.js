@@ -106,7 +106,7 @@
   const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
   const mailMode = () => settings.mail || "auto";
   const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
-  let teamCfg = Object.assign({ monthlyTarget: 4 }, store("qa_team_cfg") || {});
+  let teamCfg = Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
   function signOut() {
     settings.session = ""; settings.email = ""; settings.who = ""; settings.owner = false; store(LS_SETTINGS, settings);
@@ -575,6 +575,16 @@
   const pickerFor = (a) => (rawCallsOn() || a.header.callId ? callPicker(a) : randomPicker(a));
   const mmss = (sec) => String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
   const hm12 = (tm) => { const [hh, mm] = String(tm || "").split(":").map(Number); if (isNaN(hh)) return tm || ""; return ((hh % 12) || 12) + ":" + String(mm || 0).padStart(2, "0") + (hh < 12 ? " AM" : " PM"); };
+  // First day a random call may come from: today and the last pickDays working days before it (closed days skipped).
+  // Apps Script enforces the same window on every pick.
+  function pickWindowFrom() {
+    const n = Math.max(1, Math.min(31, Number(teamCfg.pickDays) || 3));
+    const off = new Set(dayIdx(Array.isArray(teamCfg.closedDays) ? teamCfg.closedDays.join(",") : teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays));
+    const d = new Date(today() + "T12:00:00");
+    let left = n, guard = 0;
+    while (left > 0 && guard++ < 40) { d.setDate(d.getDate() - 1); if (!off.has(d.getDay())) left--; }
+    return ymdOf(d);
+  }
   function callPicker(a) {
     const box = h("div", { class: "picker call-panel" });
     const prog = progRandom(a);
@@ -605,14 +615,14 @@
       const log = (a.header.pickLog || []).slice();
       let agent = a.header.agent, prev = why ? a.header.callId || "" : "";
       if (prog && !why) { agent = drawProgramAgent(a.header.agent ? [a.header.agent] : []); if (!agent) { alert(t("prog_no_agents")); return; } }
-      const to = today(), from = prog ? today().slice(0, 8) + "01" : addDays(today(), -Math.max(1, Number(teamCfg.pickDays) || 7));
+      const to = today(), from = pickWindowFrom();
       const tried = [];
       busy = true;
       const stop = rolling(), t0 = Date.now();
       const settle = async () => { const wait = 1800 - (Date.now() - t0); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); stop(); };
       try {
         for (;;) {
-          const j = await apiPostJson({ action: "pickCall", agent, from, to, widen: !prog, workDays: prog ? 0 : Math.max(1, Number(teamCfg.pickDays) || 3), prev, why: why || "" });
+          const j = await apiPostJson({ action: "pickCall", agent, from, to, widen: !prog, workDays: Math.max(1, Number(teamCfg.pickDays) || 3), prev, why: why || "" });
           if (prev && log.length) { log[log.length - 1] = Object.assign({}, log[log.length - 1], { why }); prev = ""; a.header.pickLog = log; delete a.header.callId; saveDraft(); }
           if (j.call) {
             const c = j.call;
@@ -631,17 +641,17 @@
             return;
           }
           // Nothing left for this agent: on Program level the next agent is drawn; otherwise tell the evaluator.
-          if (!prog) { await settle(); busy = false; alert(t("call_none", { a: agent, d: j.dataTo || "–" })); renderHeader(); return; }
+          if (!prog) { await settle(); busy = false; alert(t("call_none", { a: agent, d: j.dataTo || "–", f: j.winFrom || from, n: j.winDays || Number(teamCfg.pickDays) || 3 })); renderHeader(); return; }
           tried.push(agent);
           agent = drawProgramAgent(tried);
-          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { await settle(); busy = false; alert(t("call_none_prog", { d: j.dataTo || "–" })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
+          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { await settle(); busy = false; alert(t("call_none_prog", { d: j.dataTo || "–", f: j.winFrom || from, n: j.winDays || Number(teamCfg.pickDays) || 3 })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
         }
       } catch (e) { stop(); busy = false; show(); alert(e.message); }
     };
     const tile = (icon, k, v, cls) => h("div", { class: "cp-tile" + (cls ? " " + cls : "") }, h("span", { class: "cp-ico", text: icon, "aria-hidden": "true" }), h("div", {}, h("div", { class: "cp-k", text: t(k) }), h("div", { class: "cp-v", dir: "auto", text: v })));
     const show = () => {
       box.innerHTML = "";
-      if (prog && a.header.callId && String(a.header.pick || "").slice(0, 10) < today().slice(0, 8) + "01") { for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
+      if (prog && a.header.callId && !current.edit && String(a.header.pick || "").slice(0, 10) < pickWindowFrom()) { for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
       const picked = a.header.callId && a.header.pickAgent === a.header.agent;
       if (!picked) {
         if (current.edit) return;
@@ -2487,17 +2497,195 @@
     box.append(h("div", { style: "overflow-x:auto" }, tbl));
   }
 
+  // ---------- dashboard ----------
+  // Weeks follow the month (agreed with Mohamed): week 1 = days 1-7, week 2 = 8-14, week 3 = 15-21, week 4 = 22 to the
+  // month's end. Everything here is by CALL date (the day of the call that was evaluated), not the day it was heard.
+  const tl = (ar, en) => (lang === "en" ? en : ar);
+  const LS_DB = "qa_db";
+  let dbState = Object.assign({ level: "agent", preset: "month", ym: "", w: 0 }, store(LS_DB) || {});
+  const MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+  const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthLabel = (ym) => (lang === "en" ? MONTHS_EN : MONTHS_AR)[+ym.slice(5, 7) - 1] + " " + ym.slice(0, 4);
+  const monthEnd = (ym) => ymdOf(new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0));
+  const shiftMonth = (ym, n) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1); return ymdOf(d).slice(0, 7); };
+  const mWeekOf = (day) => { const n = +String(day).slice(8, 10); return n <= 7 ? 1 : n <= 14 ? 2 : n <= 21 ? 3 : 4; };
+  function mWeekRange(ym, w) {
+    const from = ym + "-" + String((w - 1) * 7 + 1).padStart(2, "0");
+    return [from, w === 4 ? monthEnd(ym) : ym + "-" + String(w * 7).padStart(2, "0")];
+  }
+  const prevMWeek = (ym, w) => (w > 1 ? [ym, w - 1] : [shiftMonth(ym, -1), 4]);
+  const wkName = (w) => tl("الأسبوع " + w, "Week " + w);
+  const wkDays = (w) => (w === 4 ? tl("22–آخر الشهر", "22–end") : ((w - 1) * 7 + 1) + "–" + w * 7);
+  // [from, to, previous from, previous to] for the dashboard's period.
+  function dbRange() {
+    const td = today(), ym = td.slice(0, 7), s = dbState;
+    if (s.preset === "week" || s.preset === "lastweek" || s.preset === "mw") {
+      let wym = ym, w = mWeekOf(td);
+      if (s.preset === "lastweek") [wym, w] = prevMWeek(ym, w);
+      if (s.preset === "mw" && /^\d{4}-\d{2}$/.test(s.ym) && s.w >= 1 && s.w <= 4) { wym = s.ym; w = s.w; }
+      const [a, b] = mWeekRange(wym, w), [pym, pw] = prevMWeek(wym, w), [pa, pb] = mWeekRange(pym, pw);
+      return [a, b, pa, pb];
+    }
+    if (s.preset === "month") {
+      const pym = shiftMonth(ym, -1), pe = monthEnd(pym), sameDay = pym + "-" + td.slice(8, 10);
+      return [ym + "-01", monthEnd(ym), pym + "-01", sameDay < pe ? sameDay : pe];
+    }
+    if (s.preset === "lastmonth") { const p = shiftMonth(ym, -1), pp = shiftMonth(ym, -2); return [p + "-01", monthEnd(p), pp + "-01", monthEnd(pp)]; }
+    if (s.preset === "q3") { const a = shiftMonth(ym, -2) + "-01"; return [a, monthEnd(ym), shiftMonth(ym, -5) + "-01", monthEnd(shiftMonth(ym, -3))]; }
+    if (s.preset === "custom") { const a = $("#dbFrom").value, b = $("#dbTo").value; const [pa, pb] = a && b ? rpPrevRange(a, b) : ["", ""]; return [a, b, pa, pb]; }
+    return ["", "", "", ""];
+  }
+  const dbRefMonth = () => { const b = dbRange()[1]; return (b && b < today() ? b : today()).slice(0, 7); };
+  const fmtDay = (d) => (d ? +d.slice(8, 10) + " " + (lang === "en" ? MONTHS_EN : MONTHS_AR)[+d.slice(5, 7) - 1] : "");
+  const levelOk = (r, level) => {
+    const p = purposeOf(r);
+    if (level === "program") return p === "program";
+    if (level === "both") return p === "program" || (p === "live" && selectionOf(r) === "random");
+    return p === "live" && selectionOf(r) === "random";
+  };
+  function dbControls() {
+    const saveState = () => store(LS_DB, dbState);
+    const levels = [["agent", tl("Agent level", "Agent level"), tl("تقييمات الليدرز · محسوبة على الإيجنت", "Team leaders · counted for the agent")],
+      ["program", tl("Program level", "Program level"), tl("عينة الكواليتي · جودة الأكاونت", "Quality sample · account quality")],
+      ["both", tl("الاتنين مع بعض", "Both together"), tl("صورة الأكاونت كلها", "The whole account")]];
+    const lv = $("#dbLevels"); lv.innerHTML = "";
+    levels.forEach(([k, name, sub]) => lv.append(h("button", { type: "button", role: "tab", "aria-selected": String(dbState.level === k), class: "db-level" + (dbState.level === k ? " active" : ""),
+      onclick: () => { dbState.level = k; $("#dbCal").value = k === "both" ? "all" : k; saveState(); renderDashboard(); } },
+      h("span", { class: "db-level-name", text: name }), h("span", { class: "db-level-sub", text: sub }))));
+    $("#dbCal").value = dbState.level === "both" ? "all" : dbState.level;
+    const presets = [["week", tl("الأسبوع ده", "This week")], ["lastweek", tl("الأسبوع اللي فات", "Last week")], ["month", tl("الشهر ده", "This month")],
+      ["lastmonth", tl("الشهر اللي فات", "Last month")], ["q3", tl("آخر 3 شهور", "Last 3 months")], ["all", tl("كل الفترات", "All time")], ["custom", tl("تواريخ أختارها", "Custom dates")]];
+    const pr = $("#dbPresets"); pr.innerHTML = "";
+    presets.forEach(([k, name]) => pr.append(h("button", { type: "button", class: "chip" + (dbState.preset === k ? " active" : ""), text: name,
+      onclick: () => { dbState.preset = k; if (k === "custom") $("#dbMore").open = true; saveState(); renderDashboard(); } })));
+    // Week chips for the month in view.
+    const ym = dbState.preset === "lastmonth" ? shiftMonth(today().slice(0, 7), -1) : dbState.preset === "mw" && dbState.ym ? dbState.ym : today().slice(0, 7);
+    const [cf, ct] = dbRange();
+    const wk = $("#dbWeeks"); wk.innerHTML = "";
+    wk.append(h("button", { type: "button", class: "chip ghost", title: tl("الشهر اللي قبله", "Previous month"), text: lang === "en" ? "‹" : "›", onclick: () => { dbState = Object.assign(dbState, { preset: "mw", ym: shiftMonth(ym, -1), w: 4 }); saveState(); renderDashboard(); } }),
+      h("span", { class: "db-weeks-month", text: monthLabel(ym) }));
+    for (let w = 1; w <= 4; w++) {
+      const [a, b] = mWeekRange(ym, w), on = cf === a && ct === b;
+      wk.append(h("button", { type: "button", class: "chip wk" + (on ? " active" : "") + (a > today() ? " future" : ""),
+        onclick: () => { dbState = Object.assign(dbState, { preset: "mw", ym, w }); saveState(); renderDashboard(); } },
+        h("b", { text: wkName(w) }), h("small", { text: wkDays(w) })));
+    }
+    if (ym < today().slice(0, 7)) wk.append(h("button", { type: "button", class: "chip ghost", title: tl("الشهر اللي بعده", "Next month"), text: lang === "en" ? "›" : "‹", onclick: () => { const n = shiftMonth(ym, 1); dbState = Object.assign(dbState, { preset: "mw", ym: n, w: n === today().slice(0, 7) ? mWeekOf(today()) : 1 }); saveState(); renderDashboard(); } }));
+    if (dbState.preset !== "custom") { $("#dbFrom").value = cf; $("#dbTo").value = ct; }
+    $("#dbRangeText").textContent = (cf || ct ? (cf ? fmtDay(cf) : "…") + " ← " + (ct ? fmtDay(ct) + " " + ct.slice(0, 4) : "…") : tl("كل الفترات", "All time")).replace("←", lang === "en" ? "→" : "←") +
+      " · " + tl("حسب تاريخ المكالمة", "by call date");
+  }
+  // One tile: value, sub line, and the change against the previous period (better = green).
+  function kpiTile(k, v, sub, delta, opts = {}) {
+    let d = null;
+    if (delta !== null && delta !== undefined && !isNaN(delta)) {
+      const up = delta > 0.0005, down = delta < -0.0005, good = opts.lowerBetter ? down : up, bad = opts.lowerBetter ? up : down;
+      const txt = opts.count ? (delta > 0 ? "+" : "") + Math.round(delta) : (delta > 0 ? "+" : "") + Math.round(delta * 1000) / 10 + " " + t("pts");
+      d = h("span", { class: "tile-d" + (good ? " up" : bad ? " down" : ""), dir: "ltr", title: tl("مقارنة بالفترة اللي قبلها", "vs the previous period"), text: (up ? "▲ " : down ? "▼ " : "■ ") + (up || down ? txt : tl("زي ما هو", "same")) });
+    }
+    return h("div", { class: "tile" + (opts.state ? " " + opts.state : "") }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }),
+      h("div", { class: "tile-s" }, sub ? h("span", { text: sub }) : null, d));
+  }
+  const ringSvg = (frac, cls) => {
+    const r = 26, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 64 64"); svg.setAttribute("class", "ring " + (cls || ""));
+    svg.innerHTML = '<circle cx="32" cy="32" r="' + r + '" class="ring-bg"/><circle cx="32" cy="32" r="' + r + '" class="ring-fg" stroke-dasharray="' + (f * c).toFixed(1) + " " + c.toFixed(1) + '" transform="rotate(-90 32 32)"/>';
+    return svg;
+  };
+  // Weekly targets for the month in view: team leaders (Agent level, N per agent per week) and Quality (Program level, random).
+  function renderTargets(all) {
+    const box = $("#dbTargets"); if (!box) return;
+    box.innerHTML = "";
+    const ym = dbRefMonth(), td = today();
+    const perAgent = Number(teamCfg.leaderWeekly) || 4, qWeek = Number(teamCfg.qualityWeekly) || 40;
+    const live = all.filter((r) => !r.test && purposeOf(r) === "live" && callDay(r).slice(0, 7) === ym);
+    const prog = all.filter((r) => !r.test && purposeOf(r) === "program" && callDay(r).slice(0, 7) === ym);
+    const agents = [...new Set([...(roster.agents || []), ...live.map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+    const nAg = (roster.agents || []).length || agents.length;
+    const lWeek = perAgent * nAg;
+    // Week state: done / running (with the pace expected by today) / missed / not started.
+    const wkState = (w, n, target) => {
+      const [a, b] = mWeekRange(ym, w);
+      if (n >= target) return { cls: "good", text: "✓ " + tl("تم", "Done") };
+      if (a > td) return { cls: "na", text: tl("لسه مبدأش", "Not started") };
+      if (b < td) return { cls: "bad", text: "✗ " + tl("ناقص ", "Short ") + (target - n) };
+      const days = (new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5 + 1, gone = (new Date(td + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5 + 1;
+      const pace = Math.ceil(target * gone / days);
+      return { cls: n >= pace ? "info" : "warn", text: "⏳ " + tl("المفروض لحد النهارده ", "Pace by today ") + pace };
+    };
+    const block = (title, sub, list, target, monthTarget, cls) => {
+      const total = list.length;
+      const head = h("div", { class: "tg-head" }, h("div", { class: "tg-ring" }, ringSvg(total / monthTarget, cls), h("div", { class: "tg-ring-txt" }, h("b", { text: Math.round(total / monthTarget * 100) + "%" }))),
+        h("div", {}, h("h3", { text: title }), h("div", { class: "hint", text: sub }), h("div", { class: "tg-total", dir: "ltr" }, h("b", { text: String(total) }), " / " + monthTarget + " " + tl("في الشهر", "this month"))));
+      const weeks = h("div", { class: "tg-weeks" });
+      for (let w = 1; w <= 4; w++) {
+        const [a, b] = mWeekRange(ym, w), n = list.filter((r) => callDay(r) >= a && callDay(r) <= b).length, st = wkState(w, n, target);
+        const now = td >= a && td <= b;
+        weeks.append(h("div", { class: "tg-week" + (now ? " now" : "") },
+          h("div", { class: "tg-wk-name" }, h("b", { text: wkName(w) }), h("small", { text: wkDays(w) })),
+          h("div", { class: "tg-wk-num", dir: "ltr" }, h("b", { text: String(n) }), " / " + target),
+          h("div", { class: "tg-bar" }, h("div", { class: "tg-fill " + st.cls, style: "width:" + Math.min(100, n / target * 100).toFixed(1) + "%" })),
+          h("span", { class: "pill " + st.cls, text: st.text })));
+      }
+      return h("div", { class: "tg-block" }, head, weeks);
+    };
+    // Agent × week grid: leaders need perAgent each week; Quality is random (no per-agent target), shown for coverage.
+    const grid = (list, need) => {
+      const tb = h("table", { class: "tg-grid" }, h("tr", {}, h("th", { text: t("c_agent") }), ...[1, 2, 3, 4].map((w) => h("th", { class: "num" }, wkName(w), h("div", { class: "meta", text: wkDays(w) }))), h("th", { class: "num", text: tl("الشهر", "Month") })));
+      agents.forEach((ag) => {
+        const mine = list.filter((r) => nameKey(r.agent) === nameKey(ag));
+        const cells = [1, 2, 3, 4].map((w) => {
+          const [a, b] = mWeekRange(ym, w), n = mine.filter((r) => callDay(r) >= a && callDay(r) <= b).length;
+          if (!need) return h("td", { class: "num" }, h("span", { class: "pill " + (n ? "info" : a > td ? "na" : "warn"), text: a > td && !n ? "–" : String(n) }));
+          const cls = n >= need ? "good" : a > td ? "na" : b < td ? "bad" : n ? "warn" : "warn";
+          return h("td", { class: "num" }, h("span", { class: "pill " + cls, dir: "ltr", text: a > td && !n ? "–" : n + " / " + need }));
+        });
+        tb.append(h("tr", {}, h("td", { text: ag }), ...cells, h("td", { class: "num", dir: "ltr", text: need ? mine.length + " / " + need * 4 : String(mine.length) })));
+      });
+      return h("div", { class: "table-wrap" }, tb);
+    };
+    const tabs = h("div", { class: "tg-tabs" });
+    const body = h("div", {});
+    const show = (k) => { store("qa_db_tg", k); [...tabs.children].forEach((b) => b.classList.toggle("active", b.dataset.k === k)); body.innerHTML = ""; body.append(k === "q" ? grid(prog, 0) : grid(live, perAgent)); };
+    tabs.append(h("button", { type: "button", class: "chip", "data-k": "l", text: tl("الليدرز: كل إيجنت ", "Team leaders: each agent ") + perAgent + tl(" في الأسبوع", " a week"), onclick: () => show("l") }),
+      h("button", { type: "button", class: "chip", "data-k": "q", text: tl("الكواليتي: كل إيجنت اتسمع كام مرة", "Quality: how often each agent was heard"), onclick: () => show("q") }));
+    box.append(h("div", { class: "tg-top" }, h("h2", { text: tl("التارجت الأسبوعي · ", "Weekly targets · ") + monthLabel(ym) }),
+        h("span", { class: "meta", text: tl("الأسبوع بتاريخ المكالمة: 1–7 · 8–14 · 15–21 · 22–آخر الشهر", "Week = call date: 1–7 · 8–14 · 15–21 · 22–end") })),
+      h("div", { class: "tg-two" },
+        block(tl("الليدرز · Agent level", "Team leaders · Agent level"), tl(perAgent + " لكل إيجنت × " + nAg + " إيجنت = " + lWeek + " في الأسبوع", perAgent + " per agent × " + nAg + " agents = " + lWeek + " a week"), live, lWeek, lWeek * 4, "c1"),
+        block(tl("الكواليتي · Program level", "Quality · Program level"), tl(qWeek + " في الأسبوع، راندوم مش إيجنت معيّن", qWeek + " a week, random, not a set agent"), prog, qWeek, qWeek * 4, "c2")),
+      tabs, body);
+    show(store("qa_db_tg") === "q" ? "q" : "l");
+  }
   function renderDashboard() {
     renderKbQuiz();
-    renderDbPromises({ agent: ($("#dbAgent") || {}).value || "", from: ($("#dbFrom") || {}).value || "", to: ($("#dbTo") || {}).value || "" });
+    dbControls();
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
     fillSelect($("#dbType"), [...new Set(all.map((r) => r.type).filter(Boolean))].sort(), t("f_all_types"), (v) => typeLabel(all.find((r) => r.type === v).form, v));
-    const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, from: $("#dbFrom").value, to: $("#dbTo").value, level: $("#dbCal").value || "agent" };
-    const recs = all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) &&
-      (!f.type || r.type === f.type) && (!f.from || callDay(r) >= f.from) && (!f.to || callDay(r) <= f.to) && !r.test &&
-      (f.level === "all" || (purposeOf(r) === "live" && selectionOf(r) === "random") || (f.level === "program" && purposeOf(r) === "program")));
+    const [from, to, pFrom, pTo] = dbRange();
+    renderDbPromises({ agent: $("#dbAgent").value || "", from, to });
+    const f = { form: $("#dbForm").value, agent: $("#dbAgent").value, ev: $("#dbEvaluator").value, type: $("#dbType").value, level: dbState.level };
+    const base = all.filter((r) => !r.test && (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) && (!f.type || r.type === f.type) && levelOk(r, f.level));
+    const inR = (a, b) => (r) => (!a || callDay(r) >= a) && (!b || callDay(r) <= b);
+    const recs = base.filter(inR(from, to));
+    const prev = pFrom && pTo ? base.filter(inR(pFrom, pTo)) : null;
+    const more = [f.form, f.agent, f.ev, f.type].filter(Boolean).length;
+    $("#dbMore").querySelector("summary").textContent = t("db_more_filters") + (more ? " (" + more + ")" : "");
+
+    // What this level means.
+    const note = $("#dbLevelNote"); note.innerHTML = "";
+    const notes = {
+      agent: tl("Agent level: تقييمات الليدرز (عشوائي) اللي بتتحسب في سكور الإيجنت. الموجّه والسرتيفيكيشن والكاليبريشن مش هنا.", "Agent level: team leaders' random evaluations that count in the agent's score. Targeted, certification and calibration are not here."),
+      program: tl("Program level: عينة الكواليتي العشوائية للأكاونت. بتقيس جودة البرنامج كله، ومش محسوبة على الإيجنت.", "Program level: Quality's random account sample. It measures the whole program and is not counted for the agent."),
+      both: tl("الاتنين مع بعض: Agent level + Program level، عشان تشوف صورة الأكاونت كلها.", "Both: Agent level + Program level, for the whole account picture."),
+    };
+    note.append(h("span", { class: "db-dot " + f.level }), h("span", { text: notes[f.level] }),
+      prev ? h("span", { class: "meta", text: " · " + tl("المقارنة مع ", "Compared with ") + fmtDay(pFrom) + " – " + fmtDay(pTo) }) : null);
+
+    renderTargets(all.filter((r) => (!f.agent || r.agent === f.agent)));
 
     lastLists.dashboard = recs;
     const ids = ["#dbKpis", "#dbTrend", "#dbAgentsChart", "#dbAgents", "#dbItems", "#dbCrit", "#dbSections", "#dbEvaluators"];
@@ -2505,58 +2693,70 @@
       ids.forEach((i) => ($(i).innerHTML = ""));
       $("#dbKpis").append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") }));
       if ($("#dbAlerts")) $("#dbAlerts").hidden = true;
+      if ($("#dbCoverage")) $("#dbCoverage").hidden = true;
       ids.slice(1).forEach((i) => ($(i).style.display = "none"));
       return;
     }
     ids.forEach((i) => ($(i).style.display = ""));
 
-    // KPI tiles
-    const finals = recs.map((r) => r.final).filter((x) => x !== null && x !== undefined);
-    const passRate = recs.filter((r) => r.result === "Pass").length / recs.length;
-    const withCrit = recs.filter((r) => r.critical > 0).length;
+    // KPI tiles, each with the change against the previous period.
+    const fin = (l) => avg(l.map((r) => r.final).filter((x) => x !== null && x !== undefined));
+    const passOf = (l) => (l.length ? l.filter((r) => r.result === "Pass").length / l.length : null);
+    const ncOf = (l) => avg(l.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined));
+    const critN = (l) => l.filter((r) => r.critical > 0).length;
+    const accOf = (l, k) => avg(l.map((r) => r[k]).filter((x) => x !== null && x !== undefined));
+    const dl = (fn) => (prev && prev.length ? (fn(recs) === null || fn(prev) === null ? null : fn(recs) - fn(prev)) : null);
+    const A = fin(recs), P = passOf(recs);
     const tiles = [
-      [t("k_evals"), recs.length, t("k_agents", { n: new Set(recs.map((r) => r.agent)).size })],
-      [t("k_avg"), pct(avg(finals)), t("k_target")],
-      [t("k_pass"), pct(passRate), t("k_passed", { a: recs.filter((r) => r.result === "Pass").length, b: recs.length })],
-      [t("k_nc"), pct(avg(recs.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined))), t("k_before")],
-      [t("k_crit"), withCrit, t("k_of_evals", { p: pct(withCrit / recs.length) })],
-      [t("cc_acc"), pct(avg(recs.map((r) => r.cc))), t("k_cc")],
-      [t("eu_acc"), pct(avg(recs.map((r) => r.eu))), t("k_eu")],
-      [t("bc_acc"), pct(avg(recs.map((r) => r.bc))), t("k_bc")],
+      kpiTile(t("k_evals"), recs.length, t("k_agents", { n: new Set(recs.map((r) => r.agent)).size }), prev ? recs.length - prev.length : null, { count: true }),
+      kpiTile(t("k_avg"), pct(A), t("k_target"), dl(fin), { state: A === null ? "" : A >= PASS ? "good" : "bad" }),
+      kpiTile(t("k_pass"), pct(P), t("k_passed", { a: recs.filter((r) => r.result === "Pass").length, b: recs.length }), dl(passOf)),
+      kpiTile(t("k_crit"), critN(recs), t("k_of_evals", { p: pct(critN(recs) / recs.length) }), prev && prev.length ? critN(recs) - critN(prev) : null, { count: true, lowerBetter: true, state: critN(recs) ? "bad" : "good" }),
+      kpiTile(t("k_nc"), pct(ncOf(recs)), t("k_before"), dl(ncOf)),
+      kpiTile(t("eu_acc"), pct(accOf(recs, "eu")), t("k_eu"), dl((l) => accOf(l, "eu")), { state: accOf(recs, "eu") >= 0.98 ? "good" : "bad" }),
+      kpiTile(t("bc_acc"), pct(accOf(recs, "bc")), t("k_bc"), dl((l) => accOf(l, "bc")), { state: accOf(recs, "bc") >= 0.95 ? "good" : "bad" }),
+      kpiTile(t("cc_acc"), pct(accOf(recs, "cc")), t("k_cc"), dl((l) => accOf(l, "cc"))),
     ];
-    section("#dbKpis", t("overview"), null, h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))));
+    section("#dbKpis", t("overview"), null, h("div", { class: "tiles db-tiles" }, tiles));
     renderCopcAlerts("#dbAlerts", recs, all);
-    renderCoverage("#dbCoverage", all, ($("#dbAgent") || {}).value || "");
+    if (f.level === "program") $("#dbCoverage").hidden = true; else renderCoverage("#dbCoverage", all, f.agent || "");
 
-    // Weekly trend
-    const weeks = new Map();
-    recs.forEach((r) => { const w = weekStart(callDay(r)); if (!w) return; if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(r); });
-    const wk = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
-    section("#dbTrend", t("trend"), t("trend_hint"),
-      bars(wk.map(([w, l]) => { const v = avg(l.map((r) => r.final || 0)); return { label: t("week_of", { w }), value: v, display: pct(v), flag: v < PASS, title: t("trend_tip", { n: l.length, p: pct(l.filter((r) => r.result === "Pass").length / l.length) }) }; }), { max: 1, target: PASS }));
+    // Trend by month-week: the last 8 weeks up to the end of the period (other filters apply, dates don't).
+    const endDay = to && to < today() ? to : today();
+    let [wym, ww] = [endDay.slice(0, 7), mWeekOf(endDay)];
+    const wkList = [];
+    for (let i = 0; i < 8; i++) { wkList.unshift([wym, ww]); [wym, ww] = prevMWeek(wym, ww); }
+    section("#dbTrend", tl("الاتجاه الأسبوعي", "Weekly trend"), tl("متوسط السكور النهائي لكل أسبوع (آخر 8 أسابيع لحد آخر الفترة). الخط = 85%.", "Average final score per week (last 8 weeks up to the period's end). Line = 85%."),
+      bars(wkList.map(([m, w]) => {
+        const [a, b] = mWeekRange(m, w), l = base.filter(inR(a, b)), v = fin(l);
+        return { label: monthLabel(m).split(" ")[0] + " · " + wkName(w) + " (" + l.length + ")", value: v || 0, display: l.length ? pct(v) : "–", flag: l.length && v < PASS, title: t("trend_tip", { n: l.length, p: pct(passOf(l)) }) };
+      }), { max: 1, target: PASS }));
 
     // Agents
     const by = new Map();
     recs.forEach((r) => { const k = r.agent || "–"; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
     const agents = [...by.entries()].map(([agent, list]) => {
-      const fin = avg(list.map((r) => r.final).filter((x) => x !== null));
-      const crit = list.reduce((s, r) => s + (r.critical || 0), 0);
-      return { agent, list, fin, nc: avg(list.map((r) => r.ncScore).filter((x) => x !== null)), cc: avg(list.map((r) => r.cc)), eu: avg(list.map((r) => r.eu)), bc: avg(list.map((r) => r.bc)), crit, ok: fin !== null && fin >= PASS && crit === 0 };
+      const fa = fin(list), crit = list.reduce((s, r) => s + (r.critical || 0), 0);
+      const pl = prev ? prev.filter((r) => (r.agent || "–") === agent) : [];
+      return { agent, list, fin: fa, pass: passOf(list), nc: ncOf(list), cc: accOf(list, "cc"), eu: accOf(list, "eu"), bc: accOf(list, "bc"), crit, ok: fa !== null && fa >= PASS && crit === 0, delta: pl.length && fa !== null ? fa - fin(pl) : null };
     }).sort((a, b) => (b.fin || 0) - (a.fin || 0));
     section("#dbAgentsChart", t("by_agent"), t("by_agent_hint"),
       bars(agents.map((a) => ({ label: a.agent, value: a.fin || 0, display: pct(a.fin), flag: (a.fin || 0) < PASS, title: t("agent_tip", { n: a.list.length, c: a.crit }) })), { max: 1, target: PASS }));
-    const rows = [["c_agent", "c_evals", "c_avg_final", "c_avg_nc", "c_cc", "c_eu", "c_bc", "c_crit", "c_status"].map((k) => t(k))];
-    const tbl = h("table", {}, h("tr", {}, rows[0].map((t, i) => h("th", { class: i && i < 8 ? "num" : "", text: t }))));
-    agents.forEach((a) => {
+    const head = [t("c_agent"), t("c_evals"), t("c_avg_final"), tl("التغيير", "Change"), t("k_pass"), t("c_avg_nc"), t("c_cc"), t("c_eu"), t("c_bc"), t("c_crit"), t("c_status")];
+    const rows = [head];
+    const tbl = h("table", {}, h("tr", {}, head.map((x, i) => h("th", { class: i && i < 10 ? "num" : "", text: x }))));
+    agents.forEach((a, i) => {
       const status = a.ok ? t("st_ok") : t("st_bad");
-      tbl.append(h("tr", {}, h("td", {}, h("a", { href: "#", text: a.agent, onclick: (e) => { e.preventDefault(); $("#dbAgent").value = a.agent; renderDashboard(); } })),
-        h("td", { class: "num", text: a.list.length }), h("td", { class: "num", text: pct(a.fin) }), h("td", { class: "num", text: pct(a.nc) }),
+      const dTxt = a.delta === null ? "–" : (a.delta > 0 ? "▲ +" : a.delta < 0 ? "▼ " : "■ ") + Math.round(a.delta * 1000) / 10;
+      tbl.append(h("tr", {}, h("td", {}, h("span", { class: "rank", text: String(i + 1) }), h("a", { href: "#", text: a.agent, onclick: (e) => { e.preventDefault(); $("#dbAgent").value = a.agent; $("#dbMore").open = true; renderDashboard(); } })),
+        h("td", { class: "num", text: a.list.length }), h("td", { class: "num" }, h("b", { text: pct(a.fin) })),
+        h("td", { class: "num " + (a.delta > 0 ? "up" : a.delta < 0 ? "down" : ""), dir: "ltr", text: dTxt }), h("td", { class: "num", text: pct(a.pass) }), h("td", { class: "num", text: pct(a.nc) }),
         h("td", { class: "num", text: pct(a.cc) }), h("td", { class: "num", text: pct(a.eu) }), h("td", { class: "num", text: pct(a.bc) }), h("td", { class: "num", text: a.crit }),
         h("td", {}, h("span", { class: "pill " + (a.ok ? "good" : "bad"), text: status }))));
-      rows.push([a.agent, a.list.length, pct(a.fin), pct(a.nc), pct(a.cc), pct(a.eu), pct(a.bc), a.crit, status]);
+      rows.push([a.agent, a.list.length, pct(a.fin), dTxt, pct(a.pass), pct(a.nc), pct(a.cc), pct(a.eu), pct(a.bc), a.crit, status]);
     });
-    section("#dbAgents", t("agents_tbl"), t("agents_tbl_hint"), tbl,
-      h("p", {}, h("button", { text: t("download"), onclick: () => download("QA_Dashboard_" + today() + ".csv", toCsv(rows), "text/csv") })));
+    section("#dbAgents", t("agents_tbl"), t("agents_tbl_hint"), h("div", { class: "table-wrap" }, tbl),
+      h("p", {}, h("button", { text: t("download"), onclick: () => download("QA_Dashboard_" + f.level + "_" + today() + ".csv", toCsv(rows), "text/csv") })));
 
     // Item-level analysis: miss rate = misses / evaluations where the item applied.
     const stat = new Map();
@@ -2589,16 +2789,16 @@
     // Evaluators: spot scoring that is much stricter or softer than the team.
     const evs = new Map();
     recs.forEach((r) => { const k = r.evaluator || "–"; if (!evs.has(k)) evs.set(k, []); evs.get(k).push(r); });
-    const teamAvg = avg(finals);
+    const teamAvg = A;
     const et = h("table", {}, h("tr", {}, ["evaluator", "c_evals", "e_avg", "e_gap", "e_crit"].map((k, i) => h("th", { class: i ? "num" : "", text: t(k) }))));
     [...evs.entries()].sort((a, b) => b[1].length - a[1].length).forEach(([ev, list]) => {
-      const a = avg(list.map((r) => r.final).filter((x) => x !== null));
+      const a = fin(list);
       const gap = a === null || teamAvg === null ? null : a - teamAvg;
       et.append(h("tr", {}, h("td", { text: ev }), h("td", { class: "num", text: list.length }), h("td", { class: "num", text: pct(a) }),
         h("td", { class: "num", text: gap === null ? "–" : (gap >= 0 ? "+" : "") + (Math.round(gap * 1000) / 10) + " " + t("pts") }),
         h("td", { class: "num", text: list.reduce((s, r) => s + (r.critical || 0), 0) })));
     });
-    section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), et);
+    section("#dbEvaluators", t("evaluators"), t("evaluators_hint"), h("div", { class: "table-wrap" }, et));
   }
 
   // ---------- reports: pick period, filters and sections, then download as PDF or Excel ----------
@@ -2672,7 +2872,7 @@
     const f = { form: $("#rpForm").value, agent: $("#rpAgent").value, ev: $("#rpEvaluator").value, type: $("#rpType").value, level: $("#rpLevel").value || "agent", method: $("#rpMethod").value, from: $("#rpFrom").value, to: $("#rpTo").value };
     const pick = (from, to) => all.filter((r) => (!f.form || r.form === f.form) && (!f.agent || r.agent === f.agent) && (!f.ev || r.evaluator === f.ev) && (!f.type || r.type === f.type) &&
       (!f.method || (r.method || "recording") === f.method) && (!from || callDay(r) >= from) && (!to || callDay(r) <= to) &&
-      (f.level === "all" ? !["calibration", "roleplay"].includes(purposeOf(r)) : (purposeOf(r) === "live" && selectionOf(r) === "random") || (f.level === "program" && purposeOf(r) === "program")));
+      (f.level === "all" ? !["calibration", "roleplay"].includes(purposeOf(r)) : levelOk(r, f.level)));
     const recs = pick(f.from, f.to);
     const pr = rpPrevRange(f.from, f.to), prev = pr ? pick(pr[0], pr[1]) : null;
     lastLists.reports = recs;
@@ -3381,6 +3581,7 @@
     };
     $("#ownerCard").hidden = !isOwner();
     $("#setTarget").value = teamCfg.monthlyTarget;
+    $("#setLeaderWeekly").value = teamCfg.leaderWeekly || 4; $("#setQualityWeekly").value = teamCfg.qualityWeekly || 40;
     if ($("#setCoachSla")) $("#setCoachSla").value = teamCfg.coachingSlaHours || 48;
     if ($("#setPassedSla")) $("#setPassedSla").value = teamCfg.passedSlaHours || 48;
     $("#setPickMode").value = teamCfg.pickMode === "manual" ? "manual" : "auto";
@@ -3412,7 +3613,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
@@ -3543,7 +3744,9 @@
     $("#fillNc").onclick = () => fillRest("nc", "Met");
     $("#fillCrit").onclick = () => fillRest("crit", "No error");
     $("#showExplain").onchange = (e) => { showExplain = e.target.checked; store("qa_explain", showExplain); renderItems(); };
-    ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType", "#dbFrom", "#dbTo", "#dbCal"].forEach((s) => $(s).addEventListener("input", renderDashboard));
+    ["#dbForm", "#dbAgent", "#dbEvaluator", "#dbType"].forEach((s) => $(s).addEventListener("input", renderDashboard));
+    // Typing a date switches the period to custom dates.
+    ["#dbFrom", "#dbTo"].forEach((s) => $(s).addEventListener("input", () => { dbState.preset = "custom"; store(LS_DB, dbState); renderDashboard(); }));
     wireReports();
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;

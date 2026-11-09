@@ -837,7 +837,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -869,6 +869,9 @@ function setConfig_(c) {
     const sn = String(c.senderName).trim().slice(0, 60);
     cur.senderName = sn || 'Quality Team';
   }
+  // Weekly evaluation targets (by call date; weeks 1-7, 8-14, 15-21, 22-end): team leaders per agent, Quality in total.
+  if (c.leaderWeekly !== undefined) { const lw = Number(c.leaderWeekly); if (lw >= 0 && lw <= 50) cur.leaderWeekly = Math.round(lw); }
+  if (c.qualityWeekly !== undefined) { const qw = Number(c.qualityWeekly); if (qw >= 0 && qw <= 500) cur.qualityWeekly = Math.round(qw); }
   if (c.promiseTolMin !== undefined) { const tm = Number(c.promiseTolMin); if (tm >= 5 && tm <= 720) cur.promiseTolMin = Math.round(tm); }
   if (c.callsSource !== undefined) {
     const src = String(c.callsSource || '').trim();
@@ -1959,7 +1962,20 @@ function markPick_(callId, evalId) {
   const ids = ph.getRange(2, 2, n, 1).getValues();
   for (let i = n - 1; i >= 0; i--) if (String(ids[i][0]) === String(callId)) { ph.getRange(i + 2, 6, 1, 3).setValues([['evaluated', '', evalId]]); return; }
 }
-// body: { agent, from, to (YYYY-MM-DD, inclusive), widen (go back up to 31 days if nothing in range), prev, why }
+// Today and the last n working days before it (closed days skipped), in the script's time zone: { from, to } as YYYY-MM-DD.
+function pickWindow_(n, closed) {
+  const tz = Session.getScriptTimeZone() || 'Africa/Cairo';
+  const off = (Array.isArray(closed) ? closed : String(closed === undefined ? 'Fri' : closed).split(/[,\s]+/)).map(String);
+  const d = new Date(), to = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+  let left = n, from = to, guard = 0;
+  while (left > 0 && guard++ < 40) {
+    d.setTime(d.getTime() - 864e5);
+    if (off.indexOf(Utilities.formatDate(d, tz, 'EEE')) !== -1) continue;
+    from = Utilities.formatDate(d, tz, 'yyyy-MM-dd'); left--;
+  }
+  return { from: from, to: to };
+}
+// body: { agent, from, to (YYYY-MM-DD, inclusive; clamped to the pick window), prev, why }
 function pickCall_(b, me) {
   const ro = readRoster_();
   const agent = String(b.agent || '').trim();
@@ -1990,23 +2006,17 @@ function pickCall_(b, me) {
         return mine[x.from];
       });
     };
-    // Agent level: the last N working days that have calls in the raw data (days off and Fridays have none).
-    const wd = Math.round(Number(b.workDays) || 0);
-    if (wd > 0) {
-      const days = {}; calls.forEach(function (x) { if (x.day <= to) days[x.day] = 1; });
-      const recent = Object.keys(days).sort().reverse().slice(0, wd);
-      if (recent.length) from = recent[recent.length - 1];
-    }
-    let list = pool(from, to), wider = false;
-    if (!list.length && b.widen) {
-      const d = new Date(to + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 31);
-      const far = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
-      if (far < from) { list = pool(far, to); wider = list.length > 0; }
-    }
-    if (!list.length) return { ok: true, none: true, dataTo: dataTo, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
+    // Both levels (agreed with Mohamed): the call is at most N working days old (Settings pickDays, default 3),
+    // counted back from today and skipping the closed days (Friday). Enforced here, whatever the page sends, and never widened.
+    const cfg = config_(), wd = Math.max(1, Math.min(31, Math.round(Number(cfg.pickDays) || 3)));
+    const win = pickWindow_(wd, cfg.closedDays);
+    if (from < win.from) from = win.from;
+    if (to > win.to) to = win.to;
+    const list = from <= to ? pool(from, to) : [], wider = false;
+    if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: win.from, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
     const x = list[Math.floor(Math.random() * list.length)];
     ph.appendRow([new Date(), x.id, x.day + ' ' + x.time, agent, me.name || 'Owner', 'picked', '', '']);
-    return { ok: true, wider: wider, dataTo: dataTo, pool: list.length,
+    return { ok: true, wider: wider, dataTo: dataTo, winFrom: win.from, winDays: wd, pool: list.length,
       call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk, pbx: callAgent_(x.from, ro).pbx, ext: callAgent_(x.from, ro).ext } };
   } finally {
     lock.releaseLock();
