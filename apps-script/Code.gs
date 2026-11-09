@@ -382,7 +382,7 @@ function resultMailHtml_(r, o) {
     : o.coaching ? { accent: c.blue, bg: c.blueBg, pill: 'NOT COUNTED', head: 'Extra target', msg: 'This is an extra evaluation for learning and does not count in your score.' }
     : o.pass ? { accent: c.green, bg: c.greenBg, pill: '✓ PASSED', head: o.isGood ? 'Very good call 👍' : 'Congratulations, you passed 🎉', msg: o.isGood ? 'This call was added as a good example to the training library. Keep it up!' : 'Good performance in line with the quality standards. Keep it up!' }
     : { accent: c.red, bg: c.redBg, pill: '✗ FAILED', head: 'Needs improvement', msg: r.critical ? 'There is a critical error in this call, so the evaluation cannot pass. Please review the points below to avoid it next time.' : 'The score is below the pass mark (85%). Please review the items to work on below.' };
-  const kind = o.post ? 'Passed call after coaching' : o.coaching ? 'Extra target' : o.prog ? 'Program sample' : o.cert ? 'Certification evaluation' : 'Quality evaluation';
+  const kind = o.post ? 'Coaching call (first call after the coaching session)' : o.coaching ? 'Extra target' : o.prog ? 'Program sample' : o.cert ? 'Certification evaluation' : 'Quality evaluation';
   const scoreColor = o.prog || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
 
   // Hero: big score, pill, short message and a score bar with the 85% pass line.
@@ -485,7 +485,7 @@ function emailAgent_(r) {
     const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
     const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
     const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Passed call after coaching – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
+    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
       htmlBody: html, name: senderName };
@@ -1028,7 +1028,7 @@ function purposeLabel_(r) {
   const p = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   if (p === 'calibration' && /(^|-)RECAL-/.test(r.sampleRef || '')) return 'Recalibration';
   return ({ live: 'Agent level', certcall: 'Certification call', program: 'Program level', coaching: 'Extra target',
-    postcoach: 'Passed call', calibration: 'Calibration', roleplay: 'Certification role-play' })[p] || p;
+    postcoach: 'Coaching call', calibration: 'Calibration', roleplay: 'Certification role-play' })[p] || p;
 }
 
 // A double save: the same evaluator already saved this interaction (same form, agent, call time and purpose).
