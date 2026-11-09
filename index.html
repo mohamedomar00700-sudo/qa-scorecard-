@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=1793910000">
+<link rel="stylesheet" href="style.css?v=1793930000">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -138,12 +138,13 @@
       <p class="hint" data-i18n="mw_hint"></p>
       <div class="grid">
         <label id="mwWhoBox"><span data-i18n="evaluator"></span><select id="mwWho"></select></label>
-        <label><span data-i18n="mw_period"></span><select id="mwPeriod">
+        <label><span data-i18n="mw_period"></span><select data-chips id="mwPeriod">
           <option value="month" data-i18n="mw_this_month"></option><option value="lastmonth" data-i18n="mw_last_month"></option>
-          <option value="week" data-i18n="mw_this_week"></option><option value="all" data-i18n="mw_all_time"></option></select></label>
+          <option value="week" data-i18n="mw_this_week"></option><option value="lastweek" data-i18n="rp_p_lastweek"></option><option value="all" data-i18n="mw_all_time"></option></select></label>
       </div>
     </div>
     <div class="card" id="mwKpis"></div>
+    <div class="card" id="mwTarget"></div>
     <div class="card" id="mwAlerts" hidden></div>
     <div class="card" id="mwCoverage"></div>
     <div class="card" id="mwTypes"></div>
@@ -201,7 +202,7 @@
       <p class="hint" data-i18n="rp_hint"></p>
       <div class="toolbar" data-loader></div>
       <div class="grid">
-        <label><span data-i18n="rp_period"></span><select id="rpPreset"><option value="week" data-i18n="rp_p_week"></option><option value="lastweek" data-i18n="rp_p_lastweek"></option><option value="month" data-i18n="rp_p_month"></option><option value="lastmonth" data-i18n="rp_p_lastmonth"></option><option value="all" data-i18n="rp_p_all"></option><option value="custom" data-i18n="rp_p_custom"></option></select></label>
+        <label><span data-i18n="rp_period"></span><select data-chips id="rpPreset"><option value="week" data-i18n="rp_p_week"></option><option value="lastweek" data-i18n="rp_p_lastweek"></option><option value="month" data-i18n="rp_p_month"></option><option value="lastmonth" data-i18n="rp_p_lastmonth"></option><option value="all" data-i18n="rp_p_all"></option><option value="custom" data-i18n="rp_p_custom"></option></select></label>
         <label><span data-i18n="f_from"></span><input type="date" id="rpFrom"></label>
         <label><span data-i18n="f_to"></span><input type="date" id="rpTo"></label>
         <label><span data-i18n="f_form"></span><select id="rpForm"></select></label>
@@ -223,7 +224,7 @@
       <h2 data-i18n="pr_page"></h2>
       <p class="hint" data-i18n="pr_page_hint"></p>
       <div class="grid">
-        <label><span data-i18n="pr_period"></span><select id="prPeriod"><option value="month" data-i18n="pr_p_month"></option><option value="last" data-i18n="pr_p_last"></option><option value="30" data-i18n="pr_p_30"></option><option value="all" data-i18n="pr_p_all"></option></select></label>
+        <label><span data-i18n="pr_period"></span><select data-chips id="prPeriod"><option value="month" data-i18n="pr_p_month"></option><option value="last" data-i18n="pr_p_last"></option><option value="30" data-i18n="pr_p_30"></option><option value="all" data-i18n="pr_p_all"></option></select></label>
         <label><span data-i18n="f_agent"></span><select id="prAgent"></select></label>
         <label><span>&nbsp;</span><button type="button" id="prReload" data-i18n="pr_reload"></button></label>
       </div>
@@ -239,13 +240,14 @@
       <div class="toolbar" data-loader></div>
       <div class="grid">
         <label><span data-i18n="f_agent"></span><select id="coAgent"></select></label>
-        <label><span data-i18n="co_f_status"></span><select id="coStatus">
+        <label><span data-i18n="co_f_status"></span><select data-chips id="coStatus">
           <option value="open" data-i18n="co_f_open"></option><option value="late" data-i18n="co_f_late"></option><option value="closed" data-i18n="co_f_closed"></option><option value="all" data-i18n="f_all"></option></select></label>
         <label><span data-i18n="co_f_type"></span><select id="coType"></select></label>
-        <label><span data-i18n="co_f_period"></span><select id="coPeriod">
+        <label><span data-i18n="co_f_period"></span><select data-chips id="coPeriod">
           <option value="7" data-i18n="co_f_7"></option><option value="30" selected data-i18n="co_f_30"></option><option value="90" data-i18n="co_f_90"></option></select></label>
       </div>
     </div>
+    <div class="card" id="coRf"></div>
     <div class="card" id="coOut"></div>
   </section>
 
@@ -416,9 +418,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1793910000"></script>
-<script src="i18n.js?v=1793910000"></script>
-<script src="forms.js?v=1793910000"></script>
-<script src="app.js?v=1793910000"></script>
+<script src="config.js?v=1793930000"></script>
+<script src="i18n.js?v=1793930000"></script>
+<script src="forms.js?v=1793930000"></script>
+<script src="app.js?v=1793930000"></script>
 </body>
 </html>
