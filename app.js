@@ -1392,7 +1392,7 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? mx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? mx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? mx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "program" ? mx("📊 عينة البرنامج (غير محسوبة) – ", "📊 Program sample (not counted) – ") : purposeOf(r) === "postcoach" ? mx("باسد كول بعد الكوتشينج – ", "Passed call after coaching – ") : cert ? mx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : mx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? mx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "program" ? mx("📊 عينة البرنامج (غير محسوبة) – ", "📊 Program sample (not counted) – ") : purposeOf(r) === "postcoach" ? mx("كوتشينج كول – ", "Coaching call – ") : cert ? mx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : mx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
@@ -1407,7 +1407,7 @@
             ? mx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : mx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", mx("أهلاً ", "Hi ") + (r.agent || "") + mx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? mx("ده تقييم الباسد كول، أول مكالمة ليك بعد الكوتشينج كول على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? mx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : purposeOf(r) === "program" ? mx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : cert ? mx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : mx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? mx("ده تقييم الكوتشينج كول، أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? mx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : purposeOf(r) === "program" ? mx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : cert ? mx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : mx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + mx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       mx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       ...(r.callId ? [mx("رقم المكالمة (Call ID): ", "Call ID: ") + r.callId] : []),
@@ -1478,7 +1478,7 @@
     refreshViews();
   }
   const isCoached = (r) => !!(r && (r.coached || (r.feedback && r.feedback.coached) || r.coachedAt));
-  // Every failed evaluation needs coaching (Agent level, program level, feedback-only, certification, role play, passed call);
+  // Every failed evaluation needs coaching (Agent level, program level, feedback-only, certification, role play, coaching call);
   // only calibration copies are left out, since those test the evaluator, not the agent.
   const needsCoaching = (r) => !!(r && !r.test && purposeOf(r) !== "calibration" && r.result === "Fail");
   const coachTime = (r) => new Date(r.coachedAt || (r.feedback && r.feedback.coachedAt) || 0).getTime() || 0;
@@ -2152,7 +2152,7 @@
     box.append(...[h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...content].filter(Boolean));
   }
 
-  // ---------- coaching: failed call → coaching call (within the SLA) → passed call (first call after coaching) ----------
+  // ---------- coaching: failed call → coaching session (within the SLA) → coaching call (first call after coaching) ----------
   // Clocks: the coaching SLA starts when the failed evaluation is saved (that's when the failure is known); the passed
   // call is the agent's first answered call after the coaching time and should be scored within its own SLA.
   const hoursBetween = (a, b) => { const x = new Date(a).getTime(), y = new Date(b).getTime(); return isNaN(x) || isNaN(y) ? null : Math.max(0, Math.round((y - x) / 36e5)); };
@@ -2165,7 +2165,7 @@
     const step = !coached ? (toCoach > sla ? "c_late" : "c_due") : !fu ? (toPassed > psla ? "p_late" : "p_due") : fu.result === "Pass" ? "closed" : "refail";
     return { sla, psla, fu, coached, cAt, toCoach, toPassed, step, coachOnTime: coached && toCoach !== null && toCoach <= sla, open: step !== "closed" };
   }
-  // Start scoring the passed call for a coached evaluation: the form opens with the link, the agent and the rule filled in.
+  // Start scoring the coaching call for a coached evaluation: the form opens with the link, the agent and the rule filled in.
   function startPassedCall(r) {
     if ((dirty() || editChanged()) && !confirm(t("switch_confirm"))) return;
     current = { form: r.form, answers: blankAnswers(r.form) };
@@ -2177,8 +2177,8 @@
   function coachTrackerRows(list) {
     const stWord = { c_due: "co_s_c_due", c_late: "co_s_c_late", p_due: "co_s_p_due", p_late: "co_s_p_late", closed: "co_s_closed", refail: "co_s_refail" };
     const head = ["Evaluation ID", "Agent", "Type", "Evaluator", "Call time", "Evaluation saved", "Final", "Critical errors",
-      "Coaching due by", "Coaching call at", "Coached by", "Hours to coaching", "Within SLA", "Coaching points", "Agent agreed",
-      "Passed call ID", "Passed call time", "Passed call final", "Passed call result", "Status"];
+      "Coaching due by", "Coaching session at", "Coached by", "Hours to coaching", "Within SLA", "Coaching points", "Agent agreed",
+      "Coaching call ID", "Coaching call time", "Coaching call final", "Coaching call result", "Status"];
     return [head, ...list.map((r) => {
       const c = coachState(r), due = failStart(r) ? new Date(new Date(failStart(r)).getTime() + c.sla * 36e5) : null;
       return [evalIdOf(r), r.agent || "", purposeLabel(r), r.evaluator || "", whenText(r), dtText(failStart(r)), pct(r.final), r.critical || 0,
