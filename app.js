@@ -2310,18 +2310,43 @@
   // The tool only shows the stage and the next step; warnings and decisions follow HR's rules.
   const RF_WIN = [0, 2, 3, 4, 4];
   const addMonths = (day, n) => { const d = new Date(day + "T12:00:00"), dd = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); d.setDate(Math.min(dd, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return ymdOf(d); };
-  function rfLadder(list) {
-    const ev = list.filter((r) => !r.test && purposeOf(r) === "live" && r.critical > 0 && callDay(r)).sort((a, b) => callDay(a).localeCompare(callDay(b)));
-    let stage = 0, until = "";
+  // Points per evaluation (from Mohamed's earlier RF sheet): compliance critical 2, customer (end user) critical 1,
+  // business critical 0.5 for each error; 3 or more non-critical misses in one evaluation = 1 point. Every full point moves
+  // the agent up one stage; half points carry until the stage's clean window passes. New agents aren't counted in their
+  // first 30 days after certification (coaching and weekly monitoring still apply).
+  const RF_PTS = { CC: 2, EU: 1, BC: 0.5 }, RF_NC_MISSES = 3, RF_GRACE_DAYS = 30;
+  function rfPoints(r) {
+    const items = r.items || [], miss = (i) => i.result === "Not met" || i.result === "Error";
+    let p = 0;
+    items.filter((i) => i.kind !== "NC" && i.result === "Error").forEach((i) => { p += RF_PTS[i.kind] || 1; });
+    if (items.filter((i) => i.kind === "NC" && miss(i)).length >= RF_NC_MISSES) p += 1;
+    return p;
+  }
+  function rfLadder(list, graceUntil) {
+    const ev = list.filter((r) => !r.test && purposeOf(r) === "live" && callDay(r) && (!graceUntil || callDay(r) > graceUntil))
+      .map((r) => ({ r, p: rfPoints(r) })).filter((x) => x.p > 0).sort((a, b) => callDay(a.r).localeCompare(callDay(b.r)));
+    let stage = 0, until = "", carry = 0;
     const hist = [];
-    const decay = (day) => { while (stage > 0 && until && day > until) { const from = until; stage--; until = stage ? addMonths(from, RF_WIN[stage]) : ""; hist.push({ kind: "down", day: from, stage }); } };
-    ev.forEach((r) => {
+    const decay = (day) => {
+      while (until && day > until) {
+        const from = until; carry = 0;
+        if (stage > 0) { stage--; hist.push({ kind: "down", day: from, stage }); }
+        until = stage ? addMonths(from, RF_WIN[stage]) : "";
+      }
+    };
+    ev.forEach(({ r, p }) => {
       decay(callDay(r));
-      stage = Math.min(4, stage + 1); until = addMonths(callDay(r), RF_WIN[stage]);
-      hist.push({ kind: "up", day: callDay(r), stage, r });
+      carry += p;
+      const before = stage;
+      while (carry >= 1 && stage < 4) { stage++; carry -= 1; }
+      if (stage === 4) carry = 0;
+      // Half a point with no stage change still opens a window, so it expires if nothing follows.
+      until = addMonths(callDay(r), RF_WIN[Math.max(1, stage)]);
+      hist.push({ kind: stage > before ? "up" : "pts", day: callDay(r), stage, r, p });
     });
     decay(today());
-    return { stage, until, hist, last: ev[ev.length - 1] || null, n: ev.length };
+    const last = ev.length ? ev[ev.length - 1].r : null;
+    return { stage, until: stage ? until : "", hist, last, n: ev.length, carry, pts: ev.reduce((sum, x) => sum + x.p, 0) };
   }
   const rfAction = (st) => [
     tl("نضيف. مفيش إجراء.", "Clean. No action."),
@@ -2337,13 +2362,16 @@
     const all = allRecords().filter((r) => !r.test);
     const agents = [...new Set([...(roster.agents || []), ...all.filter((r) => purposeOf(r) === "live").map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
     const pick = ($("#coAgent") || {}).value || "";
-    const rows = agents.filter((a) => !pick || a === pick).map((a) => Object.assign({ a }, rfLadder(all.filter((r) => nameKey(r.agent) === nameKey(a))))).sort((x, y) => y.stage - x.stage || y.n - x.n || x.a.localeCompare(y.a));
+    const rows = agents.filter((a) => !pick || a === pick).map((a) => {
+      const cd = (agentCertInfo(a, all) || {}).certDate || "", grace = cd ? addDays(cd, RF_GRACE_DAYS) : "";
+      return Object.assign({ a, grace: grace && grace >= today() ? grace : "" }, rfLadder(all.filter((r) => nameKey(r.agent) === nameKey(a)), grace));
+    }).sort((x, y) => y.stage - x.stage || y.n - x.n || x.a.localeCompare(y.a));
     const counts = [0, 1, 2, 3, 4].map((st) => rows.filter((r) => r.stage === st).length);
     const td = today();
     const left = (d) => Math.max(0, Math.round((new Date(d + "T12:00:00") - new Date(td + "T12:00:00")) / 864e5));
     box.append(h("h2", { text: tl("🔁 تكرار الأخطاء الكريتيكال (Repeated failure)", "🔁 Repeated failure (critical errors)") }),
-      h("p", { class: "hint", text: tl("كل غلطة كريتيكال في Agent level بتطلّع الإيجنت مرحلة. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. البروجرام ليفل مش محسوب. الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
-        "Each Agent level critical error moves the agent up one stage. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Program level doesn't count. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
+      h("p", { class: "hint", text: tl("النقاط في Agent level: كومبلاينس كريتيكال = 2، End user كريتيكال = 1، بيزنس كريتيكال = 0.5، و3 نون كريتيكال أو أكتر في نفس التقييم = 1. كل نقطة كاملة بتطلّع الإيجنت مرحلة، والنص نقطة بيستنى. الموظف الجديد مش بيتحسب أول 30 يوم بعد السرتيفيكيشن. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. البروجرام ليفل مش محسوب. الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
+        "Agent level points: compliance critical 2, end user critical 1, business critical 0.5, 3+ non-critical misses in one evaluation 1. Each full point moves the agent up a stage; half points wait. New agents aren't counted for 30 days after certification. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Program level doesn't count. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
       h("div", { class: "rf-ladder" }, [0, 1, 2, 3, 4].map((st) => h("div", { class: "rf-step s" + st }, h("div", { class: "rf-step-n", text: String(counts[st]) }), h("div", { class: "rf-step-k", text: rfName(st) }), h("div", { class: "rf-step-a", text: rfAction(st) })))));
     const tb = h("table", {}, h("tr", {}, [tl("الإيجنت", "Agent"), tl("المرحلة", "Stage"), tl("المطلوب", "Next step"), tl("لازم يفضل نضيف لحد", "Clean until"), tl("آخر كريتيكال", "Last critical"), tl("السجل", "History")].map((x) => h("th", { text: x }))));
     rows.forEach((x) => {
@@ -2351,11 +2379,11 @@
       const crit = last ? (last.items || []).filter((i) => i.kind !== "NC" && i.result === "Error").map((i) => "[" + i.kind + "] " + (i.text || "").slice(0, 40)).join("، ") : "";
       tb.append(h("tr", { class: x.stage ? "" : "muted" },
         h("td", {}, h("b", { text: x.a })),
-        h("td", {}, h("span", { class: "rf-pill s" + x.stage, text: rfName(x.stage) })),
+        h("td", {}, h("span", { class: "rf-pill s" + x.stage, text: rfName(x.stage) }), x.carry ? h("div", { class: "meta", text: "+" + x.carry + tl(" نقطة مستنية", " pt pending") }) : null, x.grace ? h("div", { class: "meta", text: tl("جديد، مش بيتحسب لحد ", "New, not counted until ") + x.grace }) : null),
         h("td", { class: "rf-act", text: x.stage ? rfAction(x.stage) : "–" }),
         h("td", { dir: "ltr", class: "num" }, x.stage ? h("div", {}, h("div", { text: x.until }), h("div", { class: "meta", text: tl("فاضل ", "") + left(x.until) + tl(" يوم", " days left") })) : "–"),
         h("td", {}, last ? h("div", {}, h("div", { dir: "ltr", text: callDay(last) + " · " + evalIdOf(last) }), h("div", { class: "meta", text: crit })) : "–"),
-        h("td", {}, h("div", { class: "rf-hist" }, x.hist.slice(-8).map((e) => h("span", { class: "pill " + (e.kind === "up" ? "bad" : "good"), dir: "ltr", title: e.kind === "up" ? evalIdOf(e.r) : tl("عدّى المدة نضيف", "Clean window passed"), text: (e.kind === "up" ? "▲ " : "▼ ") + e.stage + " · " + e.day.slice(5) }))))));
+        h("td", {}, h("div", { class: "rf-hist" }, x.hist.slice(-8).map((e) => h("span", { class: "pill " + (e.kind === "up" ? "bad" : e.kind === "pts" ? "warn" : "good"), dir: "ltr", title: e.r ? evalIdOf(e.r) + " · +" + e.p + tl(" نقطة", " pt") : tl("عدّى المدة نضيف", "Clean window passed"), text: (e.kind === "up" ? "▲ " : e.kind === "pts" ? "+" + e.p + " " : "▼ ") + (e.kind === "pts" ? "" : e.stage + " · ") + e.day.slice(5) }))))));
     });
     box.append(h("div", { class: "table-wrap" }, tb));
     lastLists.repeat = rows;
