@@ -488,16 +488,110 @@ function emailAgent_(r) {
     const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
     const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
     const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
-      htmlBody: html, name: senderName };
-    const cc = [evEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
+      htmlBody: html, name: fromName_(r.evaluator, senderName) };
+    const cc = [evEmail].concat(resultCcList_()).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
     if (evEmail) mail.replyTo = evEmail;
     if (cc.length) mail.cc = cc.join(',');
     MailApp.sendEmail(mail);
     return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + to;
   } catch (err) {
+    ensureMailTriggers_();
     return 'Not sent: ' + String(err).slice(0, 200);
   }
 }
+
+// The sender name agents see: the evaluator's own name with the team name ("Mostafa Mohamed · Quality Team").
+// The address stays the script owner's Gmail (Apps Script can't send from someone else's Outlook); replies go to the evaluator.
+function fromName_(evaluator, team) {
+  const ev = String(evaluator || '').trim();
+  return (ev ? ev + ' · ' : '') + (team || 'Quality Team');
+}
+// The fixed CC on result emails. With ccMode 'digest' the managers get one summary email a day instead (saves the daily email quota).
+function resultCcList_() {
+  const c = config_();
+  if (c.ccMode === 'digest') return [];
+  return String(c.ccResults || '').split(/[,;\s]+/).filter(String);
+}
+
+// Gmail allows ~100 recipients a day (CC counts). When it runs out, result emails are kept as "Not sent" and this
+// hourly job sends them as soon as the quota frees up (last 7 days only), so nothing is lost.
+function retryResultEmails() {
+  const sh = sheet_();
+  const n = sh.getLastRow() - 1;
+  if (n < 1 || sh.getLastColumn() < COLUMNS.length) return 0;
+  const saved = sh.getRange(2, 1, n, 1).getValues().flat();
+  const notes = sh.getRange(2, COLUMNS.length, n, 1).getValues().flat();
+  const cut = Date.now() - 7 * 86400000;
+  let sent = 0;
+  for (let i = 0; i < n; i++) {
+    if (String(notes[i]).indexOf('Not sent') !== 0) continue;
+    const t = saved[i] instanceof Date ? saved[i].getTime() : new Date(saved[i]).getTime();
+    if (!(t >= cut)) continue;
+    if (MailApp.getRemainingDailyQuota() < 8) break; // keep a few for sign-in codes
+    let r; try { r = JSON.parse(sh.getRange(i + 2, JSON_COL).getValue()); } catch (err) { continue; }
+    if (r.mailedAt) { sh.getRange(i + 2, COLUMNS.length).setValue('Sent by hand from Outlook'); continue; } // the evaluator sent it themselves
+    const note = emailAgent_(r);
+    sh.getRange(i + 2, COLUMNS.length).setValue(note || '');
+    if (String(note).indexOf('Not sent') === 0) break;
+    sent++;
+  }
+  return sent;
+}
+
+// One email a day (9 am) to the "Always CC" people with yesterday's evaluations, used when ccMode is 'digest'.
+function resultsDigest() {
+  const c = config_();
+  const to = String(c.ccResults || '').split(/[,;\s]+/).filter(function (x) { return /@/.test(x); });
+  if (c.ccMode !== 'digest' || !to.length) return 0;
+  const sh = sheet_();
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return 0;
+  const tz = Session.getScriptTimeZone();
+  const day = Utilities.formatDate(new Date(Date.now() - 86400000), tz, 'yyyy-MM-dd');
+  const saved = sh.getRange(2, 1, n, 1).getValues().flat();
+  const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
+  const notes = sh.getLastColumn() >= COLUMNS.length ? sh.getRange(2, COLUMNS.length, n, 1).getValues().flat() : [];
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const d = saved[i] instanceof Date ? saved[i] : new Date(saved[i]);
+    if (isNaN(d.getTime()) || Utilities.formatDate(d, tz, 'yyyy-MM-dd') !== day) continue;
+    let r; try { r = JSON.parse(json[i]); } catch (err) { continue; }
+    if (r.test) continue;
+    rows.push({ r: r, note: String(notes[i] || '') });
+  }
+  if (!rows.length) return 0;
+  const td = 'padding:6px 8px;border-top:1px solid #e5e7eb;font-size:13px';
+  const fails = rows.filter(function (x) { return x.r.result && x.r.result !== 'Pass' && x.r.purpose !== 'coaching'; }).length;
+  const table = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' +
+    '<tr style="background:#f3f4f6"><th align="left" style="' + td + '">ID</th><th align="left" style="' + td + '">Agent</th><th align="left" style="' + td + '">Evaluator</th><th align="left" style="' + td + '">Type</th><th align="left" style="' + td + '">Score</th><th align="left" style="' + td + '">Emailed</th></tr>' +
+    rows.map(function (x) {
+      const r = x.r, ok = x.note && x.note.indexOf('Not sent') !== 0;
+      return '<tr><td style="' + td + '" dir="ltr">' + esc_(evalId_(r)) + '</td><td style="' + td + '">' + esc_(r.agent) + '</td><td style="' + td + '">' + esc_(r.evaluator) + '</td><td style="' + td + '">' + esc_(purposeLabel_(r)) + '</td>' +
+        '<td style="' + td + ';font-weight:bold;color:' + (r.result === 'Pass' ? '#15803d' : '#b91c1c') + '">' + (r.purpose === 'coaching' ? '' : esc_(pct_(r.final)) + ' ' + (r.result === 'Pass' ? '✅' : '⚠️')) + '</td>' +
+        '<td style="' + td + '">' + (ok ? '✓' : x.note ? '⏳ queued' : '–') + '</td></tr>';
+    }).join('') + '</table>';
+  const body = mailBox_('📋 ' + rows.length + ' evaluation(s) on ' + day + (fails ? ' · ' + fails + ' failed' : ''), table) +
+    '<p style="color:#555;font-size:13px">Each agent got their own result email. Open the QA scorecard for the details.</p>';
+  if (MailApp.getRemainingDailyQuota() < to.length + 8) return 0;
+  MailApp.sendEmail({ to: to.join(','), name: String(c.senderName || 'Quality Team'), subject: 'QA results summary – ' + day + ' (' + rows.length + ')', htmlBody: mailWrap_('Quality evaluations yesterday', body) });
+  return rows.length;
+}
+
+// True when sending to n more people still leaves room for about 25 result emails and sign-in codes today.
+function quotaOk_(n) { try { return MailApp.getRemainingDailyQuota() >= n + 25; } catch (err) { return true; } }
+
+// Installs the hourly retry and the 9 am summary once (no need to run anything by hand).
+function ensureMailTriggers_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('mailTriggers') === 'v1') return;
+  try {
+    const have = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+    if (have.indexOf('retryResultEmails') === -1) ScriptApp.newTrigger('retryResultEmails').timeBased().everyHours(1).create();
+    if (have.indexOf('resultsDigest') === -1) ScriptApp.newTrigger('resultsDigest').timeBased().everyDays(1).atHour(9).create();
+    props.setProperty('mailTriggers', 'v1');
+  } catch (err) { /* tried again on the next save */ }
+}
+function setupResultEmails() { PropertiesService.getScriptProperties().deleteProperty('mailTriggers'); ensureMailTriggers_(); return retryResultEmails(); }
 
 // Record a coaching session on an evaluation. Any evaluator can (team leaders coach on evaluations done by Quality),
 // so only the coaching fields are changed, never the score.
@@ -550,8 +644,8 @@ function sendCoaching_(id) {
   if (r.coachNote) html += '<p><b>What we agreed:</b><br>' + enHtml_(r.coachNote) + '</p>';
   html += '<p>We will listen to your first call after this session to make sure these points are in place.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – Quality Team</p></div>';
   const mail = { to: to, subject: '📝 Coaching session summary – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
-    name: String(config_().senderName || 'Quality Team').trim() || 'Quality Team' };
-  const cc = [coachEmail].concat(String(config_().ccResults || '').split(/[,;\s]+/)).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
+    name: fromName_(r.coachedBy || r.evaluator, String(config_().senderName || 'Quality Team').trim() || 'Quality Team') };
+  const cc = [coachEmail].concat(resultCcList_()).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
   if (coachEmail) mail.replyTo = coachEmail;
   if (cc.length) mail.cc = cc.join(',');
   try { MailApp.sendEmail(mail); } catch (err) { return { ok: false, error: String(err).slice(0, 200) }; }
@@ -837,7 +931,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -865,6 +959,7 @@ function setConfig_(c) {
     if (cc.length > 10 || cc.some(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); })) return { ok: false, error: 'Bad CC' };
     cur.ccResults = cc.join(', ');
   }
+  if (c.ccMode === 'each' || c.ccMode === 'digest') cur.ccMode = c.ccMode;
   if (c.senderName !== undefined) {
     const sn = String(c.senderName).trim().slice(0, 60);
     cur.senderName = sn || 'Quality Team';
@@ -973,6 +1068,7 @@ function doPost(e) {
     } finally {
       lock.releaseLock();
     }
+    ensureMailTriggers_();
     const note = emailAgent_(r);
     if (note) { const at = findRow_(sh, r.id); if (at !== -1) sh.getRange(at, COLUMNS.length).setValue(note); }
     return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note, purpose: (r.purpose || 'live') !== fixedFrom ? r.purpose : undefined });
@@ -1008,12 +1104,13 @@ function doGet(e) {
   const editCol = COLUMNS.indexOf('Edited at') + 1;
   const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
   const records = [], ro = readRoster_();
+  const mailNotes = sh.getLastColumn() >= COLUMNS.length ? sh.getRange(2, COLUMNS.length, n, 1).getValues().flat() : [];
   json.forEach(function (s, i) {
     if (since) {
       const t1 = new Date(savedAt[i]).getTime() || 0, t2 = new Date(editedAt[i] || 0).getTime() || 0;
       if (Math.max(t1, t2) < since) return;
     }
-    try { const r = JSON.parse(s); aliasFix_(r, ro); records.push(r); } catch (err) {}
+    try { const r = JSON.parse(s); aliasFix_(r, ro); if (/^Not sent/.test(String(mailNotes[i] || ''))) r.mailQueued = true; records.push(r); } catch (err) {}
   });
   return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
 }
@@ -1527,6 +1624,7 @@ function kbLeadsReport() {
     const waiting = ask.getRange(2, 8, ask.getLastRow() - 1, 1).getValues().filter(function (r) { const s = String(r[0] || 'New'); return !/answer|اتجاوب|تم|not|no need|مش محتاج|ملغي/i.test(s); }).length;
     if (waiting) parts.push(mailBox_('❓ Questions waiting for the client', '<p style="margin:0">There are ' + waiting + ' questions/suggestions from the agents in the "Agent questions" tab of the QA Evaluations sheet.</p>'));
   }
+  if (!quotaOk_(leads.length)) return;
   MailApp.sendEmail({ to: leads.join(','), name: KB_SENDER, subject: 'Quiz report ' + today, htmlBody: mailWrap_('Knowledge Base report for team leads', parts.join('')) });
   return 'sent';
 }

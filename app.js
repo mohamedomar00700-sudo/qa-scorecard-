@@ -1247,6 +1247,7 @@
         msg.className = "msg ok"; msg.textContent = (edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet")) + " [" + evalIdOf(rec) + "]";
         const rep = apiPost.last || {};
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
+        else if (!edit && rep.emailNote && /too many times|مرات كثيرة/i.test(rep.emailNote)) msg.textContent += " " + t("email_quota");
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
         else if (!edit && how === "saved" && mailMode() === "auto" && mailable(rec) && rep.emailNote === "" && !(roster.emails || {})[rec.agent]) msg.textContent += " " + t("no_email_hint", { n: rec.agent });
       } catch (e) {
@@ -1401,7 +1402,7 @@
     });
     return lines;
   }
-  const resultCc = () => String(teamCfg.ccResults || "").split(/[,;\s]+/).filter((x) => /@/.test(x));
+  const resultCc = () => teamCfg.ccMode === "digest" ? [] : String(teamCfg.ccResults || "").split(/[,;\s]+/).filter((x) => /@/.test(x));
   function mailText(r) {
     const coaching = purposeOf(r) === "coaching";
     const form = r.form === "whatsapp" ? mx("واتساب", "WhatsApp chat") : mx("مكالمة", "call");
@@ -1487,7 +1488,7 @@
   }
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
-  const autoMailed = (r) => mailable(r) && (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent];
+  const autoMailed = (r) => mailable(r) && (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent] && !r.mailQueued;
   const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
   async function markMailed(r) {
     if (r.mailedAt) return;
@@ -1662,6 +1663,7 @@
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null, h("details", { class: "row-more" }, h("summary", { title: tl("أكتر", "More"), text: "⋯" }), h("div", { class: "row-more-menu" },
         // Sent automatically by the system (the designed email): no Outlook button, so the agent doesn't get it twice.
         mailable(r) ? (autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : outlookButton(r, true)) : null,
+        mailable(r) && r.mailQueued && !r.mailedAt ? h("span", { class: "meta warn", title: t("mail_queued_tip"), text: "⏳ " + t("mail_queued") }) : null,
         mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
@@ -3769,7 +3771,7 @@
     const pmSync = () => { const auto = $("#setPickMode").value !== "manual", w = pickWindow(today()); $("#setPickFrom").disabled = $("#setPickTo").disabled = auto; if (auto) { $("#setPickFrom").value = w[0]; $("#setPickTo").value = w[1]; } else { $("#setPickFrom").value = teamCfg.pickFrom || "08:00"; $("#setPickTo").value = teamCfg.pickTo || "18:00"; } };
     $("#setPickMode").onchange = pmSync; pmSync(); $("#setPickDays").value = teamCfg.pickDays || 3;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
-    $("#setSenderName").value = teamCfg.senderName || "Quality Team";
+    $("#setSenderName").value = teamCfg.senderName || "Quality Team"; $("#setCcMode").value = teamCfg.ccMode === "digest" ? "digest" : "each";
     $("#setCallsSource").value = teamCfg.callsSource ? "https://docs.google.com/spreadsheets/d/" + teamCfg.callsSource + "/edit" : "";
     $("#btnCallsCheck").onclick = async () => {
       const box = $("#callsInfo"); box.textContent = "…";
@@ -3794,7 +3796,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), ccMode: $("#setCcMode").value === "digest" ? "digest" : "each", senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
