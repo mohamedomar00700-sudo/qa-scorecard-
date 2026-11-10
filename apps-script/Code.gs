@@ -556,7 +556,7 @@ function resultsDigest() {
     const d = saved[i] instanceof Date ? saved[i] : new Date(saved[i]);
     if (isNaN(d.getTime()) || Utilities.formatDate(d, tz, 'yyyy-MM-dd') !== day) continue;
     let r; try { r = JSON.parse(json[i]); } catch (err) { continue; }
-    if (r.test) continue;
+    if (r.test || r.purpose === 'gauge') continue;
     rows.push({ r: r, note: String(notes[i] || '') });
   }
   if (!rows.length) return 0;
@@ -1029,8 +1029,10 @@ function doPost(e) {
     if (body.action === 'promiseMark') return reply_(promiseMark_(body, me)); // WhatsApp promise sent / not sent
     if (body.action === 'callsInfo') return reply_(me.owner ? callsInfo_() : { ok: false, error: 'not_owner' });
     if (body.action === 'addKb') return reply_(addKb_(body.update));
+    if (body.action === 'gaugeSet') return reply_(me.owner ? gaugeSet_(body) : { ok: false, error: 'not_owner' });
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
+      if (gaugeRecordLocked_(me, body.record.id) || (body.record.purpose === 'gauge' && !me.owner)) return reply_({ ok: false, error: 'gauge_locked' });
       if (!me.owner) body.record.editedBy = me.name;
       { const ro = readRoster_(); aliasFix_(body.record, ro); levelFix_(body.record, ro); }
       return reply_(updateRecord_(body.record));
@@ -1041,6 +1043,7 @@ function doPost(e) {
     if (body.action === 'saveCoaching') return reply_(saveCoaching_(body.id, body.coaching || {}, me));
     if (body.action === 'deleteRecord') {
       if (!recordOwnerOk_(me, body.id)) return reply_({ ok: false, error: 'not_yours' });
+      if (gaugeRecordLocked_(me, body.id)) return reply_({ ok: false, error: 'gauge_locked' });
       return reply_(deleteRecord_(body.id, me.name || body.by));
     }
     const r = body.record;
@@ -1058,6 +1061,7 @@ function doPost(e) {
       const ids = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().flat() : [];
       if (ids.indexOf(r.id) !== -1) return reply_({ ok: true, duplicate: true });
       if (deletedIds_().indexOf(r.id) !== -1) return reply_({ ok: true, deleted: true });
+      if (r.purpose === 'gauge') { const ge = gaugeCheck_(r, me); if (ge) return reply_({ ok: false, error: ge }); delete r.callId; }
       const twin = sameEvaluatorTwin_(sh, r);
       if (twin) return reply_({ ok: true, duplicateOf: twin });
       const takenBy = callTakenBy_(sh, r);
@@ -1076,6 +1080,71 @@ function doPost(e) {
   } catch (err) {
     return reply_({ ok: false, error: String(err) });
   }
+}
+
+// ---------- Gauge R&R (attribute agreement analysis) ----------
+// A study (sampleRef GRR-YYYYMMDD-N) is a set of calls. An owner scores each call once as the standard (trial 0); every
+// other evaluator scores each call twice (trial 1 and trial 2, at least gaugeGapDays apart). While the study is open
+// nobody but the owners sees any score: evaluators get the call details of the standard and a bare marker for their own
+// trials, so trial 2 can't be copied from trial 1 either. Closing the study shows everything to everyone.
+// Gauge records are never emailed, coached, counted in any target or dashboard, and can't be edited by evaluators.
+function gaugeClosed_() { const c = config_().gaugeClosed; return Array.isArray(c) ? c.map(String) : []; }
+function gaugeGap_() { const n = Number(config_().gaugeGapDays); return n >= 0 && n <= 60 ? Math.round(n) : 5; }
+function gaugeStub_(r, me) {
+  const std = Number(r.trial) === 0, mine = !!me.name && nameKey_(r.evaluator) === nameKey_(me.name);
+  if (!std && !mine) return null;
+  const s = { id: r.id, form: r.form, purpose: 'gauge', sampleRef: r.sampleRef, gCall: r.gCall, trial: Number(r.trial) || 0, evaluator: std ? '' : r.evaluator, savedAt: r.savedAt, hidden: true, items: [] };
+  if (std) ['agent', 'interactionDate', 'odooRef', 'phone', 'type', 'duration', 'kbVersion', 'gCallId'].forEach(function (k) { if (r[k] !== undefined) s[k] = r[k]; });
+  return s;
+}
+function gaugeAll_() {
+  const sh = sheet_(), n = sh.getLastRow() - 1, out = [], del = deletedIds_();
+  if (n > 0) sh.getRange(2, JSON_COL, n, 1).getValues().forEach(function (x) {
+    const s = String(x[0]); if (s.indexOf('"purpose":"gauge"') === -1) return;
+    try { const r = JSON.parse(s); if (r && r.purpose === 'gauge' && del.indexOf(r.id) === -1) out.push(r); } catch (e) {}
+  });
+  return out;
+}
+// Checks a new gauge record before it is saved. Returns an error code or ''.
+function gaugeCheck_(r, me) {
+  r.test = false; r.rolePlay = false;
+  r.sampleRef = String(r.sampleRef || '').trim(); r.gCall = Math.round(Number(r.gCall)) || 0;
+  if (!/^GRR-\d{8}-\d+$/.test(r.sampleRef) || r.gCall < 1) return 'gauge_bad';
+  if (gaugeClosed_().indexOf(r.sampleRef) !== -1) return 'gauge_closed';
+  const all = gaugeAll_().filter(function (x) { return x.sampleRef === r.sampleRef && Number(x.gCall) === r.gCall; });
+  const std = all.filter(function (x) { return Number(x.trial) === 0; })[0];
+  if (me.owner) { r.trial = 0; return std ? 'gauge_has_std' : ''; }
+  if (!me.name) return 'gauge_bad';
+  if (!std) return 'gauge_no_std';
+  const mine = all.filter(function (x) { return nameKey_(x.evaluator) === nameKey_(me.name); });
+  const t1 = mine.filter(function (x) { return Number(x.trial) === 1; })[0], t2 = mine.filter(function (x) { return Number(x.trial) === 2; })[0];
+  if (!t1) { r.trial = 1; return ''; }
+  if (t2) return 'gauge_done';
+  const tz = Session.getScriptTimeZone() || 'Africa/Cairo', d1 = new Date(t1.savedAt);
+  if (!isNaN(d1.getTime())) {
+    const open = Utilities.formatDate(new Date(d1.getTime() + gaugeGap_() * 864e5), tz, 'yyyy-MM-dd');
+    if (Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd') < open) return 'gauge_wait';
+  }
+  r.trial = 2;
+  return '';
+}
+function gaugeSet_(b) {
+  const cur = config_(), ref = String(b.study || '').trim();
+  let list = gaugeClosed_();
+  if (/^GRR-\d{8}-\d+$/.test(ref)) {
+    list = list.filter(function (x) { return x !== ref; });
+    if (b.closed) list.push(ref);
+    cur.gaugeClosed = list.slice(-60);
+  }
+  if (b.gapDays !== undefined) { const n = Number(b.gapDays); if (n >= 0 && n <= 60) cur.gaugeGapDays = Math.round(n); }
+  PropertiesService.getScriptProperties().setProperty('cfg', JSON.stringify(cur));
+  return { ok: true, config: config_() };
+}
+function gaugeRecordLocked_(me, id) {
+  if (me.owner) return false;
+  const sh = sheet_(), row = findRow_(sh, id);
+  if (row === -1) return false;
+  try { return JSON.parse(sh.getRange(row, JSON_COL).getValue()).purpose === 'gauge'; } catch (err) { return false; }
 }
 
 function doGet(e) {
@@ -1105,14 +1174,18 @@ function doGet(e) {
   const savedAt = since ? sh.getRange(2, 1, n, 1).getValues().flat() : [];
   const editCol = COLUMNS.indexOf('Edited at') + 1;
   const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
-  const records = [], ro = readRoster_();
+  const records = [], ro = readRoster_(), gClosed = gaugeClosed_();
   const mailNotes = sh.getLastColumn() >= COLUMNS.length ? sh.getRange(2, COLUMNS.length, n, 1).getValues().flat() : [];
   json.forEach(function (s, i) {
     if (since) {
       const t1 = new Date(savedAt[i]).getTime() || 0, t2 = new Date(editedAt[i] || 0).getTime() || 0;
       if (Math.max(t1, t2) < since) return;
     }
-    try { const r = JSON.parse(s); aliasFix_(r, ro); if (/^Not sent/.test(String(mailNotes[i] || ''))) r.mailQueued = true; records.push(r); } catch (err) {}
+    try {
+      let r = JSON.parse(s); aliasFix_(r, ro);
+      if (r.purpose === 'gauge' && !me.owner && gClosed.indexOf(String(r.sampleRef)) === -1) { r = gaugeStub_(r, me); if (!r) return; }
+      if (/^Not sent/.test(String(mailNotes[i] || ''))) r.mailQueued = true; records.push(r);
+    } catch (err) {}
   });
   return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
 }
@@ -1127,7 +1200,7 @@ function purposeLabel_(r) {
   const p = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   if (p === 'calibration' && /(^|-)RECAL-/.test(r.sampleRef || '')) return 'Recalibration';
   return ({ live: 'Agent level', certcall: 'Certification call', program: 'Program level', coaching: 'Extra target',
-    postcoach: 'Coaching call', calibration: 'Calibration', roleplay: 'Certification role-play' })[p] || p;
+    postcoach: 'Coaching call', calibration: 'Calibration', gauge: 'Gauge R&R', roleplay: 'Certification role-play' })[p] || p;
 }
 
 // A double save: the same evaluator already saved this interaction (same form, agent, call time and purpose).
