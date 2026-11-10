@@ -1006,8 +1006,9 @@ function doPost(e) {
     if (body.action === 'kbAskVote') return reply_(kbAskVote_(body));
     if (body.action === 'kbMiss') return reply_(kbMiss_(body)); // knowledge base: a search / Noor question that found nothing
     if (body.action === 'kbAvatar') return reply_(kbAvatar_(body)); // knowledge base: the agent's chosen character
-    if (body.action === 'kbBook') return reply_(kbBook_(body)); // knowledge base: a booking, for the 3 follow-up calls
-    if (body.action === 'kbCall') return reply_(kbCall_(body));
+    if (body.action === 'kbBook') return reply_(frAfter_(kbBook_(body))); // knowledge base: a booking, for the 3 follow-up calls (+ the Fresha sheet)
+    if (body.action === 'kbCall') return reply_(frAfter_(kbCall_(body)));
+    if (body.action === 'kbFresha') return reply_(kbFresha_(body)); // team leads: booking entered in Fresha
     if (body.action === 'kbAssign') return reply_(kbAssign_(body));
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
@@ -1081,6 +1082,7 @@ function doGet(e) {
   const p = e.parameter || {};
   if (p.action === 'kbAsks') return reply_(kbAsks_(p));
   if (p.action === 'kbMisses') return reply_(kbMisses_(p)); // signed-in evaluators only: what agents searched for and didn't find
+  if (p.action === 'kbBookings') return reply_(kbBookings_(p)); // team leads: bookings for Fresha (list + download)
   if (p.action === 'kbCalls') return reply_(kbCalls_(p)); // signed-in: my follow-up calls (team leads: everyone's)
   if (p.action === 'kbDash') return reply_(kbDash_(p)); // signed-in evaluators only // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
@@ -1900,6 +1902,140 @@ function kbAssign_(b) {
   }
   return { ok: true, emailed: !!em };
 }
+// ---------- bookings for Fresha (team leads) ----------
+// Every booking in the Bookings tab is copied to its own Google Sheet ("H&P Bookings for Fresha"), one row per booking,
+// laid out in the order the team leads type it into Fresha. The leads tick "In Fresha ✓" when it's entered (in the sheet or
+// from the knowledge base). If a ticked booking later changes day or is cancelled, the tick is taken off and the
+// "Fresha action" column says what to change, so nothing is missed. Run setupFreshaSheet() once (it shares the sheet with the team leads).
+// It's a separate file so the team leads never get access to the evaluations sheet.
+const FR_COLS = ['In Fresha ✓', 'Fresha action', 'Status', 'Appointment date', 'Day', 'Time', 'Location', 'Client first name', 'Client last name', 'Mobile number',
+  'Services', 'Price', 'Booking for', 'Team member (doctor)', 'Notes for the clinic', 'Booked by', 'Booked at', 'Odoo', 'Entered by', 'Lead notes', 'Booking ID', 'state at entry', 'state'];
+const FR = { tick: 0, act: 1, status: 2, date: 3, day: 4, time: 5, loc: 6, first: 7, last: 8, mob: 9, svc: 10, price: 11, kind: 12, doc: 13, notes: 14, by: 15, saved: 16, odoo: 17, enteredBy: 18, lead: 19, id: 20, entry: 21, state: 22 };
+function frFile_(create) {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty('freshaSheet');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) {} }
+  if (!create) return null;
+  const ss = SpreadsheetApp.create('H&P Bookings for Fresha'), sh = ss.getSheets()[0];
+  sh.setName('Bookings'); sh.getRange(1, 1, 1, FR_COLS.length).setValues([FR_COLS]).setFontWeight('bold').setBackground('#1d2731').setFontColor('#ffffff');
+  sh.setFrozenRows(1); sh.setFrozenColumns(2); sh.hideColumns(FR.entry + 1, 2);
+  sh.setColumnWidth(FR.act + 1, 230); sh.setColumnWidth(FR.svc + 1, 260); sh.setColumnWidth(FR.notes + 1, 220);
+  props.setProperty('freshaSheet', ss.getId());
+  return ss;
+}
+function frMobile_(v) { // UAE mobiles in the form Fresha takes: +971 5X XXX XXXX; anything else stays as typed
+  const s = String(v || '').replace(/^'/, '').trim(), d = s.replace(/\D/g, '');
+  const m = /^(?:00971|971|0)?(5\d{8})$/.exec(d);
+  return m ? '+971 ' + m[1].slice(0, 2) + ' ' + m[1].slice(2, 5) + ' ' + m[1].slice(5) : s;
+}
+function frSplitSvc_(v) { // 'كورس إذابة الدهون · 1,500 + إندوليزر · 1,500' → names without prices, and the prices
+  const names = [], prices = [];
+  String(v || '').split(/\s\+\s/).forEach(function (p) { const m = /^(.*?)\s*·\s*([\d,.]+)\s*$/.exec(p.trim()); if (m) { names.push(m[1]); prices.push(m[2]); } else if (p.trim()) names.push(p.trim()); });
+  return { names: names.join(' + '), price: prices.join(' + ') };
+}
+const FR_DAYS_ = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// one Bookings row → the Fresha row (without the lead's own columns)
+function frRow_(r) {
+  const name = String(r[BK_C.cust] || '').trim().split(/\s+/), date = ymdOf_(r[BK_C.date]), sv = frSplitSvc_(r[BK_C.svc]);
+  const st = /cancel/i.test(String(r[BK_C.status])) ? 'Cancelled' : /no-?show/i.test(String(r[BK_C.status])) ? 'No-show' : /done/i.test(String(r[BK_C.status])) ? 'Done (went)' : 'Active';
+  const saved = r[BK_C.saved] instanceof Date ? Utilities.formatDate(r[BK_C.saved], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(r[BK_C.saved] || '');
+  return { id: String(r[BK_C.id]), status: st, date: date, day: date ? FR_DAYS_[new Date(date + 'T12:00:00Z').getUTCDay()] : '', time: hmOf_(r[BK_C.time]), loc: brEn_(r[BK_C.branch]),
+    first: name[0] || '', last: name.slice(1).join(' '), mob: frMobile_(r[BK_C.phone]), svc: sv.names, price: sv.price, kind: String(r[BK_C.kind] || ''), doc: String(r[BK_C.doc] || ''),
+    notes: String(r[BK_C.notes] || ''), by: String(r[BK_C.by] || ''), saved: saved, odoo: String(r[BK_C.odoo] || '').replace(/^'/, ''),
+    state: [st === 'Cancelled' ? 'Cancelled' : 'Active', date, hmOf_(r[BK_C.time]), brEn_(r[BK_C.branch])].join(' ') };
+}
+function frAction_(o, tick, entry) {
+  if (tick) return 'Done ✓';
+  if (entry) { // was in Fresha, then changed
+    if (o.status === 'Cancelled') return '⚠ Cancelled: cancel it in Fresha';
+    if (/^Cancelled/.test(entry)) return '⚠ Booked again: add it back in Fresha';
+    return '⚠ Changed: update it in Fresha (was ' + entry.replace(/^Active\s+|^Cancelled\s+/, '') + ')';
+  }
+  if (o.status === 'Cancelled') return '— Cancelled (not needed)';
+  if (o.date && o.date < Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd') && o.status === 'Active') return 'Add to Fresha (day passed)';
+  return 'Add to Fresha';
+}
+// Bookings tab → Fresha sheet. Keeps the leads' ticks, "Entered by" and "Lead notes"; only rows that changed are written.
+// mark: {id, on, by} ticks / unticks one booking (from the knowledge base).
+function frSync_(mark) {
+  const src = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BK_NAME);
+  if (!src || src.getLastRow() < 2) return { ok: true, rows: [] };
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const ss = frFile_(true), sh = ss.getSheets()[0], w = FR_COLS.length;
+    const bk = src.getRange(2, 1, src.getLastRow() - 1, BK_COLS.length).getValues().filter(function (r) { return String(r[BK_C.id] || '').trim(); });
+    const n = sh.getLastRow() - 1, old = n > 0 ? sh.getRange(2, 1, n, w).getValues() : [], byId = {};
+    old.forEach(function (r, i) { if (r[FR.id]) byId[String(r[FR.id])] = { r: r, i: i }; });
+    const out = old.map(function (r) { return r.slice(); }), changed = {}, now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM HH:mm');
+    bk.forEach(function (b) {
+      const o = frRow_(b), hit = byId[o.id];
+      let tick = hit ? hit.r[FR.tick] === true : false, entry = hit ? String(hit.r[FR.entry] || '') : '', enteredBy = hit ? String(hit.r[FR.enteredBy] || '') : '';
+      const prev = hit ? String(hit.r[FR.state] || '') : '';
+      if (mark && mark.id === o.id) {
+        tick = !!mark.on; entry = tick ? o.state : ''; enteredBy = tick ? mark.by + ' · ' + now : '';
+      } else {
+        if (tick && String(hit.r[FR.act]) !== 'Done ✓') { entry = prev || o.state; enteredBy = 'ticked in the sheet · ' + now; } // a new tick by a lead
+        if (tick && entry !== o.state) tick = false; // changed after it was entered: the lead has to fix Fresha and tick again
+        else if (!tick && hit && String(hit.r[FR.act]) === 'Done ✓') { entry = ''; enteredBy = ''; } // a lead took the tick off
+        if (!tick && entry && entry === o.state) tick = true; // changed back to what is in Fresha
+      }
+      const row = [tick, frAction_(o, tick, tick ? '' : entry), o.status, o.date, o.day, o.time, o.loc, o.first, o.last, o.mob, o.svc, o.price, o.kind, o.doc, o.notes, o.by, o.saved, o.odoo,
+        enteredBy, hit ? hit.r[FR.lead] : '', o.id, entry, o.state];
+      const txt = row.map(String);
+      if (hit) { if (txt.join('\u0001') !== hit.r.map(String).join('\u0001')) { out[hit.i] = row; changed[hit.i] = 1; } }
+      else { byId[o.id] = { r: row, i: out.length }; changed[out.length] = 1; out.push(row); }
+    });
+    const keys = Object.keys(changed).map(Number).sort(function (a, b) { return a - b; });
+    if (keys.length) {
+      const asText = function (r) { return r.map(function (v, j) { return j === FR.tick ? v : j === FR.date || j === FR.time || j === FR.mob || j === FR.odoo || j === FR.price || j === FR.saved || j === FR.first || j === FR.last ? (String(v) ? "'" + v : '') : v; }); };
+      // write in runs of neighbouring rows
+      let s = keys[0], e = s;
+      const flush = function () {
+        const rg = sh.getRange(2 + s, 1, e - s + 1, w);
+        rg.setValues(out.slice(s, e + 1).map(asText));
+        sh.getRange(2 + s, 1, e - s + 1, 1).insertCheckboxes();
+      };
+      for (let k = 1; k < keys.length; k++) { if (keys[k] === e + 1) e = keys[k]; else { flush(); s = e = keys[k]; } }
+      flush();
+    }
+    return { ok: true, rows: out, url: ss.getUrl() };
+  } finally { lock.releaseLock(); }
+}
+function frAfter_(res) { if (res && res.ok && !res.duplicate) { try { frSync_(); } catch (e) {} } return res; } // a booking change never fails because of the Fresha sheet
+function freshaSync() { frSync_(); return 'ok'; } // hourly trigger: picks up hand edits in the Bookings tab
+// Run once from the Apps Script editor: makes the Fresha sheet, shares it with the team leads (Operations evaluators + Chief)
+// and adds the hourly sync. The log shows the sheet's link.
+function setupFreshaSheet() {
+  const ss = frFile_(true);
+  const leads = kbLeadEmails_().concat(rosterPeople_().filter(function (p) { return isEvalRole_(p.role) && /chief/i.test(p.role); }).map(function (p) { return p.email; }));
+  leads.filter(function (e, i, a) { return e && a.indexOf(e) === i; }).forEach(function (e) { try { ss.addEditor(e); } catch (err) { Logger.log('Could not share with ' + e + ': ' + err); } });
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'freshaSync') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('freshaSync').timeBased().everyHours(1).create();
+  frSync_();
+  Logger.log('Fresha sheet: ' + ss.getUrl());
+  return ss.getUrl();
+}
+// knowledge base, team leads only: bookings by appointment date (from–to), for the list, the download and the ticks
+function kbBookings_(p) {
+  const who = kbWho_(p.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  if (!bkLead_(who)) return { ok: false, error: 'forbidden' };
+  const ymd = function (v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : ''; };
+  const from = ymd(p.from), to = ymd(p.to), by = String(p.by || '') === 'saved' ? 'saved' : 'date';
+  const res = frSync_();
+  const items = (res.rows || []).filter(function (r) {
+    const d = by === 'saved' ? String(r[FR.saved]).slice(0, 10) : String(r[FR.date]);
+    return (!from || d >= from) && (!to || d <= to);
+  }).map(function (r) { const o = {}; Object.keys(FR).forEach(function (k) { if (k !== 'entry' && k !== 'state') o[k] = r[FR[k]] === true ? true : String(r[FR[k]]).replace(/^'/, ''); }); return o; });
+  return { ok: true, url: res.url || '', items: items };
+}
+function kbFresha_(b) { // tick / untick "In Fresha" from the knowledge base
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  if (!bkLead_(who)) return { ok: false, error: 'forbidden' };
+  frSync_({ id: String(b.id || ''), on: !!b.on, by: who.name });
+  return { ok: true };
+}
+
 // 10 am: each agent with calls today gets one short email, with the customers' numbers.
 // Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
 function kbCallsReminder() {
