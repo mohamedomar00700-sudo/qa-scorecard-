@@ -2012,11 +2012,16 @@ function pickCall_(b, me) {
     const win = pickWindow_(wd, cfg.closedDays);
     if (from < win.from) from = win.from;
     if (to > win.to) to = win.to;
+    // Never cross into last week (weeks 1-7, 8-14, 15-21, 22-end, by call date), so a pick made early in the week
+    // counts in this week's target. On the week's first day there are no recorded calls yet: that day is for side by side.
+    const ws = win.to.slice(0, 8) + ['01', '08', '15', '22'][Math.min(3, Math.floor((Number(win.to.slice(8, 10)) - 1) / 7))];
+    const weekCut = from < ws;
+    if (weekCut) from = ws;
     const list = from <= to ? pool(from, to) : [], wider = false;
-    if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: win.from, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
+    if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: from, weekFrom: ws, weekCut: weekCut, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
     const x = list[Math.floor(Math.random() * list.length)];
     ph.appendRow([new Date(), x.id, x.day + ' ' + x.time, agent, me.name || 'Owner', 'picked', '', '']);
-    return { ok: true, wider: wider, dataTo: dataTo, winFrom: win.from, winDays: wd, pool: list.length,
+    return { ok: true, wider: wider, dataTo: dataTo, winFrom: from, weekFrom: ws, winDays: wd, pool: list.length,
       call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk, pbx: callAgent_(x.from, ro).pbx, ext: callAgent_(x.from, ro).ext } };
   } finally {
     lock.releaseLock();
