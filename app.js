@@ -519,7 +519,7 @@
       let wider = false, todayOnly = false;
       for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        if (ymdOf(d) < mWeekStartOf(today())) break;
+        if (ymdOf(d) < weekFloor(today(), closedSet())) break;
         if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) { ok.push(ymdOf(d)); if (i > days) wider = true; }
       }
       const nowM = new Date().getHours() * 60 + new Date().getMinutes();
@@ -534,7 +534,7 @@
           ok.length = 0; todayOnly = false;
           for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
             const d = new Date(); d.setDate(d.getDate() - i);
-            if (ymdOf(d) < mWeekStartOf(today())) break;
+            if (ymdOf(d) < weekFloor(today(), closedSet())) break;
             if (!off2.has(d.getDay()) && !skip2.includes(ymdOf(d))) ok.push(ymdOf(d));
           }
           if (!ok.length && !off2.has(new Date().getDay()) && !skip2.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
@@ -600,9 +600,20 @@
     const d = new Date(today() + "T12:00:00");
     let left = n, guard = 0;
     while (left > 0 && guard++ < 40) { d.setDate(d.getDate() - 1); if (!off.has(d.getDay())) left--; }
-    // Never before this week's first day (1, 8, 15, 22), so early-week picks count in this week's target.
-    const ws = mWeekStartOf(today());
+    // Never before this week's first day (1, 8, 15, 22), so early-week picks count in this week's target; on the week's
+    // first working day the last working day of last week is allowed too, so that day is still heard (Apps Script: weekFloor_).
+    const ws = weekFloor(today(), off);
     return ymdOf(d) < ws ? ws : ymdOf(d);
+  }
+  const closedSet = () => new Set(dayIdx(Array.isArray(teamCfg.closedDays) ? teamCfg.closedDays.join(",") : teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays));
+  function weekFloor(day, off) {
+    const ws = mWeekStartOf(day), d = new Date(ws + "T12:00:00");
+    let g = 0;
+    while (off.has(d.getDay()) && g++ < 7) d.setDate(d.getDate() + 1);
+    if (ymdOf(d) !== day) return ws;
+    const p = new Date(ws + "T12:00:00"); p.setDate(p.getDate() - 1); g = 0;
+    while (off.has(p.getDay()) && g++ < 7) p.setDate(p.getDate() - 1);
+    return ymdOf(p);
   }
   const mWeekStartOf = (day) => String(day).slice(0, 8) + ["01", "08", "15", "22"][Math.min(3, Math.floor((+String(day).slice(8, 10) - 1) / 7))];
   function callPicker(a) {
@@ -3475,7 +3486,7 @@
         ...need.map(([a, n]) => h("span", { class: "pill " + (n ? "warn" : "bad"), dir: "auto", text: a + " · " + n + "/" + perAgent }))));
       kids.push(h("div", { class: "mt-need" }, h("b", { text: noSbs.length ? tl("لسه من غير سايد باي سايد الأسبوع ده:", "No side by side yet this week:") : "✓ " + tl("كل الإيجنتس خدوا سايد باي سايد الأسبوع ده", "Every agent had a side by side this week") }),
         ...noSbs.map((a) => h("span", { class: "pill info", dir: "auto", text: a }))));
-      if (td === mWeekStartOf(td)) kids.push(h("p", { class: "hint", text: tl("أول الأسبوع: المكالمات بتتسحب من الأسبوع الحالي بس، ومكالمات النهارده بتنزل في الرو داتا آخر اليوم. فالنهارده مناسب للسايد باي سايد.", "Start of the week: calls are drawn from this week only, and today's calls reach the raw data at the end of the day, so today suits side by side.") }));
+      if (td === mWeekStartOf(td)) kids.push(h("p", { class: "hint", text: tl("أول يوم في الأسبوع: النهارده للسايد باي سايد، والسحب العشوائي بيجيب مكالمات آخر يوم في الأسبوع اللي فات عشان اليوم ده يتسمع هو كمان. من بكره السحب من الأسبوع الحالي بس.", "First day of the week: today is for side by side, and random picks come from last week's last day so that day is heard too. From tomorrow picks come from this week only.") }));
     }
     if (showQ) {
       const prog = all.filter((r) => purposeOf(r) === "program");
@@ -4090,6 +4101,19 @@
           un.length ? h("div", { class: "warn", text: t("own_calls_unmatched", { list: un.join("، ") }) }) : null,
           (j.rosterMissing || []).length ? h("div", { class: "warn", text: t("own_calls_missing", { list: j.rosterMissing.join("، ") }) }) : null);
       } catch (e) { box.textContent = e.message; }
+    };
+    const fq = $("#btnFixLevels");
+    if (fq) fq.onclick = async () => {
+      const box = $("#fixLevelsInfo"); box.className = "hint"; box.textContent = "…";
+      try {
+        const d = await apiPostJson({ action: "fixQualityLevels", dry: true });
+        if (!d.n) { box.textContent = tl("✓ مفيش تقييمات كواليتي متسجلة Agent level.", "✓ No Quality evaluations saved as Agent level."); return; }
+        if (!confirm(tl("هيتحوّل " + d.n + " تقييم للكواليتي من Agent level لـ Program level. نكمل؟", d.n + " Quality evaluations will change from Agent level to Program level. Go ahead?"))) { box.textContent = ""; return; }
+        const j = await apiPostJson({ action: "fixQualityLevels" });
+        box.className = "msg ok";
+        box.textContent = tl("✓ اتحوّل " + j.n + " تقييم لـ Program level: ", "✓ " + j.n + " evaluations moved to Program level: ") + j.list.map((x) => x.id + " (" + x.agent + ")").join("، ");
+        await refreshRecordsQuietly(); refreshViews();
+      } catch (e) { box.className = "msg err"; box.textContent = e.message; }
     };
     $("#btnSaveTarget").onclick = async () => {
       const m = $("#ownMsg"), n = Math.round(Number($("#setTarget").value));

@@ -69,6 +69,30 @@ function levelFix_(r, ro) {
   else if (!isQ && !isOwner && p === 'program') r.purpose = 'live';
   return r;
 }
+// Anything a Quality evaluator saved as Agent level is Program level (older saves, before levelFix_ existed).
+function qualityLevel_(r, ro) {
+  if (!r || r.test || r.sampleRef || r.rolePlay || r.purpose === 'gauge') return false;
+  if ((r.purpose || 'live') !== 'live') return false;
+  const ev = nameKey_(r.evaluator);
+  if (!(ro.quality || []).some(function (n) { return nameKey_(n) === ev; })) return false;
+  r.purpose = 'program';
+  return true;
+}
+// Owner action: rewrite those evaluations in the sheet as Program level. dry = count only.
+function fixQualityLevels_(dry) {
+  const ro = readRoster_(), sh = sheet_(), n = sh.getLastRow() - 1;
+  if (n < 1) return { ok: true, n: 0, list: [] };
+  const json = sh.getRange(2, JSON_COL, n, 1).getValues(), todo = [];
+  json.forEach(function (x) {
+    let r; try { r = JSON.parse(String(x[0])); } catch (e) { return; }
+    aliasFix_(r, ro);
+    if (qualityLevel_(r, ro)) todo.push(r);
+  });
+  const list = todo.map(function (r) { return { id: evalId_(r), agent: r.agent, evaluator: r.evaluator, call: String(r.interactionDate || '').replace('T', ' ') }; });
+  if (dry) return { ok: true, n: todo.length, list: list };
+  todo.forEach(function (r) { r.editedAt = new Date().toISOString(); r.editedBy = 'Level fix (Quality = Program level)'; updateRecord_(r); });
+  return { ok: true, n: todo.length, list: list, done: true };
+}
 function roleMatches_(v, role) { return role === 'evaluators' ? isEvalRole_(v) : /^a/i.test(String(v || '').trim()); }
 
 function nameKey_(s) {
@@ -1029,6 +1053,7 @@ function doPost(e) {
     if (body.action === 'promiseMark') return reply_(promiseMark_(body, me)); // WhatsApp promise sent / not sent
     if (body.action === 'callsInfo') return reply_(me.owner ? callsInfo_() : { ok: false, error: 'not_owner' });
     if (body.action === 'addKb') return reply_(addKb_(body.update));
+    if (body.action === 'fixQualityLevels') return reply_(me.owner ? fixQualityLevels_(!!body.dry) : { ok: false, error: 'not_owner' });
     if (body.action === 'gaugeSet') return reply_(me.owner ? gaugeSet_(body) : { ok: false, error: 'not_owner' });
     if (body.action === 'updateRecord') {
       if (!body.record || !recordOwnerOk_(me, body.record.id)) return reply_({ ok: false, error: 'not_yours' });
@@ -1182,7 +1207,7 @@ function doGet(e) {
       if (Math.max(t1, t2) < since) return;
     }
     try {
-      let r = JSON.parse(s); aliasFix_(r, ro);
+      let r = JSON.parse(s); aliasFix_(r, ro); qualityLevel_(r, ro);
       if (r.purpose === 'gauge' && !me.owner && gClosed.indexOf(String(r.sampleRef)) === -1) { r = gaugeStub_(r, me); if (!r) return; }
       if (/^Not sent/.test(String(mailNotes[i] || ''))) r.mailQueued = true; records.push(r);
     } catch (err) {}
@@ -2282,6 +2307,21 @@ function pickWindow_(n, closed) {
   }
   return { from: from, to: to };
 }
+// First day a pick may come from: the week's first day (1, 8, 15, 22), or on the week's first working day the last
+// working day before it (closed days skipped).
+function weekFloor_(today, ws, closed) {
+  const tz = Session.getScriptTimeZone() || 'Africa/Cairo';
+  const off = (Array.isArray(closed) ? closed : String(closed === undefined ? 'Fri' : closed).split(/[,\s]+/)).map(String);
+  const mk = function (ymd) { return new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10)), 12); };
+  const fmt = function (d, f) { return Utilities.formatDate(d, tz, f); };
+  const d = mk(ws);
+  let guard = 0;
+  while (off.indexOf(fmt(d, 'EEE')) !== -1 && guard++ < 7) d.setDate(d.getDate() + 1);
+  if (fmt(d, 'yyyy-MM-dd') !== today) return ws;
+  const p = mk(ws); p.setDate(p.getDate() - 1); guard = 0;
+  while (off.indexOf(fmt(p, 'EEE')) !== -1 && guard++ < 7) p.setDate(p.getDate() - 1);
+  return fmt(p, 'yyyy-MM-dd');
+}
 // body: { agent, from, to (YYYY-MM-DD, inclusive; clamped to the pick window), prev, why }
 function pickCall_(b, me) {
   const ro = readRoster_();
@@ -2321,9 +2361,12 @@ function pickCall_(b, me) {
     if (to > win.to) to = win.to;
     // Never cross into last week (weeks 1-7, 8-14, 15-21, 22-end, by call date), so a pick made early in the week
     // counts in this week's target. On the week's first day there are no recorded calls yet: that day is for side by side.
+    // Exception (Mohamed, 2026-11-10): on the week's first working day the last working day of last week can be drawn too,
+    // so the last day of every week is still heard (side by side is the other option that day).
     const ws = win.to.slice(0, 8) + ['01', '08', '15', '22'][Math.min(3, Math.floor((Number(win.to.slice(8, 10)) - 1) / 7))];
-    const weekCut = from < ws;
-    if (weekCut) from = ws;
+    const wsFrom = weekFloor_(win.to, ws, cfg.closedDays);
+    const weekCut = from < wsFrom;
+    if (weekCut) from = wsFrom;
     const list = from <= to ? pool(from, to) : [], wider = false;
     if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: from, weekFrom: ws, weekCut: weekCut, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
     const x = list[Math.floor(Math.random() * list.length)];
