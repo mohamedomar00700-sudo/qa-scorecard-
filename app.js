@@ -3139,6 +3139,9 @@
   function renderDashboard() {
     renderKbQuiz();
     dbControls();
+    const qb = $("#dbQualityReport");
+    if (qb) { const ym = dbRefMonth(); qb.textContent = "📊 " + tl("ريبورت الجودة الشهري (Excel) · ", "Monthly quality report (Excel) · ") + monthLabel(ym);
+      qb.onclick = async () => { qb.disabled = true; try { await exportQualityReport(dbRefMonth()); } finally { qb.disabled = false; } }; }
     const all = allRecords();
     fillSelect($("#dbAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     fillSelect($("#dbEvaluator"), [...new Set(all.map((r) => r.evaluator).filter(Boolean))].sort(), t("f_all_evaluators"));
@@ -3327,7 +3330,7 @@
     const fin = list.map((r) => r.final).filter((x) => x !== null && x !== undefined);
     return { n: list.length, avg: avg(fin), pass: list.length ? list.filter((r) => r.result === "Pass").length / list.length : null,
       nc: avg(list.map((r) => r.ncScore).filter((x) => x !== null && x !== undefined)), crit: list.filter((r) => r.critical > 0).length,
-      cc: avg(list.map((r) => r.cc).filter((x) => x !== null && x !== undefined)), eu: avg(list.map((r) => r.eu).filter((x) => x !== null && x !== undefined)), bc: avg(list.map((r) => r.bc).filter((x) => x !== null && x !== undefined)) };
+      aht: ahtOf(list), cc: avg(list.map((r) => r.cc).filter((x) => x !== null && x !== undefined)), eu: avg(list.map((r) => r.eu).filter((x) => x !== null && x !== undefined)), bc: avg(list.map((r) => r.bc).filter((x) => x !== null && x !== undefined)) };
   }
   function renderReports() {
     if (!$("#view-reports")) return;
@@ -3369,12 +3372,13 @@
         const ch = a === null || b === null || b === undefined ? null : a - b;
         return [label, isPct ? pct(a) : a, P ? (isPct ? pct(b) : b) : "–", !P || ch === null ? "–" : { text: isPct ? signed(ch) : (ch > 0 ? "+" : "") + ch, class: "num " + ((lowerBetter ? ch < 0 : ch > 0) ? "good-txt" : ch === 0 ? "" : "bad-txt") }];
       };
-      const tiles = [[t("rp_evals"), S.n, t("k_agents", { n: new Set(recs.map((r) => r.agent)).size })], [t("rp_avg"), pct(S.avg), t("k_target")], [t("rp_pass"), pct(S.pass), ""], [t("rp_withcrit"), S.crit, pct(S.crit / S.n)]];
+      const tiles = [[t("rp_evals"), S.n, t("k_agents", { n: new Set(recs.map((r) => r.agent)).size })], [t("rp_avg"), pct(S.avg), t("k_target")], [t("rp_pass"), pct(S.pass), ""], [t("rp_withcrit"), S.crit, pct(S.crit / S.n)], ["AHT", ahtText(S.aht), tl("متوسط مدة المكالمات المتقيّمة", "average talk time of evaluated calls")]];
       out.append(rpCard(t("rp_s_summary"), pr ? t("rp_vs", { a: pr[0], b: pr[1] }) + (P ? "" : " " + t("rp_prev_empty")) : t("rp_prev_na"),
         h("div", { class: "tiles" }, tiles.map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: v }), h("div", { class: "tile-s", text: sub })))),
         rpTable([t("rp_metric"), t("rp_this"), t("rp_prev"), t("rp_change")], [
           row(t("rp_evals"), S.n, P && P.n), row(t("rp_avg"), S.avg, P && P.avg, true), row(t("rp_pass"), S.pass, P && P.pass, true), row(t("rp_nc"), S.nc, P && P.nc, true),
-          row(t("cc_acc"), S.cc, P && P.cc, true), row(t("eu_acc"), S.eu, P && P.eu, true), row(t("bc_acc"), S.bc, P && P.bc, true), row(t("rp_withcrit"), S.crit, P && P.crit, false, true)], [1, 2, 3])));
+          row(t("cc_acc"), S.cc, P && P.cc, true), row(t("eu_acc"), S.eu, P && P.eu, true), row(t("bc_acc"), S.bc, P && P.bc, true), row(t("rp_withcrit"), S.crit, P && P.crit, false, true),
+          ["AHT (mm:ss)", ahtText(S.aht), P ? ahtText(P.aht) : "–", !P || S.aht === null || P.aht === null ? "–" : (S.aht - P.aht > 0 ? "+" : "") + (S.aht - P.aht) + "s"]], [1, 2, 3])));
     }
     if (on("pareto")) {
       const missed = items.filter((s) => s.miss).sort((a, b) => b.miss - a.miss || b.miss / b.n - a.miss / a.n);
@@ -3402,9 +3406,9 @@
       const rows = agentNames.map((a) => { const l = byAgent.get(a), s = rpStats(l), ps = prev ? rpStats(prev.filter((r) => r.agent === a)) : null;
         const top = itemStats(l).filter((x) => x.miss).sort((x, y) => y.miss - x.miss)[0];
         const ok = s.avg !== null && s.avg >= PASS && !l.some((r) => r.critical > 0);
-        return [a, s.n, pct(s.avg), ps && ps.n ? signed(s.avg - ps.avg) : "–", pct(s.pass), pct(s.nc), pct(s.cc), pct(s.eu), pct(s.bc), l.reduce((x, r) => x + (r.critical || 0), 0), top ? iname(top) + " (" + top.miss + ")" : "–", { text: ok ? t("st_ok") : t("st_bad"), class: ok ? "good-txt" : "bad-txt" }]; });
+        return [a, s.n, pct(s.avg), ps && ps.n ? signed(s.avg - ps.avg) : "–", pct(s.pass), pct(s.nc), pct(s.cc), pct(s.eu), pct(s.bc), l.reduce((x, r) => x + (r.critical || 0), 0), ahtText(s.aht), top ? iname(top) + " (" + top.miss + ")" : "–", { text: ok ? t("st_ok") : t("st_bad"), class: ok ? "good-txt" : "bad-txt" }]; });
       out.append(rpCard(t("rp_s_agents"), t("rp_agents_hint"),
-        rpTable([t("c_agent"), t("rp_evals"), t("rp_avg"), t("rp_change"), t("rp_pass"), t("rp_nc"), t("cc_acc"), t("eu_acc"), t("bc_acc"), t("c_crit"), t("rp_top_miss"), t("c_status")], rows, [1, 2, 3, 4, 5, 6, 7, 8, 9])));
+        rpTable([t("c_agent"), t("rp_evals"), t("rp_avg"), t("rp_change"), t("rp_pass"), t("rp_nc"), t("cc_acc"), t("eu_acc"), t("bc_acc"), t("c_crit"), "AHT", t("rp_top_miss"), t("c_status")], rows, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])));
     }
     if (on("matrix")) {
       const cols = items.filter((s) => s.miss).sort((a, b) => b.miss - a.miss).slice(0, 12);
@@ -3642,6 +3646,174 @@
     section("#mwRecent", t("mw_recent"), null, recent.length ? rt : h("div", { class: "empty", text: t("mw_none") }));
   }
 
+  // ---------- monthly Quality Performance Dashboard (the Excel layout the CX head asked for) ----------
+  // Same sections as his "Quality Performance Dashboard" sheet: Quality adherence (Program level vs the Quality weekly
+  // target), Operation adherence (Agent level vs leaders' target, capped per agent like his sheet), Program and Agent
+  // level quality figures, the whole project, coaching fulfilment, adherence and scores per agent, and the raw data.
+  // Weeks are month weeks by CALL date. Values are written, not formulas, so the file opens the same everywhere.
+  let excelJsLib = null;
+  function loadExcelJs() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (!excelJsLib) excelJsLib = new Promise((ok, bad) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+      sc.onload = () => ok(window.ExcelJS); sc.onerror = () => { excelJsLib = null; bad(new Error("Excel library")); };
+      document.head.append(sc);
+    });
+    return excelJsLib;
+  }
+  // Talk time of the evaluated call in seconds: exact from the phone system, else the duration typed in the form.
+  const durSec = (r) => {
+    if (r && Number(r.callTalk) > 0) return Math.round(Number(r.callTalk));
+    const m = /^(\d{1,3}):(\d{2})$/.exec(String((r && r.duration) || "").trim());
+    return m ? +m[1] * 60 + +m[2] : null;
+  };
+  const ahtOf = (list) => { const s = list.map(durSec).filter((x) => x !== null && x > 0); return s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : null; };
+  const ahtText = (sec) => (sec === null || sec === undefined ? "–" : mmss(sec));
+  function qualityFigures(list) {
+    const n = list.length, has = (k) => list.filter((r) => (r.items || []).some((i) => i.kind === k && i.result === "Error")).length;
+    const ncItems = list.reduce((x, r) => x + (r.items || []).filter((i) => i.kind === "NC" && i.result && i.result !== "N/A").length, 0);
+    const ncMiss = list.reduce((x, r) => x + (r.items || []).filter((i) => i.kind === "NC" && i.result === "Not met").length, 0);
+    const eu = has("EU"), bc = has("BC"), cc = has("CC");
+    return { n, eu, bc, cc, nc: ncMiss, euA: n ? 1 - eu / n : null, bcA: n ? 1 - bc / n : null, ccA: n ? 1 - cc / n : null, ncA: ncItems ? 1 - ncMiss / ncItems : null,
+      avg: avg(list.map((r) => r.final).filter((x) => x !== null && x !== undefined)), aht: ahtOf(list) };
+  }
+  function qualityReportData(ym) {
+    const all = allRecords().filter((r) => !r.test && callDay(r).slice(0, 7) === ym);
+    const prog = all.filter((r) => purposeOf(r) === "program"), live = all.filter((r) => purposeOf(r) === "live");
+    const agents = (roster.agents || []).slice().sort((a, b) => a.localeCompare(b));
+    const perAgent = Number(teamCfg.leaderWeekly) || 4, qWeek = Number(teamCfg.qualityWeekly) || 40;
+    const weeks = [1, 2, 3, 4].map((w) => { const [a, b] = mWeekRange(ym, w); const inW = (r) => callDay(r) >= a && callDay(r) <= b; return { w, a, b, prog: prog.filter(inW), live: live.filter(inW) }; });
+    const capped = (l) => agents.reduce((x, a) => x + Math.min(perAgent, l.filter((r) => nameKey(r.agent) === nameKey(a)).length), 0);
+    const sla = (Number(teamCfg.coachingSlaHours) || 48) * 36e5;
+    const failed = all.filter(needsCoaching), done = failed.filter(isCoached);
+    const onTime = done.filter((r) => coachTime(r) && coachTime(r) - (new Date(r.savedAt).getTime() || 0) <= sla);
+    const monthEndDay = monthEnd(ym);
+    const status = (a) => { const cd = (agentCertInfo(a, allRecords()) || {}).certDate || ""; return cd && cd >= addDays(monthEndDay, -30) ? "New" : "Old"; };
+    const ext = (a) => { const r = all.filter((x) => nameKey(x.agent) === nameKey(a) && x.callExt).pop(); return r ? r.callExt : ""; };
+    return { ym, all, prog, live, agents, perAgent, qWeek, weeks, capped, failed, done, onTime, status, ext };
+  }
+  async function exportQualityReport(ym) {
+    let EJ;
+    try { EJ = await loadExcelJs(); } catch (e) { alert(t("xlsx_failed")); return; }
+    const D = qualityReportData(ym), wb = new EJ.Workbook();
+    wb.creator = "QA Scorecard"; wb.created = new Date();
+    const NAVY = "FF4F81BD", LIGHT = "FFDCE6F1", MID = "FFA7BFDE", WHITE = "FFFFFFFF";
+    const border = { top: { style: "thin", color: { argb: "FF9DB3D6" } }, left: { style: "thin", color: { argb: "FF9DB3D6" } }, bottom: { style: "thin", color: { argb: "FF9DB3D6" } }, right: { style: "thin", color: { argb: "FF9DB3D6" } } };
+    const head = (c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } }; c.font = { bold: true, color: { argb: WHITE } }; c.alignment = { vertical: "middle", horizontal: "center", wrapText: true }; c.border = border; };
+    const body = (c, fill, fmt) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill || LIGHT } }; c.alignment = { vertical: "middle", horizontal: "center" }; c.border = border; if (fmt) c.numFmt = fmt; };
+    const PCT = "0.0%";
+    const ws = wb.addWorksheet("Dashboard", { views: [{ showGridLines: false }] });
+    ws.columns = [{ width: 3 }, { width: 42 }, { width: 13 }, { width: 13 }, { width: 13 }, { width: 13 }, { width: 13 }];
+    ws.mergeCells("B1:G2"); const t1 = ws.getCell("B1"); t1.value = "Quality Performance Dashboard · " + monthLabelEn(ym); head(t1); t1.font = { bold: true, size: 16, color: { argb: WHITE } };
+    let row = 4;
+    const weekHdr = () => { const r = ws.getRow(row++); ["Week", "Week 1", "Week 2", "Week 3", "Week 4", "MTD"].forEach((v, i) => { const c = r.getCell(i + 2); c.value = v; head(c); }); };
+    const section = (title) => { ws.mergeCells("B" + row + ":G" + row); const c = ws.getCell("B" + row); c.value = title; head(c); c.font = { bold: true, size: 12, color: { argb: WHITE } }; row++; weekHdr(); };
+    const line = (label, vals, fmt, fill) => { const r = ws.getRow(row++); const c0 = r.getCell(2); c0.value = label; head(c0); c0.alignment = { horizontal: "left", vertical: "middle" };
+      vals.forEach((v, i) => { const c = r.getCell(i + 3); c.value = v === null || v === undefined || (typeof v === "number" && isNaN(v)) ? "-" : v; body(c, fill || (i === 4 ? MID : LIGHT), typeof v === "number" ? fmt : undefined); if (i === 4) c.font = { bold: true }; }); };
+    const sum = (a) => a.reduce((x, y) => x + y, 0), ratio = (a, b) => (b ? a / b : null);
+    // Quality adherence
+    section("Quality Adherence (Program level · Quality team)");
+    const qT = D.weeks.map(() => D.qWeek), qN = D.weeks.map((w) => w.prog.length);
+    line("QA Monitoring Target", [...qT, sum(qT)]);
+    line("No. of Monitored Calls QA", [...qN, sum(qN)]);
+    line("% QA Monitoring Achievement", [...qN.map((n, i) => ratio(n, qT[i])), ratio(sum(qN), sum(qT))], PCT);
+    row++;
+    section("Operation Adherence (Agent level · team leaders)");
+    const lT = D.weeks.map(() => D.perAgent * (D.agents.length || 0)), lN = D.weeks.map((w) => D.capped(w.live)), lAll = D.weeks.map((w) => w.live.length);
+    line("TL Monitoring Target", [...lT, sum(lT)]);
+    line("No. of Monitored Calls TL (counted up to " + D.perAgent + " per agent)", [...lN, sum(lN)]);
+    line("% TL Monitoring Achievement", [...lN.map((n, i) => ratio(n, lT[i])), ratio(sum(lN), sum(lT))], PCT);
+    line("All Agent level evaluations (no cap)", [...lAll, sum(lAll)]);
+    row++;
+    const figs = (title, key) => {
+      section(title);
+      const F = D.weeks.map((w) => qualityFigures(w[key])), M = qualityFigures(key === "prog" ? D.prog : D.live);
+      const all5 = (fn) => [...F.map(fn), fn(M)];
+      line("# Evaluations", all5((x) => x.n));
+      line("# End user Critical Errors", all5((x) => x.eu));
+      line("# Business Critical Errors", all5((x) => x.bc));
+      line("# Compliance Critical Errors", all5((x) => x.cc));
+      line("# Non-Critical errors", all5((x) => x.nc));
+      line("% End user Critical Accuracy", all5((x) => x.euA), PCT);
+      line("% Business Critical Accuracy", all5((x) => x.bcA), PCT);
+      line("% Compliance Critical Accuracy", all5((x) => x.ccA), PCT);
+      line("% Non-Critical Accuracy", all5((x) => x.ncA), PCT);
+      line("Average final score", all5((x) => x.avg), PCT);
+      line("AHT of evaluated calls (mm:ss)", all5((x) => ahtText(x.aht)));
+      row++;
+    };
+    figs("Program Level Quality Figures", "prog");
+    figs("Agent Level Quality Figures", "live");
+    // Coaching
+    ws.mergeCells("B" + row + ":G" + row); { const c = ws.getCell("B" + row); c.value = "Coaching Fulfillment"; head(c); c.font = { bold: true, size: 12, color: { argb: WHITE } }; } row++;
+    const kv = (k, v, fmt) => { const r = ws.getRow(row); const c0 = r.getCell(2); c0.value = k; head(c0); c0.alignment = { horizontal: "left", vertical: "middle" }; ws.mergeCells("C" + row + ":G" + row); const c = r.getCell(3); c.value = v === null || v === undefined ? "-" : v; body(c, LIGHT, typeof v === "number" ? fmt : undefined); row++; };
+    kv("Failed Transaction", D.failed.length);
+    kv("Fulfilled Coaching Sessions", D.done.length);
+    kv("Missed / Pending coaching session", D.failed.length - D.done.length);
+    kv("On Time Sessions (within " + (Number(teamCfg.coachingSlaHours) || 48) + "h)", D.onTime.length);
+    kv("Fulfillment %", ratio(D.done.length, D.failed.length), PCT);
+    kv("On time %", ratio(D.onTime.length, D.failed.length), PCT);
+    kv("Content Management Fulfillment %", "NA");
+    kv("Content Management On time %", "NA");
+    row++;
+    const note = ws.getCell("B" + row); note.value = "Weeks by call date: 1-7, 8-14, 15-21, 22-end. Accuracy = evaluations without that error type. Non-critical accuracy = met items / items checked. Calibration, role plays, Gauge and tests are left out. Made " + new Date().toLocaleString("en-GB") + " by " + (settings.who || settings.evaluator || "") + ".";
+    note.font = { italic: true, size: 9, color: { argb: "FF555555" } }; ws.mergeCells("B" + row + ":G" + (row + 1)); note.alignment = { wrapText: true, vertical: "top" };
+
+    // Project figures
+    const pf = wb.addWorksheet("Project figures", { views: [{ showGridLines: false }] });
+    pf.columns = [{ width: 34 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }];
+    const pfRow = (vals, isHead, fmt) => { const r = pf.addRow(vals.map((v) => (v === null || v === undefined || (typeof v === "number" && isNaN(v)) ? "-" : v))); r.eachCell((c, i) => { if (isHead || i === 1) head(c); else body(c, i === 6 ? MID : LIGHT, typeof c.value === "number" ? fmt : undefined); }); };
+    pfRow(["Week", "Week 1", "Week 2", "Week 3", "Week 4", "MTD"], true);
+    const PF = D.weeks.map((w) => qualityFigures(w.prog.concat(w.live))), PM = qualityFigures(D.prog.concat(D.live)), p5 = (fn) => [...PF.map(fn), fn(PM)];
+    pfRow(["No. Of Calls", ...p5((x) => x.n)]);
+    pfRow(["No. Of End User criticals", ...p5((x) => x.eu)]); pfRow(["EUC%", ...p5((x) => x.euA)], false, PCT);
+    pfRow(["No. Of Business criticals", ...p5((x) => x.bc)]); pfRow(["BC%", ...p5((x) => x.bcA)], false, PCT);
+    pfRow(["No. Of Compliance criticals", ...p5((x) => x.cc)]); pfRow(["CC%", ...p5((x) => x.ccA)], false, PCT);
+    pfRow(["No. Of Non-criticals", ...p5((x) => x.nc)]); pfRow(["NC%", ...p5((x) => x.ncA)], false, PCT);
+    pfRow(["AHT of evaluated calls", ...p5((x) => ahtText(x.aht))]);
+
+    // Adherence per agent
+    const ad = wb.addWorksheet("Adherence per agent", { views: [{ showGridLines: false, state: "frozen", ySplit: 1, xSplit: 1 }] });
+    const adHead = ["Agent Name", "PBX ext", "Status"]; [1, 2, 3, 4].forEach((w) => adHead.push("Week" + w + " Target", "Week" + w + " Achievement", "Achievement %"));
+    ad.addRow(adHead).eachCell(head); ad.getRow(1).height = 32;
+    ad.columns = adHead.map((_, i) => ({ width: i === 0 ? 30 : 12 }));
+    const tot = [0, 0, 0, 0, 0, 0, 0, 0];
+    D.agents.forEach((a) => {
+      const vals = [a, D.ext(a), D.status(a)];
+      D.weeks.forEach((w, i) => { const n = Math.min(D.perAgent, w.live.filter((r) => nameKey(r.agent) === nameKey(a)).length); vals.push(D.perAgent, n, ratio(n, D.perAgent)); tot[i * 2] += D.perAgent; tot[i * 2 + 1] += n; });
+      const r = ad.addRow(vals); r.eachCell((c, i) => { if (i === 1) { body(c, WHITE); c.alignment = { horizontal: "left" }; } else body(c, i % 3 === 0 && i > 3 ? MID : LIGHT, (i - 3) % 3 === 0 && i > 3 ? PCT : undefined); });
+    });
+    { const vals = ["Total", "", ""]; [0, 1, 2, 3].forEach((i) => vals.push(tot[i * 2], tot[i * 2 + 1], ratio(tot[i * 2 + 1], tot[i * 2]))); const r = ad.addRow(vals); r.eachCell((c, i) => { head(c); if (i > 3 && (i - 3) % 3 === 0) c.numFmt = PCT; }); }
+
+    // Score per agent
+    const sp = wb.addWorksheet("Score per agent", { views: [{ showGridLines: false, state: "frozen", ySplit: 1, xSplit: 1 }] });
+    const spHead = ["Agent Name", "Agent level evals", "W1 avg", "W2 avg", "W3 avg", "W4 avg", "Agent level MTD avg", "Program level evals", "Program level MTD avg", "Critical errors (Agent level)", "AHT of evaluated calls"];
+    sp.addRow(spHead).eachCell(head); sp.getRow(1).height = 32; sp.columns = spHead.map((_, i) => ({ width: i === 0 ? 30 : 14 }));
+    D.agents.forEach((a) => {
+      const mine = (l) => l.filter((r) => nameKey(r.agent) === nameKey(a));
+      const L = mine(D.live), P = mine(D.prog), fin = (l) => avg(l.map((r) => r.final).filter((x) => x !== null && x !== undefined));
+      const r = sp.addRow([a, L.length, ...D.weeks.map((w) => fin(mine(w.live))), fin(L), P.length, fin(P), L.reduce((x, y) => x + (y.critical || 0), 0), ahtText(ahtOf(L.concat(P)))].map((v) => (v === null || v === undefined ? "-" : v)));
+      r.eachCell((c, i) => { if (i === 1) { body(c, WHITE); c.alignment = { horizontal: "left" }; } else body(c, LIGHT, [3, 4, 5, 6, 7, 9].includes(i) && typeof c.value === "number" ? PCT : undefined); });
+    });
+
+    // Raw data
+    const rd = wb.addWorksheet("Raw Data", { views: [{ state: "frozen", ySplit: 1 }] });
+    const srcList = D.all.slice().sort((x, y) => callDay(x).localeCompare(callDay(y)));
+    const rows = recordRows(srcList), hd = rows[0].concat(["Level", "Week"]);
+    rd.addRow(hd).eachCell(head); rd.getRow(1).height = 30;
+    rows.slice(1).forEach((r, i) => { const rec = srcList[i];
+      rd.addRow(r.map((c) => (c && typeof c === "object" ? c.v : c)).concat([purposeOf(rec) === "program" ? "Program level" : purposeOf(rec) === "live" ? "Agent level" : purposeLabel(rec), "Week " + mWeekOf(callDay(rec))])); });
+    rows[0].forEach((k, i) => { if (/score|accuracy/i.test(k)) rd.getColumn(i + 1).numFmt = PCT; });
+    rd.columns.forEach((c, i) => (c.width = Math.min(40, Math.max(12, String(hd[i] || "").length + 2))));
+    rd.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: hd.length } };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = h("a", { href: url, download: "Quality_Performance_Dashboard_" + ym + ".xlsx" }); document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  const monthLabelEn = (ym) => ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][+ym.slice(5, 7) - 1] + " " + ym.slice(0, 4);
   // ---------- PDF and Excel downloads for the main pages ----------
   const lastLists = {};
   const EXPORT_VIEWS = { coaching: "nav_coaching", mywork: "mw_title", dashboard: "db_title", reports: "rp_title", calibration: "cal_title", certification: "cert_title", records: "rec_title", evaluate: "nav_evaluate" };
@@ -3704,10 +3876,10 @@
   }
   const phoneCell = (r) => (r.phone ? { v: normPhone(r.phone), t: "s" } : ""); // text, so Excel does not show 9.71E+11
   function recordRows(list) {
-    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag",
+    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag", "Call duration (AHT, mm:ss)", "Call duration (seconds)",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
     return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
-      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", phoneCell(r), r.odooRef || "", r.outcome || "", r.odooTag || "",
+      short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", phoneCell(r), r.odooRef || "", r.outcome || "", r.odooTag || "", durSec(r) === null ? "" : mmss(durSec(r)), durSec(r) === null ? "" : { v: durSec(r), t: "n" },
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
       (r.items || []).filter((i) => i.result === "Not met" || i.result === "Error").map((i) => (i.kind === "NC" ? "N" : "") + i.id + " " + i.text).join(" | "),
