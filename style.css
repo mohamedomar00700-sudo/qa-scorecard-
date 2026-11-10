@@ -553,3 +553,10 @@ button.rec-stat { cursor: pointer; } button.rec-stat:hover { border-color: var(-
 .pill.prog { background: #d7f5f0; color: #0b7a6c; }
 @media (prefers-color-scheme: dark) { .pill.prog { background: #12362f; color: #5fd8c4; } }
 @media print { .row-more { display: none !important; } }
+
+/* Gauge R&R */
+.gauge-panel { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.gauge-prog { display: flex; flex-wrap: wrap; gap: 6px; }
+.gauge-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 8px 0 12px; }
+.gauge-tools label.inline { display: flex; align-items: center; gap: 6px; }
+#gaugeBox h3 { margin-top: 18px; }

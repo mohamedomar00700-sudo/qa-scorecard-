@@ -130,7 +130,7 @@
     showLogin();
   }
   // A sign-in that ended, or an access key that was changed on the script, sends this device back to the sign-in screen.
-  const permMsg = (e) => (e === "not_owner" ? t("perm_owner") : e === "not_yours" ? t("perm_yours") : /^(calls?_[a-z_]+|pick_need_agent)$/.test(e || "") && t(e) !== e ? t(e) : e);
+  const permMsg = (e) => (e === "not_owner" ? t("perm_owner") : e === "not_yours" ? t("perm_yours") : /^(calls?_[a-z_]+|gauge_[a-z_]+|pick_need_agent)$/.test(e || "") && t(e) !== e ? t(e) : e);
   const checkSignedOut = (j) => {
     const oldKey = j && j.error === "Wrong access key" && settings.key;
     if (!(j && j.error === "signed_out") && !oldKey) return;
@@ -318,7 +318,7 @@
       if (kind === "select") {
         // "Ended on" is the Odoo stage the lead should end on; the tag list follows the chosen stage.
         const stage = F.odoo.stages.find((s) => s.name === a.header.outcome);
-        if ((key === "method" || key === "selection") && purposeOf(a.header) === "roleplay") continue;
+        if ((key === "method" || key === "selection") && ["roleplay", "gauge"].includes(purposeOf(a.header))) continue;
         if (key === "selection" && purposeOf(a.header) === "postcoach") continue;
         if (key === "selection" && progRandom(a)) { if (a.header.selection !== "random") { a.header.selection = "random"; saveDraft(); } box.append(pickerFor(a)); continue; }
         if (key === "odooTag" && !(stage && stage.tags.length)) { if (a.header.odooTag) { a.header.odooTag = ""; saveDraft(); } continue; }
@@ -389,7 +389,7 @@
       box.append(h("label", {}, lab + (req ? " *" : ""), input, progHint ? h("span", { class: "hint", text: progHint }) : null));
       if (key === "selection" && (a.header.selection || "random") === "random") box.append(pickerFor(a));
     }
-    if (!["roleplay", "calibration"].includes(purposeOf(a.header))) box.append(promisesField(a));
+    if (!["roleplay", "calibration", "gauge"].includes(purposeOf(a.header))) box.append(promisesField(a));
   }
 
   // ---------- Promises made to the customer in this call (call back at a time, send offers / location on WhatsApp) ----------
@@ -757,7 +757,9 @@
     hd.purpose = purposeOf(hd);
     const set = (p) => {
       hd.purpose = p; hd.rolePlay = p === "roleplay";
-      if (p !== "calibration") hd.sampleRef = "";
+      hd.sampleRef = "";
+      for (const k of ["gCall", "trial", "gCallId"]) delete hd[k];
+      if (p === "gauge") { hd.test = false; hd.selection = "targeted"; for (const k of ["pick", "pickAgent", "pickLog", "callId", "callTalk", "callPool", "callPbx", "callExt", "randAgent", "promises"]) delete hd[k]; }
       if (p === "program" && !hd.randAgent && !current.edit) { hd.agent = ""; delete hd.pick; delete hd.pickAgent; hd.selection = "random"; }
       if (p === "postcoach") { hd.selection = "targeted"; delete hd.pick; delete hd.pickAgent; } else { delete hd.followOf; delete hd.followOfId; }
       saveDraft(); renderHeader();
@@ -765,19 +767,19 @@
     // Quality scores Program level, operations score Agent level (the owner can pick either).
     const evName = hd.evaluator || settings.evaluator || "";
     const isQ = isQualityName(evName), isOwn = (roster.owners || []).some((n) => nameKey(n) === nameKey(evName));
-    const levels = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"]
+    const levels = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "gauge", "roleplay"]
       .filter((p) => !(p === "live" && isQ) && !(p === "program" && !isQ && !isOwn && evName));
     if (!levels.includes(hd.purpose)) { hd.purpose = isQ ? "program" : "live"; if (hd.purpose === "program" && !hd.randAgent && !current.edit) { hd.agent = ""; delete hd.pick; delete hd.pickAgent; } saveDraft(); setTimeout(renderHeader); }
     const sel = h("select", { id: "hd_purpose" }, levels.map((p) => h("option", { value: p, text: t("p_" + p) })));
     sel.value = hd.purpose;
     sel.addEventListener("input", async () => {
-      if (sel.value === "calibration") await refreshRecordsQuietly();
+      if (sel.value === "calibration" || sel.value === "gauge") await refreshRecordsQuietly();
       set(sel.value);
     });
     const cb = h("input", { type: "checkbox", id: "hd_test" });
     cb.checked = !!hd.test;
     cb.addEventListener("change", () => { hd.test = cb.checked; hd.sampleRef = ""; saveDraft(); renderHeader(); });
-    const out = [h("label", {}, t("h_purpose"), sel), h("label", { class: "check hd-check" }, cb, t("h_test"))];
+    const out = [h("label", {}, t("h_purpose"), sel), hd.purpose === "gauge" ? null : h("label", { class: "check hd-check" }, cb, t("h_test"))].filter(Boolean);
     if (hd.purpose === "calibration") {
       const groups = [...sampleRefs().values()].filter((g) => g.form === current.form && /^TEST-/.test(g.ref) === !!hd.test)
         .sort((x, y) => sampleStart(y).localeCompare(sampleStart(x)) || y.ref.localeCompare(x.ref));
@@ -811,6 +813,7 @@
       });
       out.push(h("label", {}, t("h_sampleRef") + " *", rs));
     }
+    if (hd.purpose === "gauge") out.push(...gaugeFields(a));
     if (hd.purpose === "postcoach") {
       // The first call after a coaching session: linked to the coached evaluation, so the tool can check it came after.
       const open = allRecords().filter((r) => isCoached(r) && r.result === "Fail" && !r.test && r.form === current.form && (!hd.agent || r.agent === hd.agent) &&
@@ -1094,7 +1097,7 @@
       kbUpdate: (kbInForce(a.header.interactionDate) || {}).no || "",
       mailMode: mailMode(),
       purpose: purposeOf(a.header), rolePlay: purposeOf(a.header) === "roleplay", test: !!a.header.test,
-      sampleRef: purposeOf(a.header) === "calibration" ? a.header.sampleRef || "" : "",
+      sampleRef: ["calibration", "gauge"].includes(purposeOf(a.header)) ? a.header.sampleRef || "" : "",
       phone: normPhone(a.header.phone),
       ncScore: s.nc, cc: s.cc, eu: s.eu, bc: s.bc, critical: s.critical, final: s.final, result: s.result,
       items: [
@@ -1112,6 +1115,7 @@
     const a = current.answers, problems = [];
     for (const [key, label, , req] of HEADER) if (req && !a.header[key]) problems.push(t(label));
     if (purposeOf(a.header) === "calibration" && !a.header.sampleRef) problems.push(t("h_sampleRef"));
+    if (purposeOf(a.header) === "gauge" && (!a.header.sampleRef || !a.header.gCall)) problems.push(t("gauge_pick_first"));
     if (purposeOf(a.header) === "postcoach") {
       const o = a.header.followOf && allRecords().find((r) => r.id === a.header.followOf);
       if (!o) problems.push(t("h_followOf"));
@@ -1212,6 +1216,7 @@
       return;
     }
     const rec = buildRecord();
+    if (rec.purpose === "gauge") return saveGauge(rec, msg);
     // "Test" hides an evaluation everywhere; people have ticked it on real certifications, so ask once more.
     if (rec.test && !confirm(t("test_confirm"))) return;
     const edit = current.edit;
@@ -1293,7 +1298,7 @@
   function renderDupWarn() {
     const box = $("#dupWarn"); if (!box) return;
     const hd = current.answers.header;
-    const list = current.edit || hd.test || purposeOf(hd) === "calibration" ? [] : sameCallMatches({ ...hd, form: current.form, id: current.edit && current.edit.id });
+    const list = current.edit || hd.test || ["calibration", "gauge"].includes(purposeOf(hd)) ? [] : sameCallMatches({ ...hd, form: current.form, id: current.edit && current.edit.id });
     box.hidden = !list.length;
     if (list.length) box.textContent = t("dup_early") + "\n" + list.slice(0, 3).map((r) =>
       "• " + (r.evaluator || "–") + " · " + (r.agent || "–") + " · " + whenText(r) + " · " + pct(r.final)).join("\n");
@@ -1305,9 +1310,13 @@
   let loaded = new Map();
   const stamp = (r) => r.editedAt || r.savedAt || "";
   let deleted = new Set(store(LS_DELETED) || []);
+  // Gauge R&R evaluations live apart from everything else (never in records, reports, targets or the dashboard).
+  // For an evaluator in an open study the sheet only sends bare markers (hidden: true), with no scores.
+  const gaugeRecs = new Map();
   function addRecords(list) {
     for (const r of list || []) {
       if (!r || !r.id || !r.form || !F.forms[r.form] || !Array.isArray(r.items) || deleted.has(r.id)) continue;
+      if (r.purpose === "gauge") { gaugeRecs.set(r.id, r); continue; }
       const al = roster.aliases || {};
       for (const f of ["agent", "evaluator"]) { const to = r[f] && al[nameKey(r[f])]; if (to) r[f] = to; }
       const had = loaded.get(r.id);
@@ -1315,7 +1324,7 @@
     }
   }
   function forgetDeleted(ids) {
-    for (const id of ids || []) { deleted.add(id); loaded.delete(id); }
+    for (const id of ids || []) { deleted.add(id); loaded.delete(id); gaugeRecs.delete(id); }
     store(LS_DELETED, [...deleted]);
     store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => !deleted.has(r.id)));
   }
@@ -1687,7 +1696,7 @@
     const header = {};
     for (const [k] of HEADER) if (r[k] !== undefined) header[k] = r[k];
     Object.assign(header, { purpose: purposeOf(r), test: !!r.test, sampleRef: r.sampleRef || "", rolePlay: !!r.rolePlay, duration: r.duration || "" });
-    for (const k of ["followOf", "followOfId", "pick", "pickAgent", "pickLog", "callId", "callTalk", "callPool", "callPbx", "callExt"]) if (r[k] !== undefined) header[k] = r[k];
+    for (const k of ["followOf", "followOfId", "pick", "pickAgent", "pickLog", "callId", "callTalk", "callPool", "callPbx", "callExt", "gCall", "trial", "gCallId"]) if (r[k] !== undefined) header[k] = r[k];
     const pick = (x) => ({ result: x.result || "", evidence: x.evidence || "", comment: x.comment || "" });
     current = { form: r.form, edit: { id: r.id, evalId: evalIdOf(r), savedAt: r.savedAt },
       answers: { header, nc: nc.map(pick), crit: cr.map(pick), feedback: Object.assign({ strengths: "", improve: "", coaching: "", coached: !!(r.coached || (r.feedback && r.feedback.coached)), coachedAt: r.coachedAt || (r.feedback && r.feedback.coachedAt) || "" }, r.feedback), feedbackEdited: { strengths: true, improve: true, coaching: true } } };
@@ -2035,7 +2044,304 @@
     });
     box.append(h("div", { class: "table-wrap" }, tbl));
   }
+  // ---------- Gauge R&R (attribute agreement analysis) ----------
+  // Calibration aligns people by discussing a call. Gauge R&R tests the measurement itself: a set of calls with an agreed
+  // standard (scored by an owner), every evaluator scores each call twice, blind, some days apart. From that:
+  //   repeatability  = an evaluator agrees with himself across the two rounds,
+  //   accuracy       = an evaluator agrees with the standard (both rounds),
+  //   reproducibility = the evaluators agree with each other.
+  // Bands are our own rule, taken from common practice: 90%+ certified, 80-90% targeted calibration, under 80% retraining;
+  // kappa 0.9+ excellent, under 0.7 needs action.
+  const GAUGE_OK = 0.9, GAUGE_WATCH = 0.8, GAUGE_MIN_CALLS = 10;
+  const gaugeGap = () => { const n = Number(teamCfg.gaugeGapDays); return n >= 0 && n <= 60 && teamCfg.gaugeGapDays !== undefined && teamCfg.gaugeGapDays !== "" ? Math.round(n) : 5; };
+  const gaugeIsClosed = (ref) => (teamCfg.gaugeClosed || []).includes(ref);
+  const gaugeMe = () => settings.who || settings.evaluator || "";
+  function gaugeStudies() {
+    const map = new Map();
+    for (const r of gaugeRecs.values()) {
+      if (!r.sampleRef || deleted.has(r.id)) continue;
+      const st = map.get(r.sampleRef) || { ref: r.sampleRef, form: r.form, std: new Map(), recs: [] };
+      if (Number(r.trial) === 0) st.std.set(Number(r.gCall), r); else st.recs.push(r);
+      map.set(r.sampleRef, st);
+    }
+    return map;
+  }
+  const gaugeDay = (ref) => { const m = /^GRR-(\d{4})(\d{2})(\d{2})-/.exec(ref); return m ? m[1] + "-" + m[2] + "-" + m[3] : ""; };
+  function newGaugeRef() {
+    const prefix = "GRR-" + ymd(today()) + "-";
+    let n = 1;
+    for (const ref of gaugeStudies().keys()) if (ref.startsWith(prefix)) n = Math.max(n, (+ref.slice(prefix.length) || 0) + 1);
+    return prefix + n;
+  }
+  // What one evaluator still has to score in a study: round 1 for every call, then round 2 once the gap has passed.
+  function gaugeTodo(st, who) {
+    const due = [], waits = [];
+    let d1 = 0, d2 = 0;
+    for (const n of st.std.keys()) {
+      const mine = st.recs.filter((r) => Number(r.gCall) === n && nameKey(r.evaluator) === nameKey(who));
+      const t1 = mine.find((r) => Number(r.trial) === 1), t2 = mine.find((r) => Number(r.trial) === 2);
+      if (t1) d1++; if (t2) d2++;
+      if (!t1) due.push({ n, trial: 1 });
+      else if (!t2) { const open = addDays(localDay(t1.savedAt), gaugeGap()); if (today() >= open) due.push({ n, trial: 2 }); else waits.push(open); }
+    }
+    return { due, waits: waits.sort(), d1, d2, total: st.std.size };
+  }
+  const localDay = (iso) => { const d = new Date(iso); return isNaN(d.getTime()) ? today() : ymdOf(d); };
+  const GAUGE_COPY = ["agent", "interactionDate", "odooRef", "phone", "type", "duration", "kbVersion", "gCallId"];
+  function gaugeFields(a) {
+    const hd = a.header, own = isOwner(), out = [];
+    const studies = [...gaugeStudies().values()].filter((st) => st.form === current.form && (!gaugeIsClosed(st.ref) || st.ref === hd.sampleRef))
+      .sort((x, y) => y.ref.localeCompare(x.ref, undefined, { numeric: true }));
+    const nextCall = (ref) => { const st = gaugeStudies().get(ref); return st ? Math.max(0, ...st.std.keys()) + 1 : 1; };
+    const ss = h("select", { id: "hd_gaugeStudy" }, h("option", { value: "", text: t("select") }),
+      own && !current.edit ? h("option", { value: "__new", text: tl("➕ دراسة جيج جديدة", "➕ New Gauge study") }) : null,
+      studies.map((st) => h("option", { value: st.ref, text: st.ref + " · " + st.std.size + tl(" مكالمة", " calls") })));
+    if (hd.sampleRef && !studies.some((st) => st.ref === hd.sampleRef)) ss.append(h("option", { value: hd.sampleRef, text: hd.sampleRef + tl(" (جديدة)", " (new)") }));
+    ss.value = hd.sampleRef || "";
+    ss.disabled = !!current.edit;
+    ss.addEventListener("input", async () => {
+      if (ss.value === "__new") { await refreshRecordsQuietly(); hd.sampleRef = newGaugeRef(); } else hd.sampleRef = ss.value;
+      for (const k of ["gCall", "trial"]) delete hd[k];
+      if (own && hd.sampleRef) { hd.gCall = nextCall(hd.sampleRef); hd.trial = 0; }
+      saveDraft(); renderHeader();
+    });
+    out.push(h("label", {}, tl("دراسة الجيج", "Gauge study") + " *", ss));
+    if (!hd.sampleRef) {
+      out.push(h("p", { class: "hint", text: own ? tl("اختار دراسة أو ابدأ واحدة جديدة. انت اللي بتحط المرجع (الحكم الصح) لكل مكالمة، ومحدش بيشوفه غيرك لحد ما الدراسة تتقفل.", "Pick a study or start a new one. You set the standard (the right ruling) for each call; nobody else sees it until the study is closed.")
+        : studies.length ? tl("اختار الدراسة، وبعدين الأداة هتديك المكالمات واحدة واحدة بترتيب عشوائي.", "Pick the study; the tool then hands you the calls one at a time, in random order.") : tl("مفيش دراسة جيج مفتوحة دلوقتي.", "No Gauge study is open right now.") }));
+      return out;
+    }
+    if (own) {
+      if (!current.edit && !hd.gCall) { hd.gCall = nextCall(hd.sampleRef); hd.trial = 0; }
+      const cid = h("input", { id: "hd_gCallId", value: hd.gCallId || "", dir: "ltr", placeholder: "Call ID" });
+      cid.addEventListener("input", () => { hd.gCallId = cid.value.trim(); saveDraft(); });
+      out.push(h("label", {}, tl("Call ID في سيستم التليفونات (اختياري)", "Call ID in the phone system (optional)"), cid),
+        h("p", { class: "hint", text: tl("المرجع · مكالمة رقم ", "Standard · call no. ") + hd.gCall + tl(". اكتب بيانات المكالمة (الإيجنت، وقت المكالمة، رقم العميل) وقيّمها. ده الحكم اللي كل المقيّمين هيتقاسوا عليه. الأفضل 12 لـ 20 مكالمة: نصهم ناجح ونصهم راسب، وفيهم كريتيكال وحالات على الحد.",
+          ". Enter the call details (agent, call time, customer number) and score it. This is the ruling every evaluator is measured against. Best is 12 to 20 calls: half pass, half fail, with criticals and borderline cases.") }));
+      return out;
+    }
+    const st = gaugeStudies().get(hd.sampleRef), who = hd.evaluator || gaugeMe();
+    const box = h("div", { class: "picker gauge-panel" });
+    if (!st || !st.std.size) { box.append(h("p", { class: "hint", text: tl("الدراسة دي لسه مفيهاش مكالمات.", "This study has no calls yet.") })); out.push(box); return out; }
+    const td = gaugeTodo(st, who);
+    box.append(h("div", { class: "gauge-prog" },
+      h("span", { class: "pill " + (td.d1 >= td.total ? "good" : "info"), text: tl("الجولة 1: ", "Round 1: ") + td.d1 + "/" + td.total }),
+      h("span", { class: "pill " + (td.d2 >= td.total ? "good" : "info"), text: tl("الجولة 2: ", "Round 2: ") + td.d2 + "/" + td.total })));
+    const cur = hd.gCall && td.due.find((x) => x.n === Number(hd.gCall) && x.trial === Number(hd.trial));
+    if (hd.gCall && !cur) { for (const k of ["gCall", "trial"]) delete hd[k]; saveDraft(); }
+    if (cur) {
+      box.append(h("p", {}, h("b", { text: tl("الجولة ", "Round ") + cur.trial + tl(": قيّم المكالمة اللي بياناتها في الخانات فوق.", ": score the call whose details are in the fields above.") })),
+        h("p", { class: "hint", text: tl("قيّمها لوحدك من غير ما تسأل حد أو ترجع لتقييم قديم. التقييم مش بيتعدّل بعد الحفظ، ومحدش بيشوف النتايج غير لما الدراسة تتقفل.", "Score it on your own, without asking anyone or looking at an earlier evaluation. It can't be changed after saving, and nobody sees results until the study is closed.") }));
+    } else if (td.due.length) {
+      const btn = h("button", { type: "button", class: "primary", text: "🎲 " + tl("هات المكالمة الجاية", "Give me the next call") + " (" + td.due.length + ")" });
+      btn.onclick = () => {
+        const x = td.due[Math.floor(Math.random() * td.due.length)], std = st.std.get(x.n);
+        hd.gCall = x.n; hd.trial = x.trial;
+        for (const k of GAUGE_COPY) { if (std[k] !== undefined && std[k] !== "") hd[k] = std[k]; else delete hd[k]; }
+        a.nc.forEach((o) => Object.assign(o, { result: "", evidence: "", comment: "", locked: false })); a.crit.forEach((o) => Object.assign(o, { result: "", evidence: "", comment: "", locked: false }));
+        saveDraft(); applyType(); renderHeader(); renderItems(); updateScore();
+      };
+      box.append(btn);
+    } else {
+      box.append(h("p", {}, h("b", { text: td.d2 >= td.total ? "✓ " + tl("خلصت الجولتين. النتايج هتظهر لما الدراسة تتقفل.", "Both rounds done. Results show once the study is closed.")
+        : tl("خلصت اللي عليك دلوقتي. الجولة 2 بتفتح يوم ", "Nothing due now. Round 2 opens on ") + (td.waits[0] || "–") + tl(" (بعد " + gaugeGap() + " أيام من الجولة 1).", " (" + gaugeGap() + " days after round 1).") })));
+    }
+    out.push(box);
+    return out;
+  }
+  async function saveGauge(rec, msg) {
+    const edit = current.edit, fail = (m) => { msg.className = "msg err"; msg.textContent = m; toast("err", m); };
+    if (!connected()) return fail(t("gauge_need_conn"));
+    rec.test = false; delete rec.callId; delete rec.mailMode;
+    if (edit) Object.assign(rec, { id: edit.id, savedAt: edit.savedAt, editedAt: new Date().toISOString(), editedBy: settings.evaluator || rec.evaluator });
+    msg.className = "msg"; msg.textContent = t("saving");
+    try { await apiPostJson(edit ? { action: "updateRecord", record: rec } : { record: rec }); }
+    catch (e) { return fail(t("save_failed", { e: e.message })); }
+    // An evaluator keeps no copy of the scores on this device, only a marker that the call is done.
+    gaugeRecs.set(rec.id, isOwner() ? rec : { id: rec.id, form: rec.form, purpose: "gauge", sampleRef: rec.sampleRef, gCall: rec.gCall, trial: rec.trial || 1, evaluator: rec.evaluator, savedAt: rec.savedAt, hidden: true, items: [] });
+    current = { form: current.form, answers: blankAnswers(current.form) };
+    Object.assign(current.answers.header, { purpose: "gauge", sampleRef: rec.sampleRef, selection: "targeted" });
+    store(LS_DRAFT, null);
+    renderEvaluate();
+    const m2 = $("#saveMsg"), text = tl("اتحفظ في دراسة الجيج ", "Saved in Gauge study ") + rec.sampleRef;
+    if (m2) { m2.className = "msg ok"; m2.textContent = text; }
+    toast("ok", "✓ " + text);
+    refreshRecordsQuietly();
+  }
+
+  // --- the numbers ---
+  const gPass = (r) => (r.result === "Pass" ? "P" : "F");
+  // Cohen's kappa for two lists of labels (same length).
+  function kappa2(a, b) {
+    const n = a.length; if (!n) return null;
+    const cats = [...new Set(a.concat(b))];
+    let po = 0, pe = 0;
+    for (let i = 0; i < n; i++) if (a[i] === b[i]) po++;
+    po /= n;
+    cats.forEach((c) => { pe += (a.filter((x) => x === c).length / n) * (b.filter((x) => x === c).length / n); });
+    return pe >= 1 ? (po >= 1 ? 1 : null) : (po - pe) / (1 - pe);
+  }
+  // Fleiss' kappa: rows = subjects, each row = list of labels from the same number of raters.
+  function kappaFleiss(rows) {
+    const N = rows.length; if (!N) return null;
+    const m = rows[0].length; if (m < 2 || rows.some((r) => r.length !== m)) return null;
+    const cats = [...new Set(rows.flat())];
+    let pBar = 0; const pj = cats.map(() => 0);
+    rows.forEach((r) => {
+      let sum = 0;
+      cats.forEach((c, j) => { const k = r.filter((x) => x === c).length; pj[j] += k; sum += k * (k - 1); });
+      pBar += sum / (m * (m - 1));
+    });
+    pBar /= N;
+    const pe = pj.reduce((x, k) => x + Math.pow(k / (N * m), 2), 0);
+    return pe >= 1 ? (pBar >= 1 ? 1 : null) : (pBar - pe) / (1 - pe);
+  }
+  function gaugeStats(st) {
+    const calls = [...st.std.keys()].sort((a, b) => a - b), full = st.recs.filter((r) => !r.hidden);
+    const names = [...new Set(full.map((r) => r.evaluator).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const get = (who, n, tr) => full.find((r) => nameKey(r.evaluator) === nameKey(who) && Number(r.gCall) === n && Number(r.trial) === tr);
+    const itemMap = (r) => { const m = new Map(); (r.items || []).forEach((i) => { if (i.result) m.set(i.id, i); }); return m; };
+    const stdItems = new Map(calls.map((n) => [n, itemMap(st.std.get(n))]));
+    const itemAgg = new Map(); // item id -> { text, kind, n, ok, rep, repOk }
+    const per = names.map((who) => {
+      let both = 0, within = 0, strict = 0, dec = 0, acc = 0, sf = 0, miss = 0, sp = 0, alarm = 0, it = 0, itOk = 0, cr = 0, crOk = 0, done1 = 0, done2 = 0;
+      const mineL = [], stdL = [];
+      calls.forEach((n) => {
+        const std = st.std.get(n), r1 = get(who, n, 1), r2 = get(who, n, 2), S = gPass(std);
+        if (r1) done1++; if (r2) done2++;
+        [r1, r2].forEach((r) => {
+          if (!r) return;
+          dec++; mineL.push(gPass(r)); stdL.push(S);
+          if (gPass(r) === S) acc++;
+          if (S === "F") { sf++; if (gPass(r) === "P") miss++; } else { sp++; if (gPass(r) === "F") alarm++; }
+          const mi = itemMap(r);
+          stdItems.get(n).forEach((si, id) => {
+            const x = mi.get(id); if (!x) return;
+            const ok = x.result === si.result, g = itemAgg.get(id) || { id, text: si.text, kind: si.kind, n: 0, ok: 0, rep: 0, repOk: 0 };
+            g.n++; if (ok) g.ok++; itemAgg.set(id, g);
+            it++; if (ok) itOk++;
+            if (si.kind !== "NC") { cr++; if (ok) crOk++; }
+          });
+        });
+        if (r1 && r2) {
+          both++;
+          if (gPass(r1) === gPass(r2)) within++;
+          if (gPass(r1) === S && gPass(r2) === S) strict++;
+          const m1 = itemMap(r1), m2 = itemMap(r2);
+          m1.forEach((x, id) => { const y = m2.get(id); if (!y) return; const g = itemAgg.get(id) || { id, text: x.text, kind: x.kind, n: 0, ok: 0, rep: 0, repOk: 0 }; g.rep++; if (x.result === y.result) g.repOk++; itemAgg.set(id, g); });
+        }
+      });
+      const complete = calls.length > 0 && done1 === calls.length && done2 === calls.length;
+      const vs = both ? strict / both : null;
+      return { who, done1, done2, complete, both, within: both ? within / both : null, vs, acc: dec ? acc / dec : null, miss: sf ? miss / sf : null, alarm: sp ? alarm / sp : null,
+        items: it ? itOk / it : null, crit: cr ? crOk / cr : null, kappa: kappa2(mineL, stdL),
+        level: vs === null ? "" : vs >= GAUGE_OK ? "ok" : vs >= GAUGE_WATCH ? "watch" : "fail" };
+    });
+    // Between evaluators: only calls every finished evaluator scored in both rounds.
+    const fin = per.filter((x) => x.complete).map((x) => x.who);
+    let btw = null, allStd = null, fk = null;
+    if (fin.length >= 2) {
+      const rows = calls.map((n) => fin.flatMap((who) => [gPass(get(who, n, 1)), gPass(get(who, n, 2))]));
+      btw = rows.filter((r) => r.every((x) => x === r[0])).length / rows.length;
+      allStd = rows.filter((r, i) => r.every((x) => x === gPass(st.std.get(calls[i])))).length / rows.length;
+      fk = kappaFleiss(rows);
+    }
+    const items = [...itemAgg.values()].filter((g) => g.n >= 2).map((g) => Object.assign(g, { agree: g.ok / g.n, repeat: g.rep ? g.repOk / g.rep : null })).sort((a, b) => a.agree - b.agree);
+    const stdPass = calls.filter((n) => gPass(st.std.get(n)) === "P").length;
+    return { calls, names, per, fin, btw, allStd, fk, items, stdPass, stdFail: calls.length - stdPass };
+  }
+  function gItemName(form, g) {
+    const d = F.forms[form] || {}, it = g.kind === "NC" ? (d.nc || [])[+g.id - 1] : (d.crit || [])[+String(g.id).replace(/\D/g, "") - 1];
+    const ar = (it && it.ar) || {};
+    return String((lang === "en" ? (it && (it.label || it.item)) : ar.label || ar.item || (it && (it.label || it.item))) || g.text || "").slice(0, 90);
+  }
+  async function gaugeSet(body) {
+    try { const j = await apiPostJson(Object.assign({ action: "gaugeSet" }, body)); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); await refreshRecordsQuietly(); }
+    catch (e) { alert(e.message); }
+    renderGauge();
+  }
+  function renderGauge() {
+    const box = $("#gaugeBox"); if (!box) return;
+    const prev = ($("#gaugeStudy") || {}).value || "";
+    box.innerHTML = "";
+    const own = isOwner(), studies = [...gaugeStudies().values()].sort((x, y) => y.ref.localeCompare(x.ref, undefined, { numeric: true }));
+    box.append(h("h2", { text: "🎯 Gauge R&R · " + tl("اختبار المقيّمين", "evaluators' test") }),
+      h("p", { class: "hint", text: tl("الكاليبريشن بيوحّد الفهم بالنقاش. الجيج بيقيس: هل المقيّم بيدي نفس الحكم لو سمع نفس المكالمة تاني (ثبات)، وهل حكمه زي المرجع (دقة)، وهل المقيّمين زي بعض (اتفاق)؟ كل مكالمة بتتقيّم مرتين بينهم " + gaugeGap() + " أيام، ومحدش بيشوف تقييم حد (ولا تقييمه القديم) لحد ما الدراسة تتقفل. تقييمات الجيج مش بتتحسب في أي تارجت أو داشبورد ومش بتتبعت للإيجنت.",
+        "Calibration aligns people by discussion. Gauge measures: does an evaluator give the same ruling on the same call again (repeatability), does it match the standard (accuracy), and do evaluators match each other (agreement)? Every call is scored twice, " + gaugeGap() + " days apart, and nobody sees anyone's scores (or their own earlier ones) until the study is closed. Gauge evaluations count in no target or dashboard and are never emailed to the agent.") }));
+    if (!studies.length) {
+      box.append(h("div", { class: "empty", text: own ? tl("مفيش دراسة لسه. ابدأ من صفحة «تقييم»: اختار الغرض Gauge R&R، ثم «دراسة جيج جديدة»، وقيّم أول مكالمة كمرجع.", "No study yet. Start from Evaluate: choose the purpose Gauge R&R, then New Gauge study, and score the first call as the standard.") : tl("مفيش دراسة جيج لسه.", "No Gauge study yet.") }));
+      return;
+    }
+    const sel = h("select", { id: "gaugeStudy" }, studies.map((st) => h("option", { value: st.ref, text: st.ref + " · " + st.std.size + tl(" مكالمة", " calls") + (gaugeIsClosed(st.ref) ? tl(" · مقفولة", " · closed") : tl(" · مفتوحة", " · open")) })));
+    if (studies.some((st) => st.ref === prev)) sel.value = prev;
+    sel.addEventListener("change", renderGauge);
+    box.append(h("div", { class: "grid" }, h("label", {}, h("span", { text: tl("الدراسة", "Study") }), sel)));
+    const st = studies.find((x) => x.ref === sel.value), closed = gaugeIsClosed(st.ref), who = gaugeMe();
+    if (own) {
+      const gap = h("input", { type: "number", min: "0", max: "60", value: String(gaugeGap()), style: "width:80px" });
+      box.append(h("div", { class: "toolbar gauge-tools" },
+        h("label", { class: "inline" }, h("span", { text: tl("أيام بين الجولتين", "Days between rounds") + " " }), gap),
+        h("button", { type: "button", text: tl("حفظ", "Save"), onclick: () => gaugeSet({ gapDays: Number(gap.value) }) }),
+        h("button", { type: "button", class: closed ? "" : "primary", text: closed ? tl("افتح الدراسة تاني (النتايج تستخبى)", "Reopen the study (hide results)") : tl("اقفل الدراسة واعرض النتايج للكل", "Close the study and show results to everyone"),
+          onclick: () => { if (confirm(closed ? tl("تفتح الدراسة تاني؟ النتايج هتستخبى من المقيّمين.", "Reopen the study? Results will be hidden from evaluators again.") : tl("تقفل الدراسة؟ كل المقيّمين هيشوفوا المرجع وتقييمات بعض، ومحدش هيقدر يقيّم فيها تاني.", "Close the study? Every evaluator will see the standard and each other's scores, and no more scoring is possible."))) gaugeSet({ study: st.ref, closed: !closed }); } })));
+    }
+    if (!own && !closed) {
+      const td = gaugeTodo(st, who);
+      box.append(h("div", { class: "tiles" },
+        [[tl("الجولة 1", "Round 1"), td.d1 + "/" + td.total, ""], [tl("الجولة 2", "Round 2"), td.d2 + "/" + td.total, td.waits[0] ? tl("بتفتح ", "opens ") + td.waits[0] : ""], [tl("مستنياك دلوقتي", "Due now"), td.due.length, tl("من صفحة «تقييم»", "from Evaluate")]]
+          .map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: String(v) }), h("div", { class: "tile-s", text: sub })))),
+        h("p", { class: "msg", text: tl("النتايج هتظهر هنا لما الدراسة تتقفل.", "Results show here once the study is closed.") }));
+      return;
+    }
+    const s = gaugeStats(st), P = { ok: "good", watch: "warn", fail: "bad" };
+    const W = { ok: tl("معتمد", "Certified"), watch: tl("كاليبريشن موجّه", "Targeted calibration"), fail: tl("إعادة تدريب", "Retraining") };
+    const band = (x) => (x === null ? "" : x >= GAUGE_OK ? "good" : x >= GAUGE_WATCH ? "warn" : "bad");
+    const cell = (x) => h("td", { class: "num" }, x === null ? "–" : h("span", { class: "pill " + band(x), text: pct(x) }));
+    const kap = (k) => (k === null || k === undefined ? "–" : (Math.round(k * 100) / 100).toFixed(2));
+    box.append(h("div", { class: "tiles" },
+      [[tl("المكالمات", "Calls"), s.calls.length, tl("ناجح ", "pass ") + s.stdPass + tl(" · راسب ", " · fail ") + s.stdFail],
+        [tl("مقيّمين خلصوا الجولتين", "Evaluators done"), s.fin.length + "/" + s.names.length, ""],
+        [tl("اتفاق المقيّمين مع بعض", "Between evaluators"), pct(s.btw), "Fleiss κ " + kap(s.fk)],
+        [tl("الكل مع المرجع", "All vs standard"), pct(s.allStd), tl("كل المقيّمين في الجولتين", "every evaluator, both rounds")]]
+        .map(([k, v, sub]) => h("div", { class: "tile" }, h("div", { class: "tile-k", text: k }), h("div", { class: "tile-v", text: String(v) }), h("div", { class: "tile-s", text: sub })))));
+    if (s.calls.length < GAUGE_MIN_CALLS) box.append(h("p", { class: "msg", text: tl("العدد لسه قليل (" + s.calls.length + " مكالمة). النتيجة يُعتمد عليها من " + GAUGE_MIN_CALLS + " مكالمات، والأفضل 12 لـ 20، نصهم ناجح ونصهم راسب.", "Few calls so far (" + s.calls.length + "). Results are dependable from " + GAUGE_MIN_CALLS + " calls; 12 to 20 is best, half pass and half fail.") }));
+    if (!s.names.length) box.append(h("div", { class: "empty", text: tl("لسه مفيش مقيّم قيّم في الدراسة دي.", "No evaluator has scored in this study yet.") }));
+    else {
+      const head = [tl("المقيّم", "Evaluator"), tl("جولة 1", "Round 1"), tl("جولة 2", "Round 2"), tl("ثبات (مع نفسه)", "Repeatability"), tl("دقة (مع المرجع في الجولتين)", "Vs standard (both rounds)"), "κ", tl("عدّى مكالمة راسبة", "Missed a fail"), tl("سقّط مكالمة ناجحة", "False alarm"), tl("اتفاق البنود", "Items"), tl("بنود الكريتيكال", "Critical items"), tl("النتيجة", "Verdict")];
+      const tb = h("table", {}, h("tr", {}, head.map((x) => h("th", { text: x }))));
+      s.per.slice().sort((a, b) => (a.vs === null ? 2 : a.vs) - (b.vs === null ? 2 : b.vs)).forEach((x) => tb.append(h("tr", {},
+        h("td", {}, h("b", { text: x.who })), h("td", { class: "num", text: x.done1 + "/" + s.calls.length }), h("td", { class: "num", text: x.done2 + "/" + s.calls.length }),
+        cell(x.within), cell(x.vs), h("td", { class: "num", text: kap(x.kappa) }),
+        h("td", { class: "num" }, x.miss === null ? "–" : h("span", { class: "pill " + (x.miss ? "bad" : "good"), text: pct(x.miss) })),
+        h("td", { class: "num" }, x.alarm === null ? "–" : h("span", { class: "pill " + (x.alarm ? "warn" : "good"), text: pct(x.alarm) })),
+        cell(x.items), cell(x.crit),
+        h("td", {}, !x.complete ? h("span", { class: "pill na", text: tl("لسه مكمّلش", "Not finished") }) : h("span", { class: "pill " + P[x.level], text: W[x.level] })))));
+      box.append(h("div", { class: "table-wrap" }, tb),
+        h("p", { class: "hint", text: tl("الحدود: 90% أو أكتر معتمد، 80 لـ 90% كاليبريشن موجّه، أقل من 80% إعادة تدريب. كابا (κ): 0.9 أو أكتر ممتاز، أقل من 0.7 محتاج تصرّف. «عدّى مكالمة راسبة» أخطر من «سقّط مكالمة ناجحة».",
+          "Bands: 90%+ certified, 80 to 90% targeted calibration, under 80% retraining. Kappa (κ): 0.9+ excellent, under 0.7 needs action. Missing a fail is worse than a false alarm.") }));
+      const weak = s.items.filter((g) => g.agree < GAUGE_OK).slice(0, 12);
+      box.append(h("h3", { text: tl("البنود اللي المقيّمين مختلفين فيها مع المرجع", "Items where evaluators differ from the standard") }));
+      if (!weak.length) box.append(h("p", { class: "msg ok", text: tl("كل البنود اتفاقها 90% أو أكتر.", "Every item is at 90% agreement or more.") }));
+      else {
+        const it = h("table", {}, h("tr", {}, [tl("البند", "Item"), tl("النوع", "Kind"), tl("اتفاق مع المرجع", "Vs standard"), tl("ثبات المقيّم مع نفسه", "Repeatability"), tl("عدد الأحكام", "Rulings")].map((x) => h("th", { text: x }))));
+        weak.forEach((g) => it.append(h("tr", {}, h("td", { text: (g.kind === "NC" ? "N" : "") + g.id + " · " + gItemName(st.form, g) }), h("td", { text: g.kind }), cell(g.agree), cell(g.repeat), h("td", { class: "num", text: String(g.n) }))));
+        box.append(h("div", { class: "table-wrap" }, it), h("p", { class: "hint", text: tl("بند اتفاقه ضعيف عند كل المقيّمين معناه إن تعريف البند نفسه محتاج توضيح، مش إن المقيّمين غلطانين.", "An item that is weak for every evaluator means the item's definition needs clarifying, not that the evaluators are wrong.") }));
+      }
+    }
+    if (own) {
+      box.append(h("h3", { text: tl("مكالمات الدراسة (المرجع)", "Study calls (the standard)") }));
+      const ct = h("table", {}, h("tr", {}, ["#", tl("الإيجنت", "Agent"), tl("وقت المكالمة", "Call time"), tl("العميل", "Customer"), tl("حكم المرجع", "Standard"), tl("اتقيّمت", "Scored"), ""].map((x) => h("th", { text: x }))));
+      s.calls.forEach((n) => { const r = st.std.get(n), k = st.recs.filter((x) => Number(x.gCall) === n);
+        ct.append(h("tr", {}, h("td", { class: "num", text: String(n) }), h("td", { text: r.agent || "–" }), h("td", { dir: "ltr", text: whenText(r) }), h("td", { dir: "ltr", text: r.phone || r.odooRef || "–" }),
+          h("td", {}, h("span", { class: "pill " + (r.result === "Pass" ? "good" : "bad"), text: (r.result || "–") + " · " + pct(r.final) })),
+          h("td", { class: "num", text: tl("ج1: ", "R1: ") + k.filter((x) => Number(x.trial) === 1).length + tl(" · ج2: ", " · R2: ") + k.filter((x) => Number(x.trial) === 2).length }),
+          h("td", { class: "actions" }, closed ? null : h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }),
+            closed || k.length ? null : h("button", { type: "button", class: "ghost", text: t("del"), onclick: async () => { await deleteRecord(r); renderGauge(); } })))); });
+      box.append(h("div", { class: "table-wrap" }, ct));
+    }
+  }
   function renderCalibration() {
+    renderGauge();
     renderCalTrack();
     const recs = allRecords().filter((r) => r.sampleRef);
     const sel = $("#calSample"), prev = sel.value;
