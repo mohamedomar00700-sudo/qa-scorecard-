@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=1794000000">
+<link rel="stylesheet" href="style.css?v=1794010000">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -398,6 +398,8 @@
       <label><span data-i18n="own_sender_name"></span><input id="setSenderName" type="text" placeholder="Quality Team"></label>
       <label><span data-i18n="own_cc"></span><input id="setCcResults" type="text" dir="ltr" placeholder="name@techsource-gds.com, name2@techsource-gds.com"></label>
       <p class="hint" data-i18n="own_cc_hint"></p>
+      <label><span data-i18n="own_mail_send"></span><select id="setMailSend"><option value="auto" data-i18n="own_mail_auto"></option><option value="manual" data-i18n="own_mail_manual"></option></select></label>
+      <p class="hint" data-i18n="own_mail_send_hint"></p>
       <label><span data-i18n="own_cc_mode"></span><select id="setCcMode"><option value="each" data-i18n="own_cc_each"></option><option value="digest" data-i18n="own_cc_digest"></option></select></label>
       <p class="hint" data-i18n="own_cc_mode_hint"></p>
       <button class="primary" id="btnSaveTarget" data-i18n="save"></button>
@@ -424,9 +426,9 @@
   <span class="loadInfo"></span>
 </template>
 
-<script src="config.js?v=1794000000"></script>
-<script src="i18n.js?v=1794000000"></script>
-<script src="forms.js?v=1794000000"></script>
-<script src="app.js?v=1794000000"></script>
+<script src="config.js?v=1794010000"></script>
+<script src="i18n.js?v=1794010000"></script>
+<script src="forms.js?v=1794010000"></script>
+<script src="app.js?v=1794010000"></script>
 </body>
 </html>

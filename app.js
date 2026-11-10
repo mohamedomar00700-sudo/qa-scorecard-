@@ -121,7 +121,9 @@
   // The owner (Role = Owner in the Names list, or whoever uses the access key) manages names, emails and team settings
   // and can correct or delete any evaluation; evaluators only their own. The script checks the same rules.
   const isOwner = () => !!settings.key || (signedIn() && !!settings.owner);
-  const mailMode = () => settings.mail || "auto";
+  // The owner can make result emails manual for the whole team: each evaluator sends the designed email from their own Outlook.
+  const teamManual = () => teamCfg.mailSend === "manual";
+  const mailMode = () => (teamManual() ? (settings.mail && settings.mail !== "auto" ? settings.mail : "outlook") : settings.mail || "auto");
   const canChange = (r) => isOwner() || !connected() || nameKey(r.evaluator) === nameKey(settings.who);
   let teamCfg = Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40 }, store("qa_team_cfg") || {});
   const creds = () => (settings.key ? { key: settings.key } : settings.session ? { session: settings.session } : {});
@@ -1502,8 +1504,36 @@
     h("button", { type: "button", class: "ghost", text: t(label), onclick: () => { const m = make(); composeMail(to(), m.subject, m.body); } }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(make(), e.currentTarget) })];
   function openOutlook(r) {
+    if (connected()) return openDesigned(r);
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
+    markMailed(r);
+  }
+  // The same designed email the system sends automatically: the script builds it, the page copies it (with its design)
+  // and opens a new Outlook email with To, CC and Subject filled in; the evaluator pastes it (Ctrl+V) and presses Send.
+  // If the script is older or the browser can't copy formatted text, it falls back to the plain ready email.
+  async function copyDesigned(r) {
+    const p = apiPostJson({ action: "resultMail", id: r.id }).then((j) => { if (!j.ok || !j.html) throw new Error(j.error || "no html"); return j; });
+    const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.innerText || d.textContent || ""; };
+    try {
+      if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) throw new Error("no clipboard");
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/html": p.then((j) => new Blob([j.html], { type: "text/html" })),
+        "text/plain": p.then((j) => new Blob([plain(j.html)], { type: "text/plain" })) })]);
+      return await p;
+    } catch (e) { p.catch(() => {}); return null; }
+  }
+  async function openDesigned(r) {
+    const j = await copyDesigned(r);
+    if (!j) {
+      const { subject, body } = mailText(r);
+      composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
+      markMailed(r); return;
+    }
+    const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+    if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to: j.to, cc: j.cc, subject: j.subject }), "_blank");
+    else location.href = "mailto:" + encodeURIComponent(j.to || "").replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc: j.cc, subject: j.subject });
+    toast("ok info", t("mail_paste", { n: r.agent || "" }));
     markMailed(r);
   }
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
@@ -1625,7 +1655,11 @@
   }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
-    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(Object.assign(mailText(r), { cc: resultCc().join(", ") }), e.currentTarget) }));
+    h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: async (e) => {
+      const btn = e.currentTarget;
+      if (connected() && (await copyDesigned(r))) { const was = btn.textContent; btn.textContent = t("copied"); setTimeout(() => (btn.textContent = was), 1500); return; }
+      copyMail(Object.assign(mailText(r), { cc: resultCc().join(", ") }), btn);
+    } }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   // The day of the call (falls back to the evaluation day for role-plays and old records).
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
@@ -4051,6 +4085,7 @@
     $("#setUrl").value = settings.url; $("#setKey").value = settings.key;
     const mm = $("#setMail");
     mm.value = settings.mail || "auto";
+    { const ao = mm.querySelector('option[value="auto"]'); if (ao) ao.disabled = teamManual(); if (teamManual() && mm.value === "auto") mm.value = "outlook"; }
     mm.onchange = () => { settings.mail = mm.value; store(LS_SETTINGS, settings); };
     const status = $("#connStatus");
     status.textContent = connected() ? t("conn_ok") : t("conn_no");
@@ -4088,7 +4123,7 @@
     const pmSync = () => { const auto = $("#setPickMode").value !== "manual", w = pickWindow(today()); $("#setPickFrom").disabled = $("#setPickTo").disabled = auto; if (auto) { $("#setPickFrom").value = w[0]; $("#setPickTo").value = w[1]; } else { $("#setPickFrom").value = teamCfg.pickFrom || "08:00"; $("#setPickTo").value = teamCfg.pickTo || "18:00"; } };
     $("#setPickMode").onchange = pmSync; pmSync(); $("#setPickDays").value = teamCfg.pickDays || 3;
     $("#setCcResults").value = teamCfg.ccResults || ""; $("#setClosedDays").value = teamCfg.closedDays === undefined ? "Fri" : teamCfg.closedDays;
-    $("#setSenderName").value = teamCfg.senderName || "Quality Team"; $("#setCcMode").value = teamCfg.ccMode === "digest" ? "digest" : "each";
+    $("#setSenderName").value = teamCfg.senderName || "Quality Team"; $("#setCcMode").value = teamCfg.ccMode === "digest" ? "digest" : "each"; $("#setMailSend").value = teamManual() ? "manual" : "auto";
     $("#setCallsSource").value = teamCfg.callsSource ? "https://docs.google.com/spreadsheets/d/" + teamCfg.callsSource + "/edit" : "";
     $("#btnCallsCheck").onclick = async () => {
       const box = $("#callsInfo"); box.textContent = "…";
@@ -4126,7 +4161,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), ccMode: $("#setCcMode").value === "digest" ? "digest" : "each", senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), ccMode: $("#setCcMode").value === "digest" ? "digest" : "each", mailSend: $("#setMailSend").value === "manual" ? "manual" : "auto", senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");
