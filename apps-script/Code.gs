@@ -494,34 +494,56 @@ function resultMailHtml_(r, o) {
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
 function emailAgent_(r) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
-  // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb') get no automatic email.
-  if (!EMAIL_AGENTS || r.test || (purpose !== 'live' && purpose !== 'certcall' && purpose !== 'coaching' && purpose !== 'postcoach' && purpose !== 'program') || (r.mailMode && r.mailMode !== 'auto')) return '';
+  // Evaluators who send from their own Outlook (mailMode 'outlook' / 'outlookweb'), or the whole team when the owner
+  // set result emails to manual, get no automatic email.
+  if (!EMAIL_AGENTS || r.test || !mailablePurpose_(purpose) || (r.mailMode && r.mailMode !== 'auto') || config_().mailSend === 'manual') return '';
   const ro = readRoster_();
-  const to = ro.emails[r.agent];
-  if (!to) return '';
-  const evEmail = ro.evalEmails[r.evaluator] || '';
-  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = purpose === 'program';
-  // Program level (Quality's account sample) is emailed too, so it's on record and the agent knows the call was heard; it says clearly it doesn't count.
+  if (!ro.emails[r.agent]) return '';
   try {
-    const form = r.form === 'whatsapp' ? 'WhatsApp chat' : 'call';
-    const when = String(r.interactionDate || '').replace('T', ' ');
-    const pass = r.result === 'Pass';
-    const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
-    const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
-    const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-    const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
-    const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
-    const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
-      htmlBody: html, name: fromName_(r.evaluator, senderName) };
-    const cc = [evEmail].concat(resultCcList_()).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
-    if (evEmail) mail.replyTo = evEmail;
-    if (cc.length) mail.cc = cc.join(',');
+    const mail = resultMail_(r, ro);
     MailApp.sendEmail(mail);
-    return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + to;
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' → ' + mail.to;
   } catch (err) {
     ensureMailTriggers_();
     return 'Not sent: ' + String(err).slice(0, 200);
   }
+}
+function mailablePurpose_(p) { return ['live', 'certcall', 'coaching', 'postcoach', 'program'].indexOf(p) !== -1; }
+
+// The designed result email (to, cc, subject, HTML), sent automatically or handed to the evaluator to send from Outlook.
+function resultMail_(r, ro) {
+  const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
+  const to = ro.emails[r.agent] || '';
+  const evEmail = ro.evalEmails[r.evaluator] || '';
+  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = purpose === 'program';
+  // Program level (Quality's account sample) is emailed too, so it's on record and the agent knows the call was heard; it says clearly it doesn't count.
+  const form = r.form === 'whatsapp' ? 'WhatsApp chat' : 'call';
+  const when = String(r.interactionDate || '').replace('T', ' ');
+  const pass = r.result === 'Pass';
+  const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
+  const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
+  const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
+  const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
+  const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
+  const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
+    htmlBody: html, name: fromName_(r.evaluator, senderName) };
+  const cc = [evEmail].concat(resultCcList_()).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
+  if (evEmail) mail.replyTo = evEmail;
+  if (cc.length) mail.cc = cc.join(',');
+  return mail;
+}
+// For manual sending: the same designed email for one saved evaluation, so the evaluator pastes it into Outlook.
+// The evaluator's own address isn't CC'd (they are the sender).
+function resultMailFor_(id, me) {
+  const sh = sheet_();
+  const at = findRow_(sh, id);
+  if (at === -1) return { ok: false, error: 'Not found' };
+  let r; try { r = JSON.parse(sh.getRange(at, JSON_COL).getValue()); } catch (err) { return { ok: false, error: 'Bad record' }; }
+  const ro = readRoster_();
+  aliasFix_(r, ro);
+  const m = resultMail_(r, ro), mine = String(me && me.email || '').toLowerCase();
+  const cc = String(m.cc || '').split(',').filter(function (x) { return x && x.toLowerCase() !== mine && x !== (ro.evalEmails[r.evaluator] || ''); });
+  return { ok: true, to: m.to, cc: cc.join(','), subject: m.subject, html: m.htmlBody };
 }
 
 // The sender name agents see: the evaluator's own name with the team name ("Mostafa Mohamed · Quality Team").
@@ -542,7 +564,7 @@ function resultCcList_() {
 function retryResultEmails() {
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
-  if (n < 1 || sh.getLastColumn() < COLUMNS.length) return 0;
+  if (n < 1 || sh.getLastColumn() < COLUMNS.length || config_().mailSend === 'manual') return 0;
   const saved = sh.getRange(2, 1, n, 1).getValues().flat();
   const notes = sh.getRange(2, COLUMNS.length, n, 1).getValues().flat();
   const cut = Date.now() - 7 * 86400000;
@@ -955,7 +977,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', mailSend: 'auto', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -984,6 +1006,7 @@ function setConfig_(c) {
     cur.ccResults = cc.join(', ');
   }
   if (c.ccMode === 'each' || c.ccMode === 'digest') cur.ccMode = c.ccMode;
+  if (c.mailSend === 'auto' || c.mailSend === 'manual') cur.mailSend = c.mailSend; // manual = every evaluator sends from their own Outlook
   if (c.senderName !== undefined) {
     const sn = String(c.senderName).trim().slice(0, 60);
     cur.senderName = sn || 'Quality Team';
@@ -1062,6 +1085,7 @@ function doPost(e) {
       { const ro = readRoster_(); aliasFix_(body.record, ro); levelFix_(body.record, ro); }
       return reply_(updateRecord_(body.record));
     }
+    if (body.action === 'resultMail') return reply_(resultMailFor_(body.id, me));
     if (body.action === 'sendCoaching') {
       return reply_(sendCoaching_(body.id));
     }
