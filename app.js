@@ -515,11 +515,11 @@
       // Look back over the set window; if every day there is closed or was already rejected (the agent was off, no
       // calls), keep going back one day at a time (up to 31 days) instead of stopping the evaluator.
       // Program level only picks from this month (from the 1st), never the month before.
-      const prog = progRandom(a), monthStart = today().slice(0, 8) + "01";
+      const prog = progRandom(a);
       let wider = false, todayOnly = false;
       for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        if (prog && ymdOf(d) < monthStart) break;
+        if (ymdOf(d) < mWeekStartOf(today())) break;
         if (!off.has(d.getDay()) && !skip.includes(ymdOf(d))) { ok.push(ymdOf(d)); if (i > days) wider = true; }
       }
       const nowM = new Date().getHours() * 60 + new Date().getMinutes();
@@ -534,7 +534,7 @@
           ok.length = 0; todayOnly = false;
           for (let i = 1; i <= 31 && (i <= days || !ok.length); i++) {
             const d = new Date(); d.setDate(d.getDate() - i);
-            if (ymdOf(d) < monthStart) break;
+            if (ymdOf(d) < mWeekStartOf(today())) break;
             if (!off2.has(d.getDay()) && !skip2.includes(ymdOf(d))) ok.push(ymdOf(d));
           }
           if (!ok.length && !off2.has(new Date().getDay()) && !skip2.includes(today()) && nowM > fh * 60 + (fm || 0) + 30) { ok.push(today()); todayOnly = true; }
@@ -600,8 +600,11 @@
     const d = new Date(today() + "T12:00:00");
     let left = n, guard = 0;
     while (left > 0 && guard++ < 40) { d.setDate(d.getDate() - 1); if (!off.has(d.getDay())) left--; }
-    return ymdOf(d);
+    // Never before this week's first day (1, 8, 15, 22), so early-week picks count in this week's target.
+    const ws = mWeekStartOf(today());
+    return ymdOf(d) < ws ? ws : ymdOf(d);
   }
+  const mWeekStartOf = (day) => String(day).slice(0, 8) + ["01", "08", "15", "22"][Math.min(3, Math.floor((+String(day).slice(8, 10) - 1) / 7))];
   function callPicker(a) {
     const box = h("div", { class: "picker call-panel" });
     const prog = progRandom(a);
@@ -658,10 +661,11 @@
             return;
           }
           // Nothing left for this agent: on Program level the next agent is drawn; otherwise tell the evaluator.
+          if (!prog && j.weekCut) { await settle(); busy = false; alert(t("call_none_week", { a: agent, f: j.weekFrom || from, d: j.dataTo || "–" })); renderHeader(); return; }
           if (!prog) { await settle(); busy = false; alert(t("call_none", { a: agent, d: j.dataTo || "–", f: j.winFrom || from, n: j.winDays || Number(teamCfg.pickDays) || 3 })); renderHeader(); return; }
           tried.push(agent);
           agent = drawProgramAgent(tried);
-          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { await settle(); busy = false; alert(t("call_none_prog", { d: j.dataTo || "–", f: j.winFrom || from, n: j.winDays || Number(teamCfg.pickDays) || 3 })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
+          if (!agent || tried.some((x) => nameKey(x) === nameKey(agent))) { await settle(); busy = false; alert(j.weekCut ? t("call_none_week_prog", { f: j.weekFrom || from, d: j.dataTo || "–" }) : t("call_none_prog", { d: j.dataTo || "–", f: j.winFrom || from, n: j.winDays || Number(teamCfg.pickDays) || 3 })); a.header.agent = ""; saveDraft(); renderHeader(); return; }
         }
       } catch (e) { stop(); busy = false; show(); alert(e.message); }
     };
@@ -3157,9 +3161,13 @@
       grid.append(meter(tl("الليدرز · الأسبوع ده", "Team leaders · this week"), wk.length, lw, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(wk).length : ""),
         meter(tl("الليدرز · الشهر ده", "Team leaders · this month"), mo.length, lw * 4, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(mo).length : "", "", true));
       const need = agents.map((a) => [a, wk.filter((r) => nameKey(r.agent) === nameKey(a)).length]).filter(([, n]) => n < perAgent);
+      const noSbs = agents.filter((a) => !wk.some((r) => r.method === "sidebyside" && nameKey(r.agent) === nameKey(a)));
       kids.push(grid);
       kids.push(h("div", { class: "mt-need" }, h("b", { text: need.length ? tl("لسه محتاجين الأسبوع ده:", "Still needed this week:") : "✓ " + tl("كل الإيجنتس خدوا " + perAgent + " الأسبوع ده", "Every agent has " + perAgent + " this week") }),
         ...need.map(([a, n]) => h("span", { class: "pill " + (n ? "warn" : "bad"), dir: "auto", text: a + " · " + n + "/" + perAgent }))));
+      kids.push(h("div", { class: "mt-need" }, h("b", { text: noSbs.length ? tl("لسه من غير سايد باي سايد الأسبوع ده:", "No side by side yet this week:") : "✓ " + tl("كل الإيجنتس خدوا سايد باي سايد الأسبوع ده", "Every agent had a side by side this week") }),
+        ...noSbs.map((a) => h("span", { class: "pill info", dir: "auto", text: a }))));
+      if (td === mWeekStartOf(td)) kids.push(h("p", { class: "hint", text: tl("أول الأسبوع: المكالمات بتتسحب من الأسبوع الحالي بس، ومكالمات النهارده بتنزل في الرو داتا آخر اليوم. فالنهارده مناسب للسايد باي سايد.", "Start of the week: calls are drawn from this week only, and today's calls reach the raw data at the end of the day, so today suits side by side.") }));
     }
     if (showQ) {
       const prog = all.filter((r) => purposeOf(r) === "program");
