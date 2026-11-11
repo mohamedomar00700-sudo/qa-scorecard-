@@ -379,14 +379,14 @@ const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
 function mailShell_(accent, kicker, title, inner, footer) {
   const c = MAIL_;
   return '<div dir="ltr" style="margin:0;padding:0;background:' + c.bg + '">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
-    '<tr><td style="background:' + c.navy + ';padding:18px 24px;color:#ffffff">' +
-      '<div style="font-size:12px;letter-spacing:.5px;color:#c7d2fe">' + kicker + '</div>' +
-      '<div style="font-size:20px;font-weight:bold;margin-top:2px">' + title + '</div></td></tr>' +
-    '<tr><td style="height:5px;background:' + accent + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.bg + '" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.card + '" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
+    '<tr><td bgcolor="' + c.navy + '" style="background:' + c.navy + ';padding:18px 24px;color:#ffffff">' +
+      '<div style="font-size:12px;letter-spacing:.5px;color:#c7d2fe"><span style="color:#c7d2fe"><font color="#c7d2fe">' + kicker + '</font></span></div>' +
+      '<div style="font-size:20px;font-weight:bold;margin-top:2px;color:#ffffff"><span style="color:#ffffff"><font color="#ffffff">' + title + '</font></span></div></td></tr>' +
+    '<tr><td bgcolor="' + accent + '" style="height:5px;background:' + accent + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
     '<tr><td style="padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
-    '<tr><td style="background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
+    '<tr><td bgcolor="' + c.grayBg + '" style="background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
     '</table></td></tr></table></div>';
 }
 
@@ -417,10 +417,10 @@ function resultMailHtml_(r, o) {
     (o.post ? 'This is the evaluation of your first call after coaching' + (r.followOfId ? ' on evaluation <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + ': your '
       : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
     o.form + ' on <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + look.bg + ';border-radius:12px;border:1px solid ' + c.line + '"><tr>' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + look.bg + '" style="background:' + look.bg + ';border-radius:12px;border:1px solid ' + c.line + '"><tr>' +
       '<td width="130" align="center" valign="middle" style="padding:18px 8px">' +
-        '<div style="font-size:38px;font-weight:bold;line-height:1;color:' + scoreColor + '" dir="ltr">' + pctTxt + '</div>' +
-        '<div style="display:inline-block;margin-top:8px;padding:3px 12px;border-radius:999px;background:' + look.accent + ';color:#fff;font-size:12px;font-weight:bold" dir="ltr">' + look.pill + '</div></td>' +
+        '<div style="font-size:38px;font-weight:bold;line-height:1;color:' + scoreColor + '" dir="ltr"><span style="color:' + scoreColor + ';font-size:38px;font-weight:bold"><font color="' + scoreColor + '">' + pctTxt + '</font></span></div>' +
+        '<table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:8px auto 0;border-collapse:separate"><tr><td bgcolor="' + look.accent + '" style="background:' + look.accent + ';color:#ffffff;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:bold;white-space:nowrap" dir="ltr"><span style="color:#ffffff"><font color="#ffffff">' + look.pill + '</font></span></td></tr></table></td>' +
       '<td valign="middle" style="padding:18px 6px 18px 16px">' +
         '<div style="font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</div>' +
         '<div style="font-size:13px;color:' + c.soft + ';margin-top:4px">' + look.msg + '</div>' +

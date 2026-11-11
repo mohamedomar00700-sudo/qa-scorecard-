@@ -1525,24 +1525,66 @@
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
   }
+  function fixMailHtml(html) {
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      doc.querySelectorAll("td[align],th[align]").forEach((el) => { el.style.textAlign = el.getAttribute("align"); });
+      doc.querySelectorAll("td[valign],th[valign]").forEach((el) => { el.style.verticalAlign = el.getAttribute("valign"); });
+      doc.querySelectorAll("td[style*='background'],table[style*='background']").forEach((el) => {
+        const m = (el.getAttribute("style") || "").match(/background\s*:\s*(#[0-9a-fA-F]{3,6})\b/);
+        if (m && !el.getAttribute("bgcolor")) el.setAttribute("bgcolor", m[1]);
+      });
+      doc.querySelectorAll("td[style*='#1e3a6e']").forEach((td) => {
+        td.style.color = "#ffffff";
+        td.querySelectorAll("div").forEach((d, i) => {
+          const col = i === 0 ? "#c7d2fe" : "#ffffff";
+          d.style.color = col;
+          if (!d.querySelector("font")) d.innerHTML = '<span style="color:' + col + '"><font color="' + col + '">' + d.innerHTML + "</font></span>";
+        });
+      });
+      doc.querySelectorAll("div[style*='border-radius:999px']").forEach((d) => {
+        const bg = ((d.getAttribute("style") || "").match(/background\s*:\s*(#[0-9a-fA-F]{3,6})\b/) || [])[1] || "#475569";
+        const tbl = doc.createElement("table");
+        tbl.setAttribute("role", "presentation"); tbl.setAttribute("align", "center"); tbl.setAttribute("cellpadding", "0"); tbl.setAttribute("cellspacing", "0");
+        tbl.setAttribute("style", "margin:8px auto 0;border-collapse:separate");
+        tbl.innerHTML = '<tr><td bgcolor="' + bg + '" style="background:' + bg + ';color:#ffffff;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:bold;white-space:nowrap;text-align:center" dir="ltr"><span style="color:#ffffff"><font color="#ffffff">' + d.innerHTML + "</font></span></td></tr>";
+        d.replaceWith(tbl);
+      });
+      doc.querySelectorAll("div[style*='color:']").forEach((d) => {
+        if (d.closest("td[style*='#1e3a6e']") || d.querySelector("table,div,p,font")) return;
+        const st = d.getAttribute("style") || "";
+        const col = (st.match(/(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{3,6})\b/) || [])[1];
+        const fs = (st.match(/font-size\s*:\s*([^;]+)/) || [])[1];
+        const fw = (st.match(/font-weight\s*:\s*([^;]+)/) || [])[1];
+        if (col) d.innerHTML = '<span style="color:' + col + (fs ? ";font-size:" + fs : "") + (fw ? ";font-weight:" + fw : "") + '"><font color="' + col + '">' + d.innerHTML + "</font></span>";
+      });
+      return doc.body.innerHTML;
+    } catch (e) { return html; }
+  }
   function copyHtmlDom(html) {
-    const box = h("div", { contenteditable: "true", style: "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;background:#fff;color:#000" });
-    box.innerHTML = html;
-    document.body.append(box);
-    const sel = window.getSelection(), rng = document.createRange();
-    rng.selectNodeContents(box);
-    sel.removeAllRanges();
-    sel.addRange(rng);
+    const ifr = h("iframe", { style: "position:fixed;left:-9999px;top:0;width:800px;height:600px;opacity:0;pointer-events:none;border:0" });
+    document.body.append(ifr);
     let ok = false;
-    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
-    sel.removeAllRanges();
-    box.remove();
+    try {
+      const idoc = ifr.contentDocument;
+      idoc.open(); idoc.write("<!doctype html><html><body style='margin:0;background:#fff'>" + html + "</body></html>"); idoc.close();
+      const sel = idoc.getSelection(), rng = idoc.createRange();
+      rng.selectNodeContents(idoc.body);
+      sel.removeAllRanges(); sel.addRange(rng);
+      ok = idoc.execCommand("copy");
+      sel.removeAllRanges();
+    } catch (e) { ok = false; }
+    ifr.remove();
     return ok;
   }
   // The same designed email the system sends automatically: the script builds it, the page copies it (with its design)
   // and opens a new Outlook email with To, CC and Subject filled in; the evaluator pastes it (Ctrl+V) and presses Send.
   async function copyDesigned(r, action) {
-    const p = apiPostJson({ action: action || "resultMail", id: r.id }).then((j) => { if (!j.ok || !j.html) throw new Error(j.error || "no html"); return j; });
+    const p = apiPostJson({ action: action || "resultMail", id: r.id }).then((j) => {
+      if (!j.ok || !j.html) throw new Error(j.error || "no html");
+      j.html = fixMailHtml(j.html);
+      return j;
+    });
     const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.innerText || d.textContent || ""; };
     let clipOk = false;
     try {
@@ -1565,7 +1607,7 @@
           }
         } catch (e2) {}
       }
-      if (copyHtmlDom(j.html)) clipOk = true;
+      if (!clipOk && copyHtmlDom(j.html)) clipOk = true;
       return clipOk ? j : null;
     } catch (e) { return null; }
   }
