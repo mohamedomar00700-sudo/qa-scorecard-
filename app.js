@@ -1200,7 +1200,7 @@
   function toast(kind, text, list) {
     const b = $("#toast"); clearTimeout(toast.timer);
     b.className = "toast " + kind; b.innerHTML = "";
-    b.append(h("div", { text }), list && list.length ? h("ul", {}, list.map((x) => h("li", { text: x }))) : null,
+    b.append(h("div", { text }), list && list.length ? h("ul", {}, list.map((x) => h("li", { text: x }))) : "",
       h("button", { type: "button", class: "x", "aria-label": "×", text: "×", onclick: () => (b.hidden = true) }));
     b.hidden = false;
     if (kind === "ok") toast.timer = setTimeout(() => (b.hidden = true), 6000);
