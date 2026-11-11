@@ -200,6 +200,8 @@
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
       const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {}, aliases: j.aliases || roster.aliases || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
+      // The page and the Apps Script must be from the same update; an older script silently breaks emails and counts.
+      if ((j.build || "") < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
       }
@@ -1375,6 +1377,7 @@
       renderDupWarn();
     }, 800);
   }
+  const NEED_BUILD = "2026-11-11.2";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
@@ -1386,6 +1389,8 @@
       if (j.now) loadFromSheet.serverNow = j.now;
       if (full || !j.partial) loadFromSheet.lastFull = Date.now();
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
+      // The page and the Apps Script must be from the same update; an older script silently breaks emails and counts.
+      if ((j.build || "") < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
       forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
       say(t("loaded_n", { n: j.partial ? loaded.size : j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
@@ -3567,7 +3572,7 @@
     const who = own ? sel.value : me;
     const per = $("#mwPeriod").value || "month";
     const [from, to] = periodRange(per);
-    const inPeriod = all.filter((r) => (!from || (r.evalDate || "") >= from) && (!to || (r.evalDate || "") <= to));
+    const inPeriod = all.filter((r) => (!from || callDay(r) >= from) && (!to || callDay(r) <= to)); // by call date, like every other page
     const mine = who ? inPeriod.filter((r) => nameKey(r.evaluator) === nameKey(who)) : inPeriod;
     const s = workStats(mine), team = workStats(inPeriod); lastLists.mywork = mine;
     $("#mwTitle").textContent = who ? (who === me ? t("mw_title") : t("mw_title_of", { n: who })) : t("mw_whole_team");
