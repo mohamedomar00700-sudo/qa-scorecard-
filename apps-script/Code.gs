@@ -1122,6 +1122,7 @@ function doPost(e) {
     if (!r || !r.id || !Array.isArray(r.items)) return reply_({ ok: false, error: 'Bad record' });
     if (!me.owner) r.evaluator = me.name; // a signed-in evaluator always saves under their own name
     const fixedFrom = r.purpose || 'live';
+    if (config_().mailSend === 'manual' && (!r.mailMode || r.mailMode === 'auto')) r.mailMode = 'outlook'; // a device that hasn't seen the switch to manual yet
     const ro0 = readRoster_();
     aliasFix_(r, ro0);
     levelFix_(r, ro0);
@@ -1148,7 +1149,7 @@ function doPost(e) {
     ensureMailTriggers_();
     const note = emailAgent_(r);
     if (note) { const at = findRow_(sh, r.id); if (at !== -1) sh.getRange(at, COLUMNS.length).setValue(note); }
-    return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note, purpose: (r.purpose || 'live') !== fixedFrom ? r.purpose : undefined });
+    return reply_({ ok: true, emailed: note && note.indexOf('Not sent') !== 0 ? true : false, emailNote: note, mailMode: r.mailMode || 'auto', purpose: (r.purpose || 'live') !== fixedFrom ? r.purpose : undefined });
   } catch (err) {
     return reply_({ ok: false, error: String(err) });
   }
@@ -1256,10 +1257,10 @@ function doGet(e) {
     try {
       let r = JSON.parse(s); aliasFix_(r, ro); qualityLevel_(r, ro);
       if (r.purpose === 'gauge' && !me.owner && gClosed.indexOf(String(r.sampleRef)) === -1) { r = gaugeStub_(r, me); if (!r) return; }
-      if (/^Not sent/.test(String(mailNotes[i] || ''))) r.mailQueued = true; records.push(r);
+      r.mailQueued = /^Not sent/.test(String(mailNotes[i] || '')); // the sheet column decides, not an old copy in the JSON records.push(r);
     } catch (err) {}
   });
-  return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since });
+  return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since, config: config_() });
 }
 
 // Run once from the editor (select it, then Run) if Google asks again for permission to send email.
