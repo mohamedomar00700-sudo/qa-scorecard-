@@ -1264,6 +1264,12 @@
         }
         msg.className = "msg ok"; msg.textContent = (edit ? t("updated_sheet") : how === "saved" ? t("saved_sheet") : t("sent_sheet")) + " [" + evalIdOf(rec) + "]";
         const rep = apiPost.last || {};
+        // The script has the last word on how the email goes (team set to manual, or Gmail's daily limit reached).
+        if (!edit && ((rep.mailMode && rep.mailMode !== rec.mailMode) || /^Not sent/.test(rep.emailNote || ""))) {
+          if (rep.mailMode) rec.mailMode = rep.mailMode;
+          if (/^Not sent/.test(rep.emailNote || "")) rec.mailQueued = true;
+          loaded.set(rec.id, rec); store(LS_EVALS, (store(LS_EVALS) || []).map((x) => (x.id === rec.id ? rec : x)));
+        }
         if (!edit && rep.emailed) msg.textContent += " " + t("emailed_agent", { n: rec.agent });
         else if (!edit && rep.emailNote && /too many times|مرات كثيرة/i.test(rep.emailNote)) msg.textContent += " " + t("email_quota");
         else if (!edit && rep.emailNote) msg.textContent += " " + t("email_failed", { e: rep.emailNote });
@@ -1286,7 +1292,7 @@
     const keep = msg.textContent, cls = msg.className;
     renderEvaluate(); msg.textContent = keep; msg.className = cls;
     if (cls.includes("ok")) toast("ok", "✓ " + keep);
-    if (!edit && mailMode() !== "auto" && mailable(rec)) {
+    if (!edit && mailUnsent(rec)) {
       const cta = h("div", { class: "mail-cta" }, h("b", { text: "📧 " + t("mail_cta", { n: rec.agent || "" }) }), h("div", { class: "hint", text: t("mail_cta_hint") }), outlookButton(rec));
       msg.after(cta);
       cta.querySelector("button").addEventListener("click", () => setTimeout(() => cta.remove(), 400));
@@ -1379,6 +1385,7 @@
       const j = await apiGet(full ? {} : { since: loadFromSheet.serverNow - 10 * 60000 });
       if (j.now) loadFromSheet.serverNow = j.now;
       if (full || !j.partial) loadFromSheet.lastFull = Date.now();
+      if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
       say(t("loaded_n", { n: j.partial ? loaded.size : j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
@@ -1538,6 +1545,8 @@
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
   const autoMailed = (r) => mailable(r) && (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent] && !r.mailQueued;
   const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
+  // Not yet with the agent: to be sent from Outlook, or the automatic email is waiting on Gmail's daily limit.
+  const mailUnsent = (r) => mailPending(r) || (mailable(r) && !!r.mailQueued && !r.mailedAt);
   async function markMailed(r) {
     if (r.mailedAt) return;
     const rec = Object.assign({}, r, { mailedAt: new Date().toISOString() });
@@ -1693,18 +1702,18 @@
     const [pFrom, pTo] = f.per ? periodRange(f.per) : ["", ""];
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
-      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailPending(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
+      (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailUnsent(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
       (!pFrom || callDay(r) >= pFrom) && (!pTo || callDay(r) <= pTo) &&
       (!f.q || [evalIdOf(r), r.id, r.odooRef, r.sampleRef, r.agent, r.evaluator].some((x) => String(x || "").toLowerCase().includes(f.q)) || (qd.length >= 4 && normPhone(r.phone).includes(qd))))
       .sort((a, b) => whenText(b).localeCompare(whenText(a)));
     out.innerHTML = ""; lastLists.records = recs;
-    const unsent = all.filter((r) => mailPending(r) && (isOwner() || r.evaluator === settings.evaluator));
+    const unsent = all.filter((r) => mailUnsent(r) && (isOwner() || nameKey(r.evaluator) === nameKey(settings.evaluator || settings.who)));
     if (unsent.length && f.sel !== "unsent") out.append(h("div", { class: "msg err" }, t("mail_unsent_banner", { n: unsent.length }), " ",
       h("button", { type: "button", text: t("mail_unsent_show"), onclick: () => { $("#recSel").value = "unsent"; renderRecords(); } })));
     if (!recs.length) { out.append(h("div", { class: "empty", text: all.length ? t("db_nomatch") : t("db_empty") })); return; }
     // Summary strip for what is listed; the coaching and email numbers filter the list when clicked.
     const real = recs.filter((r) => !r.test), fins = real.map((r) => r.final).filter((x) => x !== null && x !== undefined);
-    const passN = real.filter((r) => r.result === "Pass").length, unc = real.filter((r) => needsCoaching(r) && !isCoached(r)).length, uns = recs.filter(mailPending).length;
+    const passN = real.filter((r) => r.result === "Pass").length, unc = real.filter((r) => needsCoaching(r) && !isCoached(r)).length, uns = recs.filter(mailUnsent).length;
     const stat = (k, v, cls, on) => h(on ? "button" : "div", Object.assign({ class: "rec-stat" + (cls ? " " + cls : "") }, on ? { type: "button", onclick: on } : {}), h("b", { text: String(v) }), h("span", { text: k }));
     out.append(h("div", { class: "rec-stats" },
       stat(tl("تقييم", "evaluations"), recs.length),
@@ -1721,7 +1730,7 @@
         // Sent automatically by the system (the designed email): no Outlook button, so the agent doesn't get it twice.
         mailable(r) ? (autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : outlookButton(r, true)) : null,
         mailable(r) && r.mailQueued && !r.mailedAt ? h("span", { class: "meta warn", title: t("mail_queued_tip"), text: "⏳ " + t("mail_queued") }) : null,
-        mailPending(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
+        mailUnsent(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null))),
