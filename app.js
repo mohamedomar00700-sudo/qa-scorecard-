@@ -1512,8 +1512,8 @@
   // The same designed email the system sends automatically: the script builds it, the page copies it (with its design)
   // and opens a new Outlook email with To, CC and Subject filled in; the evaluator pastes it (Ctrl+V) and presses Send.
   // If the script is older or the browser can't copy formatted text, it falls back to the plain ready email.
-  async function copyDesigned(r) {
-    const p = apiPostJson({ action: "resultMail", id: r.id }).then((j) => { if (!j.ok || !j.html) throw new Error(j.error || "no html"); return j; });
+  async function copyDesigned(r, action) {
+    const p = apiPostJson({ action: action || "resultMail", id: r.id }).then((j) => { if (!j.ok || !j.html) throw new Error(j.error || "no html"); return j; });
     const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.innerText || d.textContent || ""; };
     try {
       if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) throw new Error("no clipboard");
@@ -1523,18 +1523,16 @@
       return await p;
     } catch (e) { p.catch(() => {}); return null; }
   }
-  async function openDesigned(r) {
-    const j = await copyDesigned(r);
-    if (!j) {
-      const { subject, body } = mailText(r);
-      composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
-      markMailed(r); return;
-    }
+  // One look for every email: if the designed email can't be fetched, say so instead of opening a plain-text one.
+  async function openDesigned(r, action) {
+    const j = await copyDesigned(r, action);
+    if (!j) { toast("err", t("mail_design_failed")); return false; }
     const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
     if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to: j.to, cc: j.cc, subject: j.subject }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(j.to || "").replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc: j.cc, subject: j.subject });
     toast("ok info", t("mail_paste", { n: r.agent || "" }));
-    markMailed(r);
+    if (!action) markMailed(r);
+    return true;
   }
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
@@ -1602,12 +1600,13 @@
       const fields = (x) => ({ coachedAt: x.coachedAt, coachedBy: x.coachedBy, coachPoints: x.coachPoints, coachNote: x.coachNote, coachAck: x.coachAck, coachMailedAt: x.coachMailedAt || "" });
       try {
         if (connected()) await apiPostJson({ action: "saveCoaching", id: rec.id, coaching: fields(rec) });
-        let sent = false;
+        let sent = false, pasted = false;
         if (connected() && mailMode() === "auto") {
           try { await apiPostJson({ action: "sendCoaching", id: rec.id }); sent = true; } catch (e) { toast("err", t("email_failed", { e: e.message })); }
-        } else { const m = coachingMail(rec); composeMail((roster.emails || {})[rec.agent] || "", m.subject, m.body, resultCc().join(",")); sent = true; }
+        } else if (connected()) { sent = await openDesigned(rec, "coachingMail"); pasted = sent; }
+        else { const m = coachingMail(rec); composeMail((roster.emails || {})[rec.agent] || "", m.subject, m.body, resultCc().join(",")); sent = true; }
         if (sent && connected()) { rec.coachMailedAt = new Date().toISOString(); loaded.set(rec.id, rec); apiPost({ action: "saveCoaching", id: rec.id, coaching: fields(rec) }).catch(() => {}); }
-        toast("ok", "✓ " + t(sent ? "coach_saved_mailed" : "coach_saved", { n: rec.agent }));
+        if (!pasted) toast("ok", "✓ " + t(sent ? "coach_saved_mailed" : "coach_saved", { n: rec.agent }));
         close(); refreshViews();
       } catch (e) { save.disabled = false; msg.className = "msg err"; msg.textContent = t("save_failed", { e: e.message }); }
     };
@@ -1657,7 +1656,11 @@
     h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: async (e) => {
       const btn = e.currentTarget;
-      if (connected() && (await copyDesigned(r))) { const was = btn.textContent; btn.textContent = t("copied"); setTimeout(() => (btn.textContent = was), 1500); return; }
+      if (connected()) {
+        if (await copyDesigned(r)) { const was = btn.textContent; btn.textContent = t("copied"); setTimeout(() => (btn.textContent = was), 1500); }
+        else toast("err", t("mail_design_failed"));
+        return;
+      }
       copyMail(Object.assign(mailText(r), { cc: resultCc().join(", ") }), btn);
     } }));
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
