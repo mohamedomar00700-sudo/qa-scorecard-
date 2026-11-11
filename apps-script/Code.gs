@@ -1257,7 +1257,9 @@ function doGet(e) {
     try {
       let r = JSON.parse(s); aliasFix_(r, ro); qualityLevel_(r, ro);
       if (r.purpose === 'gauge' && !me.owner && gClosed.indexOf(String(r.sampleRef)) === -1) { r = gaugeStub_(r, me); if (!r) return; }
-      r.mailQueued = /^Not sent/.test(String(mailNotes[i] || '')); // the sheet column decides, not an old copy in the JSON records.push(r);
+      // The sheet column decides whether the email is still waiting, not an old copy in the JSON.
+      r.mailQueued = /^Not sent/.test(String(mailNotes[i] || ''));
+      records.push(r);
     } catch (err) {}
   });
   return reply_({ ok: true, records: records, deleted: deletedIds_(), now: Date.now(), partial: !!since, config: config_() });
