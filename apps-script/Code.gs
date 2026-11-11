@@ -381,9 +381,9 @@ function mailShell_(accent, kicker, title, inner, footer) {
   return '<div dir="ltr" style="margin:0;padding:0;background:' + c.bg + '">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.bg + '" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.card + '" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
-    '<tr><td bgcolor="' + c.navy + '" style="background:' + c.navy + ';padding:18px 24px;color:#ffffff">' +
-      '<div style="font-size:12px;letter-spacing:.5px;color:#c7d2fe"><span style="color:#c7d2fe"><font color="#c7d2fe">' + kicker + '</font></span></div>' +
-      '<div style="font-size:20px;font-weight:bold;margin-top:2px;color:#ffffff"><span style="color:#ffffff"><font color="#ffffff">' + title + '</font></span></div></td></tr>' +
+    '<tr><td bgcolor="' + c.navy + '" style="background:' + c.navy + ';padding:18px 24px;color:#ffffff !important">' +
+      '<div style="font-size:12px;letter-spacing:.5px;color:#ffffff !important"><span style="color:#ffffff !important"><font color="#ffffff">' + kicker + '</font></span></div>' +
+      '<div style="font-size:20px;font-weight:bold;margin-top:2px;color:#ffffff !important"><span style="color:#ffffff !important"><font color="#ffffff">' + title + '</font></span></div></td></tr>' +
     '<tr><td bgcolor="' + accent + '" style="height:5px;background:' + accent + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
     '<tr><td style="padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
     '<tr><td bgcolor="' + c.grayBg + '" style="background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +

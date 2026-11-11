@@ -1534,12 +1534,11 @@
         const m = (el.getAttribute("style") || "").match(/background\s*:\s*(#[0-9a-fA-F]{3,6})\b/);
         if (m && !el.getAttribute("bgcolor")) el.setAttribute("bgcolor", m[1]);
       });
-      doc.querySelectorAll("td[style*='#1e3a6e']").forEach((td) => {
-        td.style.color = "#ffffff";
-        td.querySelectorAll("div").forEach((d, i) => {
-          const col = i === 0 ? "#c7d2fe" : "#ffffff";
-          d.style.color = col;
-          if (!d.querySelector("font")) d.innerHTML = '<span style="color:' + col + '"><font color="' + col + '">' + d.innerHTML + "</font></span>";
+      doc.querySelectorAll("td[style*='#1e3a6e'],td[style*='30, 58, 110']").forEach((td) => {
+        td.setAttribute("style", (td.getAttribute("style") || "") + ";color:#ffffff !important");
+        td.querySelectorAll("div").forEach((d) => {
+          d.setAttribute("style", (d.getAttribute("style") || "") + ";color:#ffffff !important");
+          if (!d.querySelector("font")) d.innerHTML = '<span style="color:#ffffff !important"><font color="#ffffff">' + d.innerHTML + "</font></span>";
         });
       });
       doc.querySelectorAll("div[style*='border-radius:999px']").forEach((d) => {
