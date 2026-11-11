@@ -670,6 +670,14 @@ function saveCoaching_(id, c, me) {
 
 // Coaching session summary to the agent (points coached, what was agreed), sent after the coach saves the session.
 function sendCoaching_(id) {
+  const m = coachingMailFor_(id);
+  if (!m.ok) return m;
+  try { MailApp.sendEmail(m.mail); } catch (err) { return { ok: false, error: String(err).slice(0, 200) }; }
+  return { ok: true };
+}
+
+// Coaching session summary in the same design as the result email (sent automatically or pasted into Outlook by hand).
+function coachingMailFor_(id) {
   const sh = sheet_();
   const at = findRow_(sh, id);
   if (at === -1) return { ok: false, error: 'Not found' };
@@ -677,25 +685,39 @@ function sendCoaching_(id) {
   try { r = JSON.parse(sh.getRange(at, JSON_COL).getValue()); } catch (err) { return { ok: false, error: 'Bad record' }; }
   if (!r.coachedAt) return { ok: false, error: 'Not coached yet' };
   const ro = readRoster_();
+  aliasFix_(r, ro);
   const to = ro.emails[r.agent];
   if (!to) return { ok: false, error: 'No email for ' + r.agent + ' in the Names list' };
-  const coachEmail = ro.evalEmails[r.coachedBy] || ro.evalEmails[r.evaluator] || '';
+  const c = MAIL_;
+  const coach = r.coachedBy || r.evaluator || '';
+  const coachEmail = ro.evalEmails[coach] || ro.evalEmails[r.evaluator] || '';
   const tz = Session.getScriptTimeZone();
   const when = Utilities.formatDate(new Date(r.coachedAt), tz, 'yyyy-MM-dd HH:mm');
   const pts = (r.items || []).filter(function (i) { return (r.coachPoints || []).indexOf((i.kind === 'NC' ? 'N' : '') + i.id) !== -1; });
-  let html = '<div dir="ltr" style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6">' +
-    '<div style="background:#e8f0fe;border:1px solid #b6d4fe;border-left:5px solid #1a73e8;color:#084298;padding:12px 16px;border-radius:8px;margin-bottom:14px"><b>📝 Coaching session summary</b></div>' +
-    '<p>Hi ' + esc_(r.agent) + ',</p><p>Here is a summary of our coaching session on <b dir="ltr">' + when + '</b> about evaluation <b dir="ltr">' + esc_(evalId_(r)) + '</b> (' + esc_(String(r.interactionDate || '').replace('T', ' ')) + ').</p>';
-  if (pts.length) html += '<p><b>What we worked on:</b></p><ul>' + pts.map(function (i) { return '<li dir="auto">' + esc_(i.text) + (i.comment ? ' – <i>' + enHtml_(i.comment) + '</i>' : '') + '</li>'; }).join('') + '</ul>';
-  if (r.coachNote) html += '<p><b>What we agreed:</b><br>' + enHtml_(r.coachNote) + '</p>';
-  html += '<p>We will listen to your first call after this session to make sure these points are in place.</p><p>' + esc_(r.coachedBy || r.evaluator || '') + ' – Quality Team</p></div>';
-  const mail = { to: to, subject: '📝 Coaching session summary – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html,
-    name: fromName_(r.coachedBy || r.evaluator, String(config_().senderName || 'Quality Team').trim() || 'Quality Team') };
+  let inner = '<div>Hi <b>' + esc_(r.agent) + '</b>,</div>' +
+    '<div>Here is a summary of our coaching session on <b dir="ltr">' + when + '</b> about evaluation <b dir="ltr">' + esc_(evalId_(r)) + '</b>' +
+    (r.interactionDate ? ' (call on <span dir="ltr">' + esc_(String(r.interactionDate).replace('T', ' ')) + '</span>)' : '') + '.</div>';
+  if (pts.length) inner += mailSection_('What we worked on', pts.map(function (i) {
+    return mailNote_(c.blueBg, c.blue, c.blue, '', esc_(i.text) + (i.comment ? '<div style="color:' + c.soft + ';font-size:13px;margin-top:2px">' + enHtml_(i.comment) + '</div>' : ''));
+  }).join(''));
+  if (r.coachNote) inner += mailSection_('What we agreed', mailNote_(c.greenBg, c.green, c.green, '', enHtml_(r.coachNote)));
+  inner += mailNote_(c.amberBg, c.amber, c.amber, '🎧 Next step', 'We will listen to your first call after this session to make sure these points are in place.');
+  const team = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
+  const footer = 'If you have any question, reply to this email or talk to <b>' + esc_(coach || 'the Quality team') + '</b>.<br>' +
+    '<span dir="ltr">' + esc_(evalId_(r)) + '</span> · ' + esc_(team) + ' · Tres Jolie';
+  const html = mailShell_(c.blue, 'Coaching session', '📝 Coaching summary · ' + esc_(r.agent), inner, footer);
+  const mail = { to: to, subject: '📝 Coaching session summary – ' + when.slice(0, 10) + ' [' + evalId_(r) + ']', htmlBody: html, name: fromName_(coach, team) };
   const cc = [coachEmail].concat(resultCcList_()).filter(function (x, i, a) { return /@/.test(x) && a.indexOf(x) === i && x !== to; });
   if (coachEmail) mail.replyTo = coachEmail;
   if (cc.length) mail.cc = cc.join(',');
-  try { MailApp.sendEmail(mail); } catch (err) { return { ok: false, error: String(err).slice(0, 200) }; }
-  return { ok: true };
+  return { ok: true, mail: mail, coachEmail: coachEmail };
+}
+function coachingMailHand_(id, me) {
+  const m = coachingMailFor_(id);
+  if (!m.ok) return m;
+  const mine = String(me && me.email || '').toLowerCase();
+  const cc = String(m.mail.cc || '').split(',').filter(function (x) { return x && x.toLowerCase() !== mine && x !== m.coachEmail; });
+  return { ok: true, to: m.mail.to, cc: cc.join(','), subject: m.mail.subject, html: m.mail.htmlBody };
 }
 
 function row_(r, savedAt) {
@@ -1086,6 +1108,7 @@ function doPost(e) {
       return reply_(updateRecord_(body.record));
     }
     if (body.action === 'resultMail') return reply_(resultMailFor_(body.id, me));
+    if (body.action === 'coachingMail') return reply_(coachingMailHand_(body.id, me));
     if (body.action === 'sendCoaching') {
       return reply_(sendCoaching_(body.id));
     }
