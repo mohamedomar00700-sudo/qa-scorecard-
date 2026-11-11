@@ -1238,11 +1238,11 @@ function doGet(e) {
   if (p.action === 'roster') {
     const ro = readRoster_();
     return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive, aliases: ro.aliases,
-      config: config_(), me: { name: me.name, email: me.email, owner: !!me.owner } });
+      config: config_(), build: SCRIPT_BUILD, me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
   const n = sh.getLastRow() - 1;
-  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_(), now: Date.now() });
+  if (n < 1) return reply_({ ok: true, records: [], deleted: deletedIds_(), now: Date.now(), config: config_(), build: SCRIPT_BUILD });
   const json = sh.getRange(2, JSON_COL, n, 1).getValues().flat();
   // With ?since=<ms>, send only evaluations saved or corrected since then (the page asks for this every minute).
   const since = Number(p.since) || 0;

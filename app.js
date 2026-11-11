@@ -201,7 +201,7 @@
       const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {}, aliases: j.aliases || roster.aliases || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       // The page and the Apps Script must be from the same update; an older script silently breaks emails and counts.
-      if ((j.build || "") < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
+      if (j.build && j.build < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
       if (j.me && signedIn() && (j.me.name !== settings.who || !!j.me.owner !== !!settings.owner)) {
         settings.who = j.me.name; settings.owner = !!j.me.owner; settings.evaluator = j.me.name; store(LS_SETTINGS, settings);
       }
@@ -1390,7 +1390,7 @@
       if (full || !j.partial) loadFromSheet.lastFull = Date.now();
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       // The page and the Apps Script must be from the same update; an older script silently breaks emails and counts.
-      if ((j.build || "") < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
+      if ((j.build || (j.records && j.records.length ? "" : NEED_BUILD)) < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
       forgetDeleted(j.deleted); addRecords(j.records); sheetLoaded = true; lastSheetLoad = Date.now();
       say(t("loaded_n", { n: j.partial ? loaded.size : j.records.length, t: new Date().toLocaleTimeString() }));
       refreshViews();
