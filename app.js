@@ -1334,14 +1334,19 @@
   // Gauge R&R evaluations live apart from everything else (never in records, reports, targets or the dashboard).
   // For an evaluator in an open study the sheet only sends bare markers (hidden: true), with no scores.
   const gaugeRecs = new Map();
-  function addRecords(list) {
+  function addRecords(list, fromLocal) {
     for (const r of list || []) {
       if (!r || !r.id || !r.form || !F.forms[r.form] || !Array.isArray(r.items) || deleted.has(r.id)) continue;
       if (r.purpose === "gauge") { gaugeRecs.set(r.id, r); continue; }
       const al = roster.aliases || {};
       for (const f of ["agent", "evaluator"]) { const to = r[f] && al[nameKey(r[f])]; if (to) r[f] = to; }
       const had = loaded.get(r.id);
-      if (!had || stamp(r) >= stamp(had)) loaded.set(r.id, r);
+      if (!had) { loaded.set(r.id, r); continue; }
+      if (fromLocal ? stamp(r) > stamp(had) : stamp(r) >= stamp(had)) {
+        if (fromLocal && had.mailQueued !== undefined) r.mailQueued = had.mailQueued;
+        if (fromLocal && had.mailAutoSent !== undefined) r.mailAutoSent = had.mailAutoSent;
+        loaded.set(r.id, r);
+      }
     }
   }
   function forgetDeleted(ids) {
@@ -1349,7 +1354,7 @@
     store(LS_DELETED, [...deleted]);
     store(LS_EVALS, (store(LS_EVALS) || []).filter((r) => !deleted.has(r.id)));
   }
-  function allRecords() { addRecords(store(LS_EVALS) || []); return Array.from(loaded.values()); }
+  function allRecords() { addRecords(store(LS_EVALS) || [], true); return Array.from(loaded.values()); }
 
   function setupLoaders() {
     $$("[data-loader]").forEach((box) => {
@@ -1515,41 +1520,73 @@
   const mailButtons = (make, to, label) => [
     h("button", { type: "button", class: "ghost", text: t(label), onclick: () => { const m = make(); composeMail(to(), m.subject, m.body); } }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: (e) => copyMail(make(), e.currentTarget) })];
-  function openOutlook(r) {
-    if (connected()) return openDesigned(r);
+  function openOutlook(r, btn) {
+    if (connected()) return openDesigned(r, null, btn);
     const { subject, body } = mailText(r);
     composeMail((roster.emails || {})[r.agent] || "", subject, body, resultCc().join(","));
-    markMailed(r);
+  }
+  function copyHtmlDom(html) {
+    const box = h("div", { contenteditable: "true", style: "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;background:#fff;color:#000" });
+    box.innerHTML = html;
+    document.body.append(box);
+    const sel = window.getSelection(), rng = document.createRange();
+    rng.selectNodeContents(box);
+    sel.removeAllRanges();
+    sel.addRange(rng);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    sel.removeAllRanges();
+    box.remove();
+    return ok;
   }
   // The same designed email the system sends automatically: the script builds it, the page copies it (with its design)
   // and opens a new Outlook email with To, CC and Subject filled in; the evaluator pastes it (Ctrl+V) and presses Send.
-  // If the script is older or the browser can't copy formatted text, it falls back to the plain ready email.
   async function copyDesigned(r, action) {
     const p = apiPostJson({ action: action || "resultMail", id: r.id }).then((j) => { if (!j.ok || !j.html) throw new Error(j.error || "no html"); return j; });
     const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.innerText || d.textContent || ""; };
+    let clipOk = false;
     try {
-      if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) throw new Error("no clipboard");
-      await navigator.clipboard.write([new ClipboardItem({
-        "text/html": p.then((j) => new Blob([j.html], { type: "text/html" })),
-        "text/plain": p.then((j) => new Blob([plain(j.html)], { type: "text/plain" })) })]);
-      return await p;
-    } catch (e) { p.catch(() => {}); return null; }
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/html": p.then((j) => new Blob([j.html], { type: "text/html" })),
+          "text/plain": p.then((j) => new Blob([plain(j.html)], { type: "text/plain" })) })]);
+        clipOk = true;
+      }
+    } catch (e) { clipOk = false; }
+    try {
+      const j = await p;
+      if (!clipOk) {
+        try {
+          if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+            await navigator.clipboard.write([new ClipboardItem({
+              "text/html": new Blob([j.html], { type: "text/html" }),
+              "text/plain": new Blob([plain(j.html)], { type: "text/plain" }) })]);
+            clipOk = true;
+          }
+        } catch (e2) {}
+      }
+      if (copyHtmlDom(j.html)) clipOk = true;
+      return clipOk ? j : null;
+    } catch (e) { return null; }
   }
   // One look for every email: if the designed email can't be fetched, say so instead of opening a plain-text one.
-  async function openDesigned(r, action) {
+  async function openDesigned(r, action, btn) {
+    const was = btn && btn.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
     const j = await copyDesigned(r, action);
+    if (btn) { btn.disabled = false; btn.textContent = j ? t("copied") : was; if (j) setTimeout(() => (btn.textContent = was), 2500); }
     if (!j) { toast("err", t("mail_design_failed")); return false; }
+    toast("ok info", t("mail_paste", { n: r.agent || "" }));
     const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+    await new Promise((ok) => setTimeout(ok, 120));
     if (mailMode() === "outlookweb") window.open("https://outlook.office.com/mail/deeplink/compose?" + q({ to: j.to, cc: j.cc, subject: j.subject }), "_blank");
     else location.href = "mailto:" + encodeURIComponent(j.to || "").replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q({ cc: j.cc, subject: j.subject });
-    toast("ok info", t("mail_paste", { n: r.agent || "" }));
-    if (!action) markMailed(r);
     return true;
   }
   // Result emails sent from the evaluator's own Outlook: the tool can't see the Send press, so opening the ready
   // email (or "Sent") marks the evaluation as emailed. Records still waiting are flagged so none is forgotten.
-  const autoMailed = (r) => mailable(r) && (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent] && !r.mailQueued;
-  const mailPending = (r) => mailable(r) && !!r.mailMode && r.mailMode !== "auto" && !r.mailedAt;
+  const autoMailed = (r) => mailable(r) && (r.mailAutoSent !== undefined ? !!r.mailAutoSent : (!r.mailMode || r.mailMode === "auto") && !!(roster.emails || {})[r.agent] && !r.mailQueued && !teamManual());
+  const mailPending = (r) => mailable(r) && !autoMailed(r) && (!!r.mailMode && r.mailMode !== "auto" || teamManual() || r.mailAutoSent === false) && !r.mailedAt;
   // Not yet with the agent: to be sent from Outlook, or the automatic email is waiting on Gmail's daily limit.
   const mailUnsent = (r) => mailPending(r) || (mailable(r) && !!r.mailQueued && !r.mailedAt);
   async function markMailed(r) {
@@ -1667,7 +1704,7 @@
     return h("div", { class: "meta " + (over ? "bad-txt" : "warn"), text: over ? t("coach_overdue_tag", { h: sla }) : t("coach_pending_tag") });
   }
   const outlookButton = (r, small) => h("span", { class: "mail-btns" },
-    h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: () => openOutlook(r) }),
+    h("button", { type: "button", class: small ? "ghost" : "", text: t(small ? "mail_btn_short" : "mail_btn"), onclick: (e) => openOutlook(r, e.currentTarget) }),
     h("button", { type: "button", class: "ghost", text: t("copy_mail"), onclick: async (e) => {
       const btn = e.currentTarget;
       if (connected()) {
@@ -1732,8 +1769,9 @@
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, ["", "c_when", "c_agent", "evaluator", "f_form", "h_type", "c_purpose", "c_ref", "final"].map((k) => h("th", { text: k ? t(k) : "" }))));
     recs.slice(0, 300).forEach((r) => tbl.append(h("tr", {},
       h("td", { class: "actions" }, canChange(r) ? h("button", { type: "button", text: t("open_edit"), onclick: () => openRecord(r) }) : null, h("details", { class: "row-more" }, h("summary", { title: tl("أكتر", "More"), text: "⋯" }), h("div", { class: "row-more-menu" },
-        // Sent automatically by the system (the designed email): no Outlook button, so the agent doesn't get it twice.
-        mailable(r) ? (autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : outlookButton(r, true)) : null,
+        // Always show Email & Copy email buttons so any evaluation can be sent or re-copied from Outlook.
+        mailable(r) ? outlookButton(r, true) : null,
+        mailable(r) && autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : null,
         mailable(r) && r.mailQueued && !r.mailedAt ? h("span", { class: "meta warn", title: t("mail_queued_tip"), text: "⏳ " + t("mail_queued") }) : null,
         mailUnsent(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
         !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,

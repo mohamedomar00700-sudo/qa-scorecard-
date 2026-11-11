@@ -1249,7 +1249,7 @@ function doGet(e) {
   const savedAt = since ? sh.getRange(2, 1, n, 1).getValues().flat() : [];
   const editCol = COLUMNS.indexOf('Edited at') + 1;
   const editedAt = since && sh.getLastColumn() >= editCol ? sh.getRange(2, editCol, n, 1).getValues().flat() : [];
-  const records = [], ro = readRoster_(), gClosed = gaugeClosed_();
+  const records = [], ro = readRoster_(), gClosed = gaugeClosed_(), manualTeam = config_().mailSend === 'manual';
   const mailNotes = sh.getLastColumn() >= COLUMNS.length ? sh.getRange(2, COLUMNS.length, n, 1).getValues().flat() : [];
   json.forEach(function (s, i) {
     if (since) {
@@ -1259,8 +1259,11 @@ function doGet(e) {
     try {
       let r = JSON.parse(s); aliasFix_(r, ro); qualityLevel_(r, ro);
       if (r.purpose === 'gauge' && !me.owner && gClosed.indexOf(String(r.sampleRef)) === -1) { r = gaugeStub_(r, me); if (!r) return; }
-      // The sheet column decides whether the email is still waiting, not an old copy in the JSON.
-      r.mailQueued = /^Not sent/.test(String(mailNotes[i] || ''));
+      const note = String(mailNotes[i] || '').trim();
+      // The sheet column decides whether the email was actually sent or is still waiting, not an old copy in the JSON.
+      r.mailQueued = /^Not sent/.test(note);
+      r.mailAutoSent = /→/.test(note);
+      if (manualTeam && !r.mailAutoSent && (!r.mailMode || r.mailMode === 'auto')) r.mailMode = 'outlook';
       records.push(r);
     } catch (err) {}
   });
