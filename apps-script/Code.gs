@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-11.2';
+const SCRIPT_BUILD = '2026-11-13.1';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -376,26 +376,26 @@ const MAIL_ = { navy: '#1e3a6e', ink: '#1f2937', soft: '#6b7280', line: '#e5e7eb
   blue: '#1d4ed8', blueBg: '#eff6ff', gray: '#475569', grayBg: '#f1f5f9' };
 const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
 
+// Built to survive being pasted into Outlook (manual sending): one fixed-width table aligned left, colours as both
+// bgcolor attributes and inline styles, every cell aligned explicitly, no wrapper that centers its content.
 function mailShell_(accent, kicker, title, inner, footer) {
-  const c = MAIL_;
-  return '<div dir="ltr" style="margin:0;padding:0;background:' + c.bg + '">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.bg + '" style="background:' + c.bg + ';font-family:' + MAIL_FONT_ + '"><tr><td align="center" style="padding:22px 10px">' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c.card + '" style="max-width:640px;background:' + c.card + ';border-radius:14px;overflow:hidden;border:1px solid ' + c.line + '">' +
-    '<tr><td bgcolor="' + c.navy + '" style="background:' + c.navy + ';padding:18px 24px;color:#ffffff !important">' +
-      '<div style="font-size:12px;letter-spacing:.5px;color:#ffffff !important"><span style="color:#ffffff !important"><font color="#ffffff">' + kicker + '</font></span></div>' +
-      '<div style="font-size:20px;font-weight:bold;margin-top:2px;color:#ffffff !important"><span style="color:#ffffff !important"><font color="#ffffff">' + title + '</font></span></div></td></tr>' +
-    '<tr><td bgcolor="' + accent + '" style="height:5px;background:' + accent + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
-    '<tr><td style="padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
-    '<tr><td bgcolor="' + c.grayBg + '" style="background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
-    '</table></td></tr></table></div>';
+  const c = MAIL_, L = 'align="left" valign="top"', F = 'font-family:' + MAIL_FONT_ + ';text-align:left;';
+  return '<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" align="left" bgcolor="' + c.card + '" dir="ltr" style="width:640px;max-width:100%;background:' + c.card + ';border:1px solid ' + c.line + ';border-collapse:collapse;' + F + '">' +
+    '<tr><td ' + L + ' bgcolor="' + c.navy + '" style="' + F + 'background:' + c.navy + ';padding:18px 24px;color:#ffffff !important">' +
+      '<p style="margin:0;font-size:12px;letter-spacing:.5px;color:#ffffff !important"><font color="#ffffff">' + kicker + '</font></p>' +
+      '<p style="margin:2px 0 0;font-size:20px;font-weight:bold;color:#ffffff !important"><font color="#ffffff">' + title + '</font></p></td></tr>' +
+    '<tr><td ' + L + ' bgcolor="' + accent + '" height="5" style="height:5px;background:' + accent + ';font-size:1px;line-height:1px">&nbsp;</td></tr>' +
+    '<tr><td ' + L + ' style="' + F + 'padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
+    '<tr><td ' + L + ' bgcolor="' + c.grayBg + '" style="' + F + 'background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
+    '</table>';
 }
 
 function mailSection_(title, body) {
-  return '<div style="margin:22px 0 8px;font-size:15px;font-weight:bold;color:' + MAIL_.navy + '">' + title + '</div>' + body;
+  return '<p style="margin:22px 0 8px;font-size:15px;font-weight:bold;text-align:left;color:' + MAIL_.navy + '"><font color="' + MAIL_.navy + '">' + title + '</font></p>' + body;
 }
 
 function mailNote_(bg, border, color, title, body) {
-  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr><td style="background:' + bg + ';border-left:4px solid ' + border + ';border-radius:8px;padding:12px 14px;color:' + color + '">' +
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;border-collapse:collapse"><tr><td align="left" valign="top" bgcolor="' + bg + '" style="text-align:left;background:' + bg + ';border-left:4px solid ' + border + ';padding:12px 14px;color:' + color + '">' +
     (title ? '<div style="font-weight:bold;margin-bottom:4px">' + title + '</div>' : '') + '<div style="color:' + MAIL_.ink + '" dir="auto">' + body + '</div></td></tr></table>';
 }
 
@@ -413,22 +413,22 @@ function resultMailHtml_(r, o) {
 
   // Hero: big score, pill, short message and a score bar with the 85% pass line.
   const barW = Math.round(score * 100);
-  let inner = '<p style="margin:0 0 14px">Hi <b>' + esc_(r.agent) + '</b>,<br>' +
+  let inner = '<p style="margin:0 0 14px;text-align:left">Hi <b>' + esc_(r.agent) + '</b>,<br>' +
     (o.post ? 'This is the evaluation of your first call after coaching' + (r.followOfId ? ' on evaluation <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + ': your '
       : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
     o.form + ' on <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
-    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + look.bg + '" style="background:' + look.bg + ';border-radius:12px;border:1px solid ' + c.line + '"><tr>' +
-      '<td width="130" align="center" valign="middle" style="padding:18px 8px">' +
-        '<div style="font-size:38px;font-weight:bold;line-height:1;color:' + scoreColor + '" dir="ltr"><span style="color:' + scoreColor + ';font-size:38px;font-weight:bold"><font color="' + scoreColor + '">' + pctTxt + '</font></span></div>' +
-        '<table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:8px auto 0;border-collapse:separate"><tr><td bgcolor="' + look.accent + '" style="background:' + look.accent + ';color:#ffffff;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:bold;white-space:nowrap" dir="ltr"><span style="color:#ffffff"><font color="#ffffff">' + look.pill + '</font></span></td></tr></table></td>' +
-      '<td valign="middle" style="padding:18px 6px 18px 16px">' +
-        '<div style="font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</div>' +
-        '<div style="font-size:13px;color:' + c.soft + ';margin-top:4px">' + look.msg + '</div>' +
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;direction:ltr"><tr>' +
-          (barW > 0 ? '<td width="' + barW + '%" style="height:8px;background:' + scoreColor + ';border-radius:4px;font-size:0;line-height:0">&nbsp;</td>' : '') +
-          (barW < 100 ? '<td style="height:8px;background:#dfe3ea;border-radius:4px;font-size:0;line-height:0">&nbsp;</td>' : '') +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="' + look.bg + '" style="background:' + look.bg + ';border:1px solid ' + c.line + ';border-collapse:collapse"><tr>' +
+      '<td width="140" align="center" valign="middle" bgcolor="' + look.bg + '" style="width:140px;text-align:center;padding:18px 8px;background:' + look.bg + '">' +
+        '<p style="margin:0;text-align:center;font-size:38px;font-weight:bold;line-height:1.1;color:' + scoreColor + '" dir="ltr"><font color="' + scoreColor + '">' + pctTxt + '</font></p>' +
+        '<p style="margin:8px 0 0;text-align:center;line-height:1.4" dir="ltr"><span style="background:' + look.accent + ';color:#ffffff;padding:3px 12px;font-size:12px;font-weight:bold;white-space:nowrap;mso-highlight:' + look.accent + '"><font color="#ffffff">&nbsp;' + look.pill + '&nbsp;</font></span></p></td>' +
+      '<td align="left" valign="middle" bgcolor="' + look.bg + '" style="text-align:left;padding:18px 16px 18px 8px;background:' + look.bg + '">' +
+        '<p style="margin:0;text-align:left;font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</p>' +
+        '<p style="margin:4px 0 0;text-align:left;font-size:13px;color:' + c.soft + '">' + look.msg + '</p>' +
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;direction:ltr;border-collapse:collapse"><tr>' +
+          (barW > 0 ? '<td width="' + barW + '%" height="8" bgcolor="' + scoreColor + '" style="height:8px;background:' + scoreColor + ';font-size:1px;line-height:1px">&nbsp;</td>' : '') +
+          (barW < 100 ? '<td height="8" bgcolor="#dfe3ea" style="height:8px;background:#dfe3ea;font-size:1px;line-height:1px">&nbsp;</td>' : '') +
         '</tr></table>' +
-        '<div style="font-size:11px;color:' + c.soft + ';margin-top:4px;direction:ltr;text-align:left">0% · pass 85% · 100%</div>' +
+        '<p style="margin:4px 0 0;font-size:11px;color:' + c.soft + ';direction:ltr;text-align:left">0% · pass 85% · 100%</p>' +
       '</td></tr></table>';
 
   // Category tiles: Part A (NC) and the three critical buckets.
@@ -439,12 +439,13 @@ function resultMailHtml_(r, o) {
     const errs = list.filter(function (i) { return i.result === 'Error'; }).length;
     tiles.push([b[1], b[0], list.length ? (errs ? '✗ ' + errs : '✓') : '–', list.length ? (errs ? (errs === 1 ? 'critical error' : 'critical errors') : 'no errors') : 'not applicable', list.length ? !errs : null]);
   });
-  inner += mailSection_('Score by category', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' + tiles.map(function (t, k) {
+  inner += mailSection_('Score by category', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>' + tiles.map(function (t, k) {
     const col = t[4] === null ? c.ink : t[4] ? c.green : c.red;
-    return '<td width="25%" valign="top" style="padding:' + (k ? '0 0 0 6px' : '0') + '"><div style="border:1px solid ' + c.line + ';border-radius:10px;padding:10px 6px;text-align:center">' +
-      '<div style="font-size:11px;color:' + c.soft + '">' + t[0] + ' <span dir="ltr">(' + t[1] + ')</span></div>' +
-      '<div style="font-size:20px;font-weight:bold;color:' + col + ';margin:2px 0" dir="ltr">' + t[2] + '</div>' +
-      '<div style="font-size:11px;color:' + c.soft + '">' + t[3] + '</div></div></td>';
+    return (k ? '<td width="8" style="width:8px;font-size:1px">&nbsp;</td>' : '') +
+      '<td width="25%" align="center" valign="top" style="text-align:center;border:1px solid ' + c.line + ';padding:10px 6px">' +
+      '<p style="margin:0;text-align:center;font-size:11px;color:' + c.soft + '">' + t[0] + ' <span dir="ltr">(' + t[1] + ')</span></p>' +
+      '<p style="margin:2px 0;text-align:center;font-size:20px;font-weight:bold;color:' + col + '" dir="ltr"><font color="' + col + '">' + t[2] + '</font></p>' +
+      '<p style="margin:0;text-align:center;font-size:11px;color:' + c.soft + '">' + t[3] + '</p></td>';
   }).join('') + '</tr></table>');
 
   // What needs fixing: critical errors first, each with the evaluator's comment.
@@ -452,7 +453,7 @@ function resultMailHtml_(r, o) {
     .sort(function (a, b) { return (b.result === 'Error') - (a.result === 'Error'); });
   if (missed.length) inner += mailSection_('Items to work on (' + missed.length + ')', missed.map(function (i) {
     const crit = i.result === 'Error';
-    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0"><tr><td style="border:1px solid ' + c.line + ';border-left:4px solid ' + (crit ? c.red : c.amber) + ';border-radius:8px;padding:10px 12px">' +
+    return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0;border-collapse:collapse"><tr><td align="left" valign="top" style="text-align:left;border:1px solid ' + c.line + ';border-left:4px solid ' + (crit ? c.red : c.amber) + ';padding:10px 12px">' +
       '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'Critical error · ' + esc_(i.kind) : 'Non-critical') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
       '<div dir="auto" style="color:' + c.ink + '">' + esc_(i.text) + '</div>' +
       (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + enHtml_(i.comment) + '</div>' : '') + '</td></tr></table>';
@@ -482,10 +483,10 @@ function resultMailHtml_(r, o) {
     o.isWow ? ['Call tag', '🌟 Wow call'] : o.isGood ? ['Call tag', '👍 Very good call'] : null,
     ['Evaluator', esc_(r.evaluator)]
   ].filter(Boolean);
-  inner += mailSection_(o.form === 'WhatsApp chat' ? 'Chat details' : 'Call details', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ' + c.line + ';border-radius:10px;border-collapse:separate">' +
+  inner += mailSection_(o.form === 'WhatsApp chat' ? 'Chat details' : 'Call details', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ' + c.line + ';border-collapse:collapse">' +
     det.map(function (d, k) {
-      return '<tr><td width="40%" style="padding:8px 12px;color:' + c.soft + ';font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[0] + '</td>' +
-        '<td style="padding:8px 12px;font-weight:bold;font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[1] + '</td></tr>';
+      return '<tr><td width="40%" align="left" valign="top" style="text-align:left;padding:8px 12px;color:' + c.soft + ';font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[0] + '</td>' +
+        '<td align="left" valign="top" style="text-align:left;padding:8px 12px;font-weight:bold;font-size:13px' + (k ? ';border-top:1px solid ' + c.line : '') + '">' + d[1] + '</td></tr>';
     }).join('') + '</table>');
 
   const footer = 'If you have any question about this evaluation, reply to this email or talk to <b>' + esc_(r.evaluator || 'the Quality team') + '</b>.<br>' +
