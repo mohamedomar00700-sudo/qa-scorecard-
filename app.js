@@ -1382,7 +1382,7 @@
       renderDupWarn();
     }, 800);
   }
-  const NEED_BUILD = "2026-11-15.2";
+  const NEED_BUILD = "2026-11-15.3";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
@@ -1453,12 +1453,14 @@
     const cert = purposeOf(r) === "certcall";
     const pass = r.result === "Pass", isWow = r.callTag === "wow", isGood = r.callTag === "good";
     const subjPrefix = (isWow ? mx("🌟🏆 WOW CALL! – ", "🌟🏆 WOW CALL! – ") : isGood ? mx("👍 مكالمة مميزة – ", "👍 Good Call – ") : "") +
-      (coaching ? mx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "program" ? mx("📊 عينة البرنامج (غير محسوبة) – ", "📊 Program sample (not counted) – ") : purposeOf(r) === "postcoach" ? mx("كوتشينج كول – ", "Coaching call – ") : cert ? mx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : mx("تقييم الجودة – ", "Quality evaluation – "));
+      (coaching ? mx("💡 إكسترا تارجت – ", "💡 Extra target – ") : purposeOf(r) === "program" && notCounted(r) ? mx("📊 عينة البرنامج (غير محسوبة) – ", "📊 Program sample (not counted) – ") : notCounted(r) ? mx("📋 تقييم الليدر (غير محسوب) – ", "📋 Team leader evaluation (not counted) – ") : purposeOf(r) === "postcoach" ? mx("كوتشينج كول – ", "Coaching call – ") : cert ? mx("تقييم السرتيفيكيشن – ", "Certification evaluation – ") : mx("تقييم الجودة – ", "Quality evaluation – "));
     const statusTag = coaching ? "" : (isWow ? " – 🌟 Passed (" + pct(r.final) + ")" : pass ? " – ✅ Passed (" + pct(r.final) + ")" : " – ⚠️ Failed (" + pct(r.final) + ")");
     const subject = subjPrefix + form + " – " + when.slice(0, 10) + statusTag + " [" + evalIdOf(r) + "]";
     const topBanner = isWow
       ? mx("🌟🏆 WOW CALL! Outstanding Performance — مكالمة استثنائية! (" + pct(r.final) + ")\n🎉 Congratulations! المكالمة دي مش بس عدّت بنجاح، دي اتختارت كـ \"مكالمة Wow\" ومثال مميز يُحتذى به في مكتبة التدريب الخاصة بالفريق. فخورين جداً بأدائك الاحترافي! 👏", "🌟🏆 WOW CALL! Outstanding Performance (" + pct(r.final) + ")\n🎉 Congratulations! This call was selected as a standout \"Wow Call\" for the team's training library. Proud of your great work! 👏")
-      : purposeOf(r) === "program"
+      : notCounted(r) && purposeOf(r) === "live"
+        ? mx("📋 تقييم الليدر: مش محسوب في تقييمك، وده للكوتشينج والمتابعة (" + pct(r.final) + ").", "📋 Team leader evaluation: not counted in your score; it is for coaching and follow-up (" + pct(r.final) + ").")
+      : notCounted(r)
         ? mx("📊 عينة جودة البرنامج (Program level): مش محسوبة في تقييمك. المكالمة اتسمعت ضمن عينة الكواليتي للأكاونت، والنتيجة للمعلومة والتعلّم بس (" + pct(r.final) + ").", "📊 Program quality sample (Program level): not counted in your score. Your call was heard in Quality's account sample; the result is for your information and learning (" + pct(r.final) + ").")
       : coaching
         ? mx("💡 إكسترا تارجت (غير محسوب في السكور)", "💡 Extra target (not counted in your score)")
@@ -1468,7 +1470,7 @@
             ? mx("🎉 Congratulations! مبروك، عدّيت التقييم بنجاح (PASSED – " + pct(r.final) + ") — أداء كويس والتزام بمعايير الجودة، كمّل على نفس المستوى!", "🎉 Congratulations! You passed this evaluation (PASSED – " + pct(r.final) + ") — Good job, keep it up!")
             : mx("⚠️ التقييم لم يجتز الحد المطلوب (FAILED – " + pct(r.final) + ") — " + (r.critical ? "بسبب وجود خطأ حرج (Critical Error). راجع النقاط بالأسفل عشان تتفاداها المرة الجاية." : "السكور أقل من نسبة النجاح المطلوبة. راجع البنود اللي محتاجة تظبيط بالأسفل."), "⚠️ Evaluation did not pass (FAILED – " + pct(r.final) + ") — " + (r.critical ? "Due to a critical error. Please review the items below for next time." : "Score is below the passing threshold. Please review the items below."));
     const lines = [topBanner, "", mx("أهلاً ", "Hi ") + (r.agent || "") + mx("،", ","), "",
-      (purposeOf(r) === "postcoach" ? mx("ده تقييم الكوتشينج كول، أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? mx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : purposeOf(r) === "program" ? mx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : cert ? mx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : mx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
+      (purposeOf(r) === "postcoach" ? mx("ده تقييم الكوتشينج كول، أول مكالمة ليك بعد جلسة الكوتشينج على التقييم " + (r.followOfId || "") + "، لـ", "This is the evaluation of your first call after the coaching session on " + (r.followOfId || "") + ", the ") : coaching ? mx("ده تقييم إكسترا تارجت (مش محسوب في تقييمك) على ", "This is an extra-target evaluation (not counted in your score) of the ") : notCounted(r) && purposeOf(r) === "program" ? mx("ده تقييم من عينة جودة البرنامج (مش محسوب في تقييمك) لـ", "This is a program quality sample evaluation (not counted in your score) of your ") : notCounted(r) ? mx("ده تقييم الليدر (مش محسوب في تقييمك) لـ", "This is a team leader evaluation (not counted in your score) of your ") : cert ? mx("ده تقييم السرتيفيكيشن لـ", "This is the certification evaluation of the ") : mx("ده تقييم الجودة لـ", "This is the quality evaluation of the ")) +
         form + mx(" بتاريخ ", " on ") + when + (ref ? " (" + ref + ")" : "") + ".", "",
       mx("رقم التقييم (Evaluation ID): ", "Evaluation ID: ") + evalIdOf(r),
       ...(r.callId ? [mx("رقم المكالمة (Call ID): ", "Call ID: ") + r.callId] : []),
@@ -1758,6 +1760,13 @@
   const whenText = (r) => (r.interactionDate || r.evalDate || "").replace("T", " ");
   // The day of the call (falls back to the evaluation day for role-plays and old records).
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
+  // Which level counts on the agent (score, coaching, certification, repeated-failure ladder). Team setting (Settings):
+  // live = Agent level, program = Program level, both; calls before countFrom keep Agent level. Apps Script: countsOnAgent_.
+  const countLevel = () => (["live", "program", "both"].includes(teamCfg.countLevel) ? teamCfg.countLevel : "live");
+  const countLevelOn = (day) => (teamCfg.countFrom && day && day < teamCfg.countFrom ? "live" : countLevel());
+  const countsOnAgent = (r) => { const p = purposeOf(r); if (p !== "live" && p !== "program") return false; const lv = countLevelOn(callDay(r)); return lv === "both" || lv === p; };
+  const notCounted = (r) => ["live", "program"].includes(purposeOf(r)) && !countsOnAgent(r);
+  const levelCounts = (p) => countLevel() === "both" || countLevel() === p;
   // The evaluation type as the scorecard names it (Agent level, Program level, Extra target, ...), for reports and exports.
   const short = (x) => String(x || "").replace(/\s*\(.*\)$/, "");
   const purposeLabel = (r) => (purposeOf(r) === "calibration" && /(^|-)RECAL-/.test(r.sampleRef || "") ? t("p_recal") : t("p_" + purposeOf(r)).split(" (")[0]) + (r.test ? " (test)" : "");
@@ -1815,7 +1824,7 @@
         mailable(r) && autoMailed(r) ? h("span", { class: "meta ok-txt", title: t("mail_auto_tip"), text: "✓ " + t("mail_auto_sent") }) : null,
         mailable(r) && r.mailQueued && !r.mailedAt ? h("span", { class: "meta warn", title: t("mail_queued_tip"), text: "⏳ " + t("mail_queued") }) : null,
         mailUnsent(r) && canChange(r) ? h("button", { type: "button", class: "ghost", title: t("mail_mark_hint"), text: t("mail_mark"), onclick: () => markMailed(r) }) : null,
-        !isCoached(r) && !r.test && ["live", "certcall", "coaching", "postcoach"].includes(purposeOf(r)) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
+        !isCoached(r) && !r.test && (countsOnAgent(r) || ["certcall", "coaching", "postcoach"].includes(purposeOf(r))) && (canChange(r) || connected()) ? h("button", { type: "button", class: "ghost", text: t("coach_btn"), onclick: () => openCoaching(r) }) : null,
         r.test && canChange(r) && connected() ? h("button", { type: "button", class: "ghost", text: t("test_unmark"), onclick: (e) => unmarkTest([r], e.currentTarget) }) : null,
         canChange(r) ? h("button", { type: "button", class: "ghost", text: t("del"), onclick: () => deleteRecord(r) }) : null))),
       h("td", { dir: "ltr" }, h("div", { text: whenText(r) }), h("div", { class: "meta eval-id-tag", title: t("c_eval_id"), text: evalIdOf(r), onclick: () => { navigator.clipboard && navigator.clipboard.writeText(evalIdOf(r)); toast("ok", t("eval_id_copied", { id: evalIdOf(r) })); } })), h("td", { text: r.agent || "–" }), h("td", { text: r.evaluator || "–" }),
@@ -2769,7 +2778,7 @@
   // passes. New agents aren't counted in their first 30 days after certification (coaching and weekly monitoring still apply).
   const RF_PTS = { CC: 2, EU: 1, BC: 0.5 }, RF_NC_REPEAT = 3, RF_NC_DAYS = 60, RF_GRACE_DAYS = 30;
   function rfLadder(list, graceUntil) {
-    const evals = list.filter((r) => !r.test && purposeOf(r) === "live" && callDay(r) && (!graceUntil || callDay(r) > graceUntil)).sort((a, b) => callDay(a).localeCompare(callDay(b)));
+    const evals = list.filter((r) => !r.test && countsOnAgent(r) && callDay(r) && (!graceUntil || callDay(r) > graceUntil)).sort((a, b) => callDay(a).localeCompare(callDay(b)));
     const ncSeen = {}, ev = [];
     evals.forEach((r) => {
       let p = 0; const why = [];
@@ -2818,7 +2827,7 @@
     const box = $("#coRf"); if (!box) return;
     box.innerHTML = "";
     const all = allRecords().filter((r) => !r.test);
-    const agents = [...new Set([...(roster.agents || []), ...all.filter((r) => purposeOf(r) === "live").map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+    const agents = [...new Set([...(roster.agents || []), ...all.filter((r) => countsOnAgent(r)).map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
     const pick = ($("#coAgent") || {}).value || "";
     const rows = agents.filter((a) => !pick || a === pick).map((a) => {
       const cd = (agentCertInfo(a, all) || {}).certDate || "", grace = cd ? addDays(cd, RF_GRACE_DAYS) : "";
@@ -2829,7 +2838,7 @@
     const left = (d) => Math.max(0, Math.round((new Date(d + "T12:00:00") - new Date(td + "T12:00:00")) / 864e5));
     box.append(h("h2", { text: tl("🔁 تكرار الأخطاء الكريتيكال (Repeated failure)", "🔁 Repeated failure (critical errors)") }),
       h("p", { class: "hint", text: tl("النقاط في Agent level: كومبلاينس كريتيكال = 2، End user كريتيكال = 1، بيزنس كريتيكال = 0.5، ونفس بند النون كريتيكال لو اتكرر في 3 مكالمات مختلفة خلال 60 يوم = 1. كل نقطة كاملة بتطلّع الإيجنت مرحلة، والنص نقطة بيستنى. الموظف الجديد مش بيتحسب أول 30 يوم بعد السرتيفيكيشن. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. البروجرام ليفل مش محسوب. الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
-        "Agent level points: compliance critical 2, end user critical 1, business critical 0.5, the same non-critical item missed in 3 different calls within 60 days 1. Each full point moves the agent up a stage; half points wait. New agents aren't counted for 30 days after certification. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Program level doesn't count. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
+        "Agent level points: compliance critical 2, end user critical 1, business critical 0.5, the same non-critical item missed in 3 different calls within 60 days 1. Each full point moves the agent up a stage; half points wait. New agents aren't counted for 30 days after certification. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Only the level set in Settings counts. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
       h("div", { class: "rf-ladder" }, [0, 1, 2, 3, 4].map((st) => h("div", { class: "rf-step s" + st }, h("div", { class: "rf-step-n", text: String(counts[st]) }), h("div", { class: "rf-step-k", text: rfName(st) }), h("div", { class: "rf-step-a", text: rfAction(st) })))));
     const tb = h("table", {}, h("tr", {}, [tl("الإيجنت", "Agent"), tl("المرحلة", "Stage"), tl("المطلوب", "Next step"), tl("لازم يفضل نضيف لحد", "Clean until"), tl("آخر كريتيكال", "Last critical"), tl("السجل", "History")].map((x) => h("th", { text: x }))));
     rows.forEach((x) => {
@@ -2920,7 +2929,7 @@
   function renderCopcAlerts(boxId, recs, allLive) {
     const box = $(boxId); if (!box) return;
     box.innerHTML = "";
-    const valid = (recs || []).filter((r) => !r.test && ["live", "certcall", "postcoach"].includes(purposeOf(r)));
+    const valid = (recs || []).filter((r) => !r.test && (countsOnAgent(r) || ["certcall", "postcoach"].includes(purposeOf(r))));
     if (!valid.length) { box.hidden = true; return; }
     const sla = coachSlaHours();
     const byAgCrit = new Map();
@@ -2946,7 +2955,7 @@
       const tb = h("table", {}, h("tr", {}, [t("c_when"), t("c_agent"), t("evaluator"), t("final"), t("copc_col_coaching", { h: sla }), t("copc_col_followup")].map((x, i) => h("th", { class: i === 3 ? "num" : "", text: x }))));
       failed.slice(0, 25).forEach((r) => {
         const hrs = coachHours(r), done = isCoached(r);
-        const nextEval = (allLive || []).filter((x) => x.id !== r.id && !x.test && ["live", "certcall"].includes(purposeOf(x)) && x.agent === r.agent && callDay(x) > callDay(r))
+        const nextEval = (allLive || []).filter((x) => x.id !== r.id && !x.test && (countsOnAgent(x) || purposeOf(x) === "certcall") && x.agent === r.agent && callDay(x) > callDay(r))
           .sort((a, b) => callDay(a).localeCompare(callDay(b)))[0];
         const cCell = h("td", {},
           done ? h("span", { class: "pill " + (hrs !== null && hrs > sla ? "warn" : "good"), text: t("coach_done_tag") + (hrs !== null ? " · " + t(hrs <= sla ? "coach_within_sla" : "coach_late_sla", { h: hrs }) : "") })
@@ -3119,8 +3128,8 @@
   };
   function dbControls() {
     const saveState = () => store(LS_DB, dbState);
-    const levels = [["agent", tl("Agent level", "Agent level"), tl("تقييمات الليدرز · محسوبة على الإيجنت", "Team leaders · counted for the agent")],
-      ["program", tl("Program level", "Program level"), tl("عينة الكواليتي · جودة الأكاونت", "Quality sample · account quality")],
+    const levels = [["agent", tl("Agent level", "Agent level"), levelCounts("live") ? tl("تقييمات الليدرز · محسوبة على الإيجنت", "Team leaders · counted for the agent") : tl("تقييمات الليدرز · مش محسوبة", "Team leaders · not counted")],
+      ["program", tl("Program level", "Program level"), levelCounts("program") ? tl("عينة الكواليتي · محسوبة على الإيجنت", "Quality sample · counted for the agent") : tl("عينة الكواليتي · جودة الأكاونت", "Quality sample · account quality")],
       ["both", tl("الاتنين مع بعض", "Both together"), tl("صورة الأكاونت كلها", "The whole account")]];
     const lv = $("#dbLevels"); lv.innerHTML = "";
     levels.forEach(([k, name, sub]) => lv.append(h("button", { type: "button", role: "tab", "aria-selected": String(dbState.level === k), class: "db-level" + (dbState.level === k ? " active" : ""),
@@ -3255,8 +3264,8 @@
     // What this level means.
     const note = $("#dbLevelNote"); note.innerHTML = "";
     const notes = {
-      agent: tl("Agent level: تقييمات الليدرز (عشوائي) اللي بتتحسب في سكور الإيجنت. الموجّه والسرتيفيكيشن والكاليبريشن مش هنا.", "Agent level: team leaders' random evaluations that count in the agent's score. Targeted, certification and calibration are not here."),
-      program: tl("Program level: عينة الكواليتي العشوائية للأكاونت. بتقيس جودة البرنامج كله، ومش محسوبة على الإيجنت.", "Program level: Quality's random account sample. It measures the whole program and is not counted for the agent."),
+      agent: !levelCounts("live") ? tl("Agent level: تقييمات الليدرز (عشوائي). مش محسوبة على الإيجنت حسب الإعدادات، وبتستخدم للكوتشينج والمتابعة.", "Agent level: team leaders' random evaluations. Not counted for the agent (Settings); used for coaching and follow-up.") : tl("Agent level: تقييمات الليدرز (عشوائي) اللي بتتحسب في سكور الإيجنت. الموجّه والسرتيفيكيشن والكاليبريشن مش هنا.", "Agent level: team leaders' random evaluations that count in the agent's score. Targeted, certification and calibration are not here."),
+      program: levelCounts("program") ? tl("Program level: عينة الكواليتي العشوائية للأكاونت، ومحسوبة على الإيجنت حسب الإعدادات.", "Program level: Quality's random account sample, counted for the agent (Settings).") : tl("Program level: عينة الكواليتي العشوائية للأكاونت. بتقيس جودة البرنامج كله، ومش محسوبة على الإيجنت.", "Program level: Quality's random account sample. It measures the whole program and is not counted for the agent."),
       both: tl("الاتنين مع بعض: Agent level + Program level، عشان تشوف صورة الأكاونت كلها.", "Both: Agent level + Program level, for the whole account picture."),
     };
     note.append(h("span", { class: "db-dot " + f.level }), h("span", { text: notes[f.level] }),
@@ -4093,7 +4102,7 @@
   // Automatic 30-day New Hire & 365-day Annual Reverification tracker from PASSED Certification date.
   // An agent is only counted as certified once they PASS certification (decision === "Certified", or manual certDates override).
   function agentCertInfo(agent, allRecs, refYmd, formFilter) {
-    const recs = (allRecs || allRecords()).filter((r) => !r.test && !r.sampleRef && r.agent === agent && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random");
+    const recs = (allRecs || allRecords()).filter((r) => !r.test && !r.sampleRef && r.agent === agent && (countsOnAgent(r) || ["certcall", "roleplay"].includes(purposeOf(r))) && selectionOf(r) === "random");
     const forms = formFilter ? [formFilter] : Object.keys(F.forms);
     let autoDate = "";
     forms.forEach((f) => {
@@ -4190,8 +4199,8 @@
       box.append(h("label", {}, t(label), i));
     });
     const from = $("#ctFrom").value, to = $("#ctTo").value, mode = ($("#ctMode") && $("#ctMode").value) || "initial";
-    const allForm = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent);
-    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && ["live", "certcall", "roleplay"].includes(purposeOf(r)) && selectionOf(r) === "random" && r.agent &&
+    const allForm = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && (countsOnAgent(r) || ["certcall", "roleplay"].includes(purposeOf(r))) && selectionOf(r) === "random" && r.agent);
+    const inWin = allRecords().filter((r) => r.form === sel.value && !r.sampleRef && !r.test && (countsOnAgent(r) || ["certcall", "roleplay"].includes(purposeOf(r))) && selectionOf(r) === "random" && r.agent &&
       (!from || callDay(r) >= from) && (!to || callDay(r) <= to));
     const recs = inWin.filter((r) => !r.rolePlay), rpAll = inWin.filter((r) => r.rolePlay);
     const names = [...new Set([...inWin.map((r) => r.agent), ...roster.agents])].sort((a, b) => a.localeCompare(b));
@@ -4386,6 +4395,7 @@
     $("#setTarget").value = teamCfg.monthlyTarget;
     $("#setLeaderWeekly").value = teamCfg.leaderWeekly || 4; $("#setQualityWeekly").value = teamCfg.qualityWeekly || 40;
     if ($("#setCoachSla")) $("#setCoachSla").value = teamCfg.coachingSlaHours || 48;
+    if ($("#setCountLevel")) { $("#setCountLevel").value = countLevel(); $("#setCountFrom").value = teamCfg.countFrom || ""; }
     if ($("#setPassedSla")) $("#setPassedSla").value = teamCfg.passedSlaHours || 48;
     $("#setPickMode").value = teamCfg.pickMode === "manual" ? "manual" : "auto";
     const pmSync = () => { const auto = $("#setPickMode").value !== "manual", w = pickWindow(today()); $("#setPickFrom").disabled = $("#setPickTo").disabled = auto; if (auto) { $("#setPickFrom").value = w[0]; $("#setPickTo").value = w[1]; } else { $("#setPickFrom").value = teamCfg.pickFrom || "08:00"; $("#setPickTo").value = teamCfg.pickTo || "18:00"; } };
@@ -4429,7 +4439,7 @@
 
       const sn = $("#setSenderName").value.trim() || "Quality Team";
       const sla = Math.max(1, Math.min(720, Math.round(Number(($("#setCoachSla") || {}).value) || 48)));
-      try { const j = await apiPostJson({ action: "setConfig", config: { monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), ccMode: $("#setCcMode").value === "digest" ? "digest" : "each", mailSend: $("#setMailSend").value === "manual" ? "manual" : "auto", senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
+      try { const j = await apiPostJson({ action: "setConfig", config: { countLevel: ($("#setCountLevel") || {}).value || countLevel(), countFrom: ($("#setCountFrom") || {}).value || "", monthlyTarget: n, leaderWeekly: Math.round(Number($("#setLeaderWeekly").value) || 4), qualityWeekly: Math.round(Number($("#setQualityWeekly").value) || 40), coachingSlaHours: sla, passedSlaHours: Math.round(Number(($("#setPassedSla") || {}).value) || 48), pickMode: $("#setPickMode").value === "manual" ? "manual" : "auto", pickFrom: pf, pickTo: pt, pickDays: pd, closedDays: $("#setClosedDays").value.trim(), ccResults: cc.join(", "), ccMode: $("#setCcMode").value === "digest" ? "digest" : "each", mailSend: $("#setMailSend").value === "manual" ? "manual" : "auto", senderName: sn, callsSource: $("#setCallsSource").value.trim() } }); teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); m.className = "msg ok"; m.textContent = t("set_saved"); renderMyWork(); renderDashboard(); }
       catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
     $("#namesHint").textContent = isOwner() ? t("names_hint") : t("names_hint_ro");

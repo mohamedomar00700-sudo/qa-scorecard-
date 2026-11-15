@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.2';
+const SCRIPT_BUILD = '2026-11-15.3';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -422,16 +422,17 @@ function resultMailHtml_(r, o) {
   // Look of the result: Wow / Program (not counted) / Extra target / passed / failed.
   const look = o.isWow ? { accent: c.amber, bg: c.amberBg, pill: '🌟 WOW CALL', head: 'Outstanding call!', msg: 'This call was selected as a "Wow call" and a standout example for the training library. Proud of your great work 👏' }
     : o.prog ? { accent: c.gray, bg: c.grayBg, pill: 'NOT COUNTED', head: 'Program quality sample', msg: 'This call was heard in Quality\'s sample for the whole account. The result is for your information and learning only and does not count in your score.' }
+    : o.tlnc ? { accent: c.gray, bg: c.grayBg, pill: 'NOT COUNTED', head: 'Team leader evaluation', msg: 'This is your team leader\'s evaluation for coaching and follow-up. It does not count in your score.' }
     : o.coaching ? { accent: c.blue, bg: c.blueBg, pill: 'NOT COUNTED', head: 'Extra target', msg: 'This is an extra evaluation for learning and does not count in your score.' }
     : o.pass ? { accent: c.green, bg: c.greenBg, pill: '✓ PASSED', head: o.isGood ? 'Very good call 👍' : 'Congratulations, you passed 🎉', msg: o.isGood ? 'This call was added as a good example to the training library. Keep it up!' : 'Good performance in line with the quality standards. Keep it up!' }
     : { accent: c.red, bg: c.redBg, pill: '✗ FAILED', head: 'Needs improvement', msg: r.critical ? 'There is a critical error in this call, so the evaluation cannot pass. Please review the points below to avoid it next time.' : 'The score is below the pass mark (85%). Please review the items to work on below.' };
-  const kind = o.post ? 'Coaching call (first call after the coaching session)' : o.coaching ? 'Extra target' : o.prog ? 'Program sample' : o.cert ? 'Certification evaluation' : 'Quality evaluation';
-  const scoreColor = o.prog || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
+  const kind = o.post ? 'Coaching call (first call after the coaching session)' : o.coaching ? 'Extra target' : o.prog ? 'Program sample' : o.tlnc ? 'Team leader evaluation' : o.cert ? 'Certification evaluation' : 'Quality evaluation';
+  const scoreColor = o.prog || o.tlnc || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
 
   // Hero: big score, pill, short message and a score bar with the 85% pass line.
   let inner = '<p style="margin:0 0 14px;text-align:left">Hi <b>' + esc_(r.agent) + '</b>,<br>' +
     (o.post ? 'This is the evaluation of your first call after coaching' + (r.followOfId ? ' on evaluation <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + ': your '
-      : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
+      : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.tlnc ? 'This is a team leader evaluation (not counted in your score) of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
     o.form + ' on <span dir="ltr">' + esc_(o.when) + '</span>.</p>' +
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="' + look.bg + '" style="background:' + look.bg + ';border:1px solid ' + c.line + ';border-collapse:collapse"><tr>' +
       '<td width="140" align="center" valign="middle" bgcolor="' + look.bg + '" style="width:140px;text-align:center;padding:18px 8px;background:' + look.bg + '">' +
@@ -502,7 +503,7 @@ function resultMailHtml_(r, o) {
 
   const footer = 'If you have any question about this evaluation, reply to this email or talk to <b>' + esc_(r.evaluator || 'the Quality team') + '</b>.<br>' +
     '<span dir="ltr">' + esc_(evalId_(r)) + '</span> · ' + esc_(String(config_().senderName || 'Quality Team')) + ' · Tres Jolie';
-  return mailShell_(look.accent, esc_(kind), (o.prog || o.coaching ? '📊 ' : '📋 ') + 'Evaluation result · ' + esc_(r.agent), inner, footer);
+  return mailShell_(look.accent, esc_(kind), (o.prog || o.tlnc || o.coaching ? '📊 ' : '📋 ') + 'Evaluation result · ' + esc_(r.agent), inner, footer);
 }
 
 // Send the agent their result. Returns what goes in the 'Emailed to agent' column ('' = not sent).
@@ -524,20 +525,32 @@ function emailAgent_(r) {
 }
 function mailablePurpose_(p) { return ['live', 'certcall', 'coaching', 'postcoach', 'program'].indexOf(p) !== -1; }
 
+// Does this evaluation count on the agent? Only Agent level / Program level depend on the team setting (countLevel, countFrom).
+function countLevelOn_(day, cfg) {
+  const lv = ['live', 'program', 'both'].indexOf(cfg.countLevel) !== -1 ? cfg.countLevel : 'live';
+  return cfg.countFrom && day && day < cfg.countFrom ? 'live' : lv;
+}
+function countsOnAgent_(r, cfg) {
+  const p = r.purpose || 'live';
+  if (p !== 'live' && p !== 'program') return false;
+  const lv = countLevelOn_(String(r.interactionDate || r.evalDate || '').slice(0, 10), cfg || config_());
+  return lv === 'both' || lv === p;
+}
 // The designed result email (to, cc, subject, HTML), sent automatically or handed to the evaluator to send from Outlook.
 function resultMail_(r, ro) {
   const purpose = r.purpose || (r.rolePlay ? 'roleplay' : r.sampleRef ? 'calibration' : 'live');
   const to = ro.emails[r.agent] || '';
   const evEmail = ro.evalEmails[r.evaluator] || '';
-  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = purpose === 'program';
+  const nc = (purpose === 'live' || purpose === 'program') && !countsOnAgent_(r, config_());
+  const coaching = purpose === 'coaching', cert = purpose === 'certcall', post = purpose === 'postcoach', prog = nc && purpose === 'program', tlnc = nc && purpose === 'live';
   // Program level (Quality's account sample) is emailed too, so it's on record and the agent knows the call was heard; it says clearly it doesn't count.
   const form = r.form === 'whatsapp' ? 'WhatsApp chat' : 'call';
   const when = String(r.interactionDate || '').replace('T', ' ');
   const pass = r.result === 'Pass';
   const isWow = r.callTag === 'wow', isGood = r.callTag === 'good';
-  const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog });
+  const html = resultMailHtml_(r, { form: form, when: when, pass: pass, isWow: isWow, isGood: isGood, coaching: coaching, cert: cert, post: post, prog: prog, tlnc: tlnc });
   const senderName = String(config_().senderName || 'Quality Team').trim() || 'Quality Team';
-  const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
+  const subjPrefix = (isWow ? '🌟🏆 WOW CALL! – ' : isGood ? '👍 Good Call – ' : '') + (coaching ? '💡 Extra target – ' : prog ? '📊 Program sample (not counted) – ' : tlnc ? '📋 Team leader evaluation (not counted) – ' : post ? 'Coaching call – ' : cert ? 'Certification evaluation – ' : 'Quality evaluation – ');
   const statusTag = coaching ? '' : (isWow ? ' – 🌟 Passed (' + pct_(r.final) + ')' : pass ? ' – ✅ Passed (' + pct_(r.final) + ')' : ' – ⚠️ Failed (' + pct_(r.final) + ')');
   const mail = { to: to, subject: subjPrefix + form + ' – ' + when.slice(0, 10) + statusTag + ' [' + evalId_(r) + ']',
     htmlBody: html, name: fromName_(r.evaluator, senderName) };
@@ -1013,7 +1026,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', mailSend: 'auto', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60 }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', mailSend: 'auto', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60, countLevel: 'live', countFrom: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
@@ -1050,6 +1063,10 @@ function setConfig_(c) {
   // Weekly evaluation targets (by call date; weeks 1-7, 8-14, 15-21, 22-end): team leaders per agent, Quality in total.
   if (c.leaderWeekly !== undefined) { const lw = Number(c.leaderWeekly); if (lw >= 0 && lw <= 50) cur.leaderWeekly = Math.round(lw); }
   if (c.qualityWeekly !== undefined) { const qw = Number(c.qualityWeekly); if (qw >= 0 && qw <= 500) cur.qualityWeekly = Math.round(qw); }
+  // Which level counts on the agent (score, coaching, certification, repeated-failure ladder): live = Agent level,
+  // program = Program level, both. countFrom = first call date of the rule; calls before it keep Agent level.
+  if (['live', 'program', 'both'].indexOf(c.countLevel) !== -1) cur.countLevel = c.countLevel;
+  if (c.countFrom !== undefined) { const cf = String(c.countFrom || ''); if (!cf || /^\d{4}-\d{2}-\d{2}$/.test(cf)) cur.countFrom = cf; }
   if (c.promiseTolMin !== undefined) { const tm = Number(c.promiseTolMin); if (tm >= 5 && tm <= 720) cur.promiseTolMin = Math.round(tm); }
   if (c.callsSource !== undefined) {
     const src = String(c.callsSource || '').trim();
