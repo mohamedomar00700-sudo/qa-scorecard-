@@ -1382,7 +1382,7 @@
       renderDupWarn();
     }, 800);
   }
-  const NEED_BUILD = "2026-11-15.3";
+  const NEED_BUILD = "2026-11-15.4";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
@@ -1762,7 +1762,7 @@
   const callDay = (r) => String(r.interactionDate || r.evalDate || "").slice(0, 10);
   // Which level counts on the agent (score, coaching, certification, repeated-failure ladder). Team setting (Settings):
   // live = Agent level, program = Program level, both; calls before countFrom keep Agent level. Apps Script: countsOnAgent_.
-  const countLevel = () => (["live", "program", "both"].includes(teamCfg.countLevel) ? teamCfg.countLevel : "live");
+  const countLevel = () => (["live", "program", "both"].includes(teamCfg.countLevel) ? teamCfg.countLevel : "program");
   const countLevelOn = (day) => (teamCfg.countFrom && day && day < teamCfg.countFrom ? "live" : countLevel());
   const countsOnAgent = (r) => { const p = purposeOf(r); if (p !== "live" && p !== "program") return false; const lv = countLevelOn(callDay(r)); return lv === "both" || lv === p; };
   const notCounted = (r) => ["live", "program"].includes(purposeOf(r)) && !countsOnAgent(r);
