@@ -198,7 +198,7 @@
       const j = await apiGet({ action: "roster" });
       if (!Array.isArray(j.agents)) return;
       // An older Apps Script deployment doesn't send evaluator emails; keep the ones saved here until it does.
-      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {}, aliases: j.aliases || roster.aliases || {} };
+      const server = { agents: j.agents, evaluators: j.evaluators || [], owners: j.owners || [], quality: j.quality || roster.quality || [], ops: j.ops || roster.ops || [], emails: j.emails || {}, daysOff: j.daysOff || roster.daysOff || {}, certDates: j.certDates || roster.certDates || {}, certStatus: j.certStatus || roster.certStatus || {}, evalEmails: j.evalEmails || roster.evalEmails || {}, aliases: j.aliases || roster.aliases || {} };
       if (j.config) { teamCfg = Object.assign(teamCfg, j.config); store("qa_team_cfg", teamCfg); }
       // The page and the Apps Script must be from the same update; an older script silently breaks emails and counts.
       if (j.build && j.build < NEED_BUILD && !loadFromSheet.warned) { loadFromSheet.warned = true; toast("err", t(isOwner() ? "old_script_owner" : "old_script")); }
@@ -732,6 +732,15 @@
   // Purpose of the evaluation: a real one, a calibration sample or a certification role-play,
   // plus a "test" switch. Tests are kept apart from the dashboard and certification.
   const isQualityName = (n) => !!n && (roster.quality || []).some((q) => nameKey(q) === nameKey(n));
+  // Team leaders (each has the weekly target per agent, Mohamed 2026-11-15): Roster role "Evaluator (Operations)", plus
+  // anyone else (not Quality, not owner) who saved Agent level evaluations in the list.
+  function leaderNames(list) {
+    const own = new Set((roster.owners || []).map(nameKey)), m = new Map();
+    (roster.ops || []).forEach((n) => m.set(nameKey(n), n));
+    (list || []).forEach((r) => { const n = r.evaluator; if (n && purposeOf(r) === "live" && !isQualityName(n) && !own.has(nameKey(n)) && !m.has(nameKey(n))) m.set(nameKey(n), n); });
+    return [...m.values()].sort((a, b) => a.localeCompare(b));
+  }
+  const byLeader = (l, ld) => l.filter((r) => nameKey(r.evaluator) === nameKey(ld));
   const purposeOf = (hd) => hd.purpose || (hd.rolePlay ? "roleplay" : hd.sampleRef ? "calibration" : "live");
   const ymd = (d) => d.replace(/-/g, "");
   function sampleRefs() {
@@ -1382,7 +1391,7 @@
       renderDupWarn();
     }, 800);
   }
-  const NEED_BUILD = "2026-11-15.4";
+  const NEED_BUILD = "2026-11-15.5";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
@@ -3198,7 +3207,8 @@
     const prog = all.filter((r) => !r.test && purposeOf(r) === "program" && callDay(r).slice(0, 7) === ym);
     const agents = [...new Set([...(roster.agents || []), ...live.map((r) => r.agent).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
     const nAg = (roster.agents || []).length || agents.length;
-    const lWeek = perAgent * nAg;
+    const leaders = leaderNames(live), nL = leaders.length || 1;
+    const lWeek = perAgent * nAg * nL;
     // Week state: done / running (with the pace expected by today) / missed / not started.
     const wkState = (w, n, target) => {
       const [a, b] = mWeekRange(ym, w);
@@ -3234,26 +3244,30 @@
           const [a, b] = mWeekRange(ym, w), n = mine.filter((r) => callDay(r) >= a && callDay(r) <= b).length;
           if (!need) return h("td", { class: "num" }, h("span", { class: "pill " + (n ? "info" : a > td ? "na" : "warn"), text: a > td && !n ? "–" : String(n) }));
           const cls = n >= need ? "good" : a > td ? "na" : b < td ? "bad" : n ? "warn" : "warn";
-          const byEv = {}; mine.filter((r) => callDay(r) >= a && callDay(r) <= b).forEach((r) => { const k = String(r.evaluator || "?").split(" ")[0]; byEv[k] = (byEv[k] || 0) + 1; });
-          const who = Object.entries(byEv).map(([k, v]) => k + " " + v).join(" · ");
-          return h("td", { class: "num", title: who }, h("span", { class: "pill " + cls, text: a > td && !n ? "–" : tl("اتعمل " + n + " من " + need, n + " done of " + need) }), who ? h("div", { class: "meta", text: who }) : null);
+          // Each leader needs `need` per agent: one line per leader, the pill is green only when every leader is done.
+          const inW = mine.filter((r) => callDay(r) >= a && callDay(r) <= b);
+          const per = leaders.map((ld) => [ld, byLeader(inW, ld).length]);
+          const allDone = per.length ? per.every(([, k]) => k >= need) : n >= need;
+          const cls2 = allDone ? "good" : a > td ? "na" : b < td ? "bad" : "warn";
+          if (a > td && !n) return h("td", { class: "num" }, h("span", { class: "pill na", text: "–" }));
+          return h("td", { class: "num" }, ...per.map(([ld, k]) => h("div", { class: "tg-ld" }, h("span", { class: "pill " + (k >= need ? "good" : cls2 === "bad" ? "bad" : "warn"), text: String(ld).split(" ")[0] + " " + k + "/" + need }))));
         });
-        tb.append(h("tr", {}, h("td", { text: ag }), ...cells, h("td", { class: "num", dir: "ltr", text: need ? tl("اتعمل " + mine.length + " من " + need * 4, mine.length + " done of " + need * 4) : String(mine.length) })));
+        tb.append(h("tr", {}, h("td", { text: ag }), ...cells, h("td", { class: "num", dir: "auto" }, need ? leaders.map((ld) => h("div", { class: "meta", text: String(ld).split(" ")[0] + " " + byLeader(mine, ld).length + "/" + need * 4 })) : String(mine.length))));
       });
       return h("div", { class: "table-wrap" }, tb);
     };
     const tabs = h("div", { class: "tg-tabs" });
     const body = h("div", {});
     const legend = (k) => h("div", { class: "hint" }, k === "q" ? tl("الرقم = عدد مرات ما الإيجنت اتسمع في الـ Program level في الأسبوع ده (بتاريخ المكالمة).", "Number = how many times the agent was heard at Program level that week (by call date).")
-      : tl("\"اتعمل 5 من 4\" يعني الإيجنت اتقيّم 5 مرات Agent level في الأسبوع ده من كل الليدرز مع بعض، والتارجت " + perAgent + ". تحت الرقم مين عمل كام. الأسبوع بتاريخ المكالمة مش تاريخ التقييم، والإكسترا تارجت مش بيتحسب.",
-        "\"5 done of 4\" means the agent got 5 Agent level evaluations that week from all team leaders together; the target is " + perAgent + ". Below: who did how many. Weeks follow the call date, not the evaluation date; extra-target evaluations don't count."));
+      : tl("كل ليدر عليه " + perAgent + " تقييمات Agent level لكل إيجنت في الأسبوع. \"Mostafa 2/" + perAgent + "\" يعني مصطفى قيّم الإيجنت ده مرتين من " + perAgent + ". الأسبوع بتاريخ المكالمة مش تاريخ التقييم، والإكسترا تارجت مش بيتحسب.",
+        "Each team leader needs " + perAgent + " Agent level evaluations per agent per week. \"Mostafa 2/" + perAgent + "\" means Mostafa evaluated that agent twice out of " + perAgent + ". Weeks follow the call date, not the evaluation date; extra-target evaluations don't count."));
     const show = (k) => { store("qa_db_tg", k); [...tabs.children].forEach((b) => b.classList.toggle("active", b.dataset.k === k)); body.innerHTML = ""; body.append(legend(k), k === "q" ? grid(prog, 0) : grid(live, perAgent)); };
-    tabs.append(h("button", { type: "button", class: "chip", "data-k": "l", text: tl("الليدرز: كل إيجنت ", "Team leaders: each agent ") + perAgent + tl(" في الأسبوع", " a week"), onclick: () => show("l") }),
+    tabs.append(h("button", { type: "button", class: "chip", "data-k": "l", text: tl("الليدرز: كل ليدر " + perAgent + " لكل إيجنت في الأسبوع", "Team leaders: each leader " + perAgent + " per agent a week"), onclick: () => show("l") }),
       h("button", { type: "button", class: "chip", "data-k": "q", text: tl("الكواليتي: كل إيجنت اتسمع كام مرة", "Quality: how often each agent was heard"), onclick: () => show("q") }));
     box.append(h("div", { class: "tg-top" }, h("h2", { text: tl("التارجت الأسبوعي · ", "Weekly targets · ") + monthLabel(ym) }),
         h("span", { class: "meta", text: tl("الأسبوع بتاريخ المكالمة: 1–7 · 8–14 · 15–21 · 22–آخر الشهر", "Week = call date: 1–7 · 8–14 · 15–21 · 22–end") })),
       h("div", { class: "tg-two" },
-        block(tl("الليدرز · Agent level", "Team leaders · Agent level"), tl(perAgent + " لكل إيجنت × " + nAg + " إيجنت = " + lWeek + " في الأسبوع", perAgent + " per agent × " + nAg + " agents = " + lWeek + " a week"), live, lWeek, lWeek * 4, "c1"),
+        block(tl("الليدرز · Agent level", "Team leaders · Agent level"), tl(perAgent + " لكل إيجنت × " + nAg + " إيجنت × " + nL + " ليدر = " + lWeek + " في الأسبوع", perAgent + " per agent × " + nAg + " agents × " + nL + " leaders = " + lWeek + " a week"), live, lWeek, lWeek * 4, "c1"),
         block(tl("الكواليتي · Program level", "Quality · Program level"), tl(qWeek + " في الأسبوع، راندوم مش إيجنت معيّن", qWeek + " a week, random, not a set agent"), prog, qWeek, qWeek * 4, "c2")),
       tabs, body);
     show(store("qa_db_tg") === "q" ? "q" : "l");
@@ -3637,14 +3651,16 @@
     const grid = h("div", { class: "mt-grid" });
     if (showL) {
       const live = all.filter((r) => purposeOf(r) === "live");
-      const wk = live.filter(inWeek), mo = live.filter(inMonth), lw = perAgent * (agents.length || 1);
-      grid.append(meter(tl("الليدرز · الأسبوع ده", "Team leaders · this week"), wk.length, lw, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(wk).length : ""),
-        meter(tl("الليدرز · الشهر ده", "Team leaders · this month"), mo.length, lw * 4, who ? tl("منهم بتوعك: ", "Yours: ") + mineOf(mo).length : "", "", true));
-      const need = agents.map((a) => [a, wk.filter((r) => nameKey(r.agent) === nameKey(a)).length]).filter(([, n]) => n < perAgent);
+      // Each leader has the target on their own (perAgent per agent a week). A leader sees their own numbers; others see the team.
+      const nL = who ? 1 : (leaderNames(live).length || 1);
+      const wk = mineOf(live.filter(inWeek)), mo = mineOf(live.filter(inMonth)), lw = perAgent * (agents.length || 1) * nL;
+      grid.append(meter(who ? tl("انت · الأسبوع ده", "You · this week") : tl("الليدرز · الأسبوع ده", "Team leaders · this week"), wk.length, lw, ""),
+        meter(who ? tl("انت · الشهر ده", "You · this month") : tl("الليدرز · الشهر ده", "Team leaders · this month"), mo.length, lw * 4, "", "", true));
+      const need = agents.map((a) => [a, wk.filter((r) => nameKey(r.agent) === nameKey(a)).length]).filter(([, n]) => n < perAgent * nL);
       const noSbs = agents.filter((a) => !wk.some((r) => r.method === "sidebyside" && nameKey(r.agent) === nameKey(a)));
       kids.push(grid);
       kids.push(h("div", { class: "mt-need" }, h("b", { text: need.length ? tl("لسه محتاجين الأسبوع ده:", "Still needed this week:") : "✓ " + tl("كل الإيجنتس خدوا " + perAgent + " الأسبوع ده", "Every agent has " + perAgent + " this week") }),
-        ...need.map(([a, n]) => h("span", { class: "pill " + (n ? "warn" : "bad"), dir: "auto", text: a + " · " + n + "/" + perAgent }))));
+        ...need.map(([a, n]) => h("span", { class: "pill " + (n ? "warn" : "bad"), dir: "auto", text: a + " · " + n + "/" + perAgent * nL }))));
       kids.push(h("div", { class: "mt-need" }, h("b", { text: noSbs.length ? tl("لسه من غير سايد باي سايد الأسبوع ده:", "No side by side yet this week:") : "✓ " + tl("كل الإيجنتس خدوا سايد باي سايد الأسبوع ده", "Every agent had a side by side this week") }),
         ...noSbs.map((a) => h("span", { class: "pill info", dir: "auto", text: a }))));
       if (td === mWeekStartOf(td)) kids.push(h("p", { class: "hint", text: tl("أول يوم في الأسبوع: النهارده للسايد باي سايد، والسحب العشوائي بيجيب مكالمات آخر يوم في الأسبوع اللي فات عشان اليوم ده يتسمع هو كمان. من بكره السحب من الأسبوع الحالي بس.", "First day of the week: today is for side by side, and random picks come from last week's last day so that day is heard too. From tomorrow picks come from this week only.") }));
@@ -3807,14 +3823,17 @@
     const agents = (roster.agents || []).slice().sort((a, b) => a.localeCompare(b));
     const perAgent = Number(teamCfg.leaderWeekly) || 4, qWeek = Number(teamCfg.qualityWeekly) || 40;
     const weeks = [1, 2, 3, 4].map((w) => { const [a, b] = mWeekRange(ym, w); const inW = (r) => callDay(r) >= a && callDay(r) <= b; return { w, a, b, prog: prog.filter(inW), live: live.filter(inW) }; });
-    const capped = (l) => agents.reduce((x, a) => x + Math.min(perAgent, l.filter((r) => nameKey(r.agent) === nameKey(a)).length), 0);
+    const leaders = leaderNames(live);
+    // Each leader: up to perAgent per agent counts (extra evaluations of one agent don't make up for another).
+    const cappedL = (l, ld) => agents.reduce((x, a) => x + Math.min(perAgent, l.filter((r) => nameKey(r.agent) === nameKey(a) && nameKey(r.evaluator) === nameKey(ld)).length), 0);
+    const capped = (l) => (leaders.length ? leaders.reduce((x, ld) => x + cappedL(l, ld), 0) : 0);
     const sla = (Number(teamCfg.coachingSlaHours) || 48) * 36e5;
     const failed = all.filter(needsCoaching), done = failed.filter(isCoached);
     const onTime = done.filter((r) => coachTime(r) && coachTime(r) - (new Date(r.savedAt).getTime() || 0) <= sla);
     const monthEndDay = monthEnd(ym);
     const status = (a) => { const cd = (agentCertInfo(a, allRecords()) || {}).certDate || ""; return cd && cd >= addDays(monthEndDay, -30) ? "New" : "Old"; };
     const ext = (a) => { const r = all.filter((x) => nameKey(x.agent) === nameKey(a) && x.callExt).pop(); return r ? r.callExt : ""; };
-    return { ym, all, prog, live, agents, perAgent, qWeek, weeks, capped, failed, done, onTime, status, ext };
+    return { ym, all, prog, live, agents, perAgent, qWeek, weeks, capped, cappedL, leaders, failed, done, onTime, status, ext };
   }
   async function exportQualityReport(ym) {
     let EJ;
@@ -3843,9 +3862,10 @@
     line("% QA Monitoring Achievement", [...qN.map((n, i) => ratio(n, qT[i])), ratio(sum(qN), sum(qT))], PCT);
     row++;
     section("Operation Adherence (Agent level · team leaders)");
-    const lT = D.weeks.map(() => D.perAgent * (D.agents.length || 0)), lN = D.weeks.map((w) => D.capped(w.live)), lAll = D.weeks.map((w) => w.live.length);
+    const lT = D.weeks.map(() => D.perAgent * (D.agents.length || 0) * (D.leaders.length || 1)), lN = D.weeks.map((w) => D.capped(w.live)), lAll = D.weeks.map((w) => w.live.length);
     line("TL Monitoring Target", [...lT, sum(lT)]);
-    line("No. of Monitored Calls TL (counted up to " + D.perAgent + " per agent)", [...lN, sum(lN)]);
+    line("No. of Monitored Calls TL (each leader counted up to " + D.perAgent + " per agent)", [...lN, sum(lN)]);
+    D.leaders.forEach((ld) => { const t1 = D.perAgent * (D.agents.length || 0), n1 = D.weeks.map((w) => D.cappedL(w.live, ld)); line("  " + ld + " (target " + t1 + " a week)", [...n1, sum(n1)]); });
     line("% TL Monitoring Achievement", [...lN.map((n, i) => ratio(n, lT[i])), ratio(sum(lN), sum(lT))], PCT);
     line("All Agent level evaluations (no cap)", [...lAll, sum(lAll)]);
     row++;
@@ -3904,7 +3924,8 @@
     const tot = [0, 0, 0, 0, 0, 0, 0, 0];
     D.agents.forEach((a) => {
       const vals = [a, D.ext(a), D.status(a)];
-      D.weeks.forEach((w, i) => { const n = Math.min(D.perAgent, w.live.filter((r) => nameKey(r.agent) === nameKey(a)).length); vals.push(D.perAgent, n, ratio(n, D.perAgent)); tot[i * 2] += D.perAgent; tot[i * 2 + 1] += n; });
+      const tA = D.perAgent * (D.leaders.length || 1);
+      D.weeks.forEach((w, i) => { const n = D.leaders.length ? D.leaders.reduce((x, ld) => x + Math.min(D.perAgent, w.live.filter((r) => nameKey(r.agent) === nameKey(a) && nameKey(r.evaluator) === nameKey(ld)).length), 0) : 0; vals.push(tA, n, ratio(n, tA)); tot[i * 2] += tA; tot[i * 2 + 1] += n; });
       const r = ad.addRow(vals); r.eachCell((c, i) => { if (i === 1) { body(c, WHITE); c.alignment = { horizontal: "left" }; } else body(c, i % 3 === 0 && i > 3 ? MID : LIGHT, (i - 3) % 3 === 0 && i > 3 ? PCT : undefined); });
     });
     { const vals = ["Total", "", ""]; [0, 1, 2, 3].forEach((i) => vals.push(tot[i * 2], tot[i * 2 + 1], ratio(tot[i * 2 + 1], tot[i * 2]))); const r = ad.addRow(vals); r.eachCell((c, i) => { head(c); if (i > 3 && (i - 3) % 3 === 0) c.numFmt = PCT; }); }

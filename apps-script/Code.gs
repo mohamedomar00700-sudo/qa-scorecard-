@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.4';
+const SCRIPT_BUILD = '2026-11-15.5';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -114,7 +114,7 @@ function aliasFix_(r, ro) {
 
 function readRoster_() {
   const sh = roster_();
-  const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [], aliases: {} };
+  const out = { agents: [], evaluators: [], owners: [], quality: [], ops: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [], aliases: {} };
   if (sh.getLastRow() < 2) return out;
   const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
   // Old names (after a rename) point to the current name, so records saved under them group with it.
@@ -138,6 +138,7 @@ function readRoster_() {
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
     if (isEvalRole_(r[1]) && isQualityRole_(r[1])) out.quality.push(name);
+    if (isEvalRole_(r[1]) && /operation|team ?lead|\btl\b|ليدر/i.test(String(r[1]))) out.ops.push(name); // team leaders: weekly target each
     if (isEvalRole_(r[1])) { out.evaluators.push(name); if (String(r[3] || '').trim()) out.evalEmails[name] = String(r[3]).trim(); }
     else {
       out.agents.push(name);
@@ -1266,7 +1267,7 @@ function doGet(e) {
   if (p.action === 'kb') return reply_({ ok: true, updates: readKb_() });
   if (p.action === 'roster') {
     const ro = readRoster_();
-    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive, aliases: ro.aliases,
+    return reply_({ ok: true, agents: ro.agents, evaluators: ro.evaluators, owners: ro.owners, quality: ro.quality, ops: ro.ops, emails: ro.emails, evalEmails: ro.evalEmails, daysOff: ro.daysOff, certDates: ro.certDates, certStatus: ro.certStatus, inactive: ro.inactive, aliases: ro.aliases,
       config: config_(), build: SCRIPT_BUILD, me: { name: me.name, email: me.email, owner: !!me.owner } });
   }
   const sh = sheet_();
