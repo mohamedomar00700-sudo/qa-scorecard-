@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-13.1';
+const SCRIPT_BUILD = '2026-11-15.1';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -373,7 +373,7 @@ function catRows_(r, row) {
 // ---------- result email (HTML, built from tables + inline styles so Gmail and Outlook show it the same) ----------
 const MAIL_ = { navy: '#1e3a6e', ink: '#1f2937', soft: '#6b7280', line: '#e5e7eb', bg: '#f1f4f9', card: '#ffffff',
   green: '#15803d', greenBg: '#ecfdf3', red: '#b91c1c', redBg: '#fef2f2', amber: '#b45309', amberBg: '#fffbeb',
-  blue: '#1d4ed8', blueBg: '#eff6ff', gray: '#475569', grayBg: '#f1f5f9' };
+  blue: '#1d4ed8', blueBg: '#eff6ff', gray: '#475569', grayBg: '#f1f5f9', head: '#dbe5f6' };
 const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
 
 // Built to survive being pasted into Outlook (manual sending): one fixed-width table aligned left, colours as both
@@ -381,10 +381,10 @@ const MAIL_FONT_ = "'Segoe UI',Tahoma,Arial,sans-serif";
 function mailShell_(accent, kicker, title, inner, footer) {
   const c = MAIL_, L = 'align="left" valign="top"', F = 'font-family:' + MAIL_FONT_ + ';text-align:left;';
   return '<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" align="left" bgcolor="' + c.card + '" dir="ltr" style="width:640px;max-width:100%;background:' + c.card + ';border:1px solid ' + c.line + ';border-collapse:collapse;' + F + '">' +
-    '<tr><td ' + L + ' bgcolor="' + c.navy + '" style="' + F + 'background:' + c.navy + ';padding:18px 24px;color:#ffffff !important">' +
-      '<p style="margin:0;font-size:12px;letter-spacing:.5px;color:#ffffff !important"><font color="#ffffff">' + kicker + '</font></p>' +
-      '<p style="margin:2px 0 0;font-size:20px;font-weight:bold;color:#ffffff !important"><font color="#ffffff">' + title + '</font></p></td></tr>' +
-    '<tr><td ' + L + ' bgcolor="' + accent + '" height="5" style="height:5px;background:' + accent + ';font-size:1px;line-height:1px">&nbsp;</td></tr>' +
+    '<tr><td ' + L + ' bgcolor="' + c.head + '" style="' + F + 'background:' + c.head + ';padding:18px 24px;color:' + c.navy + '">' +
+      '<p style="margin:0;font-size:12px;letter-spacing:.5px;color:' + c.navy + '"><font color="' + c.navy + '">' + kicker + '</font></p>' +
+      '<p style="margin:2px 0 0;font-size:20px;font-weight:bold;color:' + c.navy + '"><font color="' + c.navy + '">' + title + '</font></p></td></tr>' +
+    '<tr><td ' + L + ' bgcolor="' + accent + '" height="6" style="height:6px;background:' + accent + ';font-size:6px;line-height:6px">.</td></tr>' +
     '<tr><td ' + L + ' style="' + F + 'padding:22px 24px;color:' + c.ink + ';font-size:14px;line-height:1.7">' + inner + '</td></tr>' +
     '<tr><td ' + L + ' bgcolor="' + c.grayBg + '" style="' + F + 'background:' + c.grayBg + ';padding:14px 24px;color:' + c.soft + ';font-size:12px;line-height:1.6;border-top:1px solid ' + c.line + '">' + footer + '</td></tr>' +
     '</table>';
@@ -412,7 +412,6 @@ function resultMailHtml_(r, o) {
   const scoreColor = o.prog || o.coaching ? (o.pass ? c.green : c.red) : look.accent;
 
   // Hero: big score, pill, short message and a score bar with the 85% pass line.
-  const barW = Math.round(score * 100);
   let inner = '<p style="margin:0 0 14px;text-align:left">Hi <b>' + esc_(r.agent) + '</b>,<br>' +
     (o.post ? 'This is the evaluation of your first call after coaching' + (r.followOfId ? ' on evaluation <span dir="ltr">' + esc_(r.followOfId) + '</span>' : '') + ': your '
       : o.coaching ? 'This is an extra-target evaluation of your ' : o.prog ? 'This is a program quality sample evaluation of your ' : o.cert ? 'This is the certification evaluation of your ' : 'This is the quality evaluation of your ') +
@@ -420,15 +419,11 @@ function resultMailHtml_(r, o) {
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="' + look.bg + '" style="background:' + look.bg + ';border:1px solid ' + c.line + ';border-collapse:collapse"><tr>' +
       '<td width="140" align="center" valign="middle" bgcolor="' + look.bg + '" style="width:140px;text-align:center;padding:18px 8px;background:' + look.bg + '">' +
         '<p style="margin:0;text-align:center;font-size:38px;font-weight:bold;line-height:1.1;color:' + scoreColor + '" dir="ltr"><font color="' + scoreColor + '">' + pctTxt + '</font></p>' +
-        '<p style="margin:8px 0 0;text-align:center;line-height:1.4" dir="ltr"><span style="background:' + look.accent + ';color:#ffffff;padding:3px 12px;font-size:12px;font-weight:bold;white-space:nowrap;mso-highlight:' + look.accent + '"><font color="#ffffff">&nbsp;' + look.pill + '&nbsp;</font></span></p></td>' +
+        '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:8px auto 0;border-collapse:collapse"><tr><td align="center" bgcolor="#ffffff" style="background:#ffffff;border:2px solid ' + look.accent + ';padding:3px 10px;font-size:12px;font-weight:bold;white-space:nowrap;text-align:center;color:' + look.accent + '" dir="ltr"><font color="' + look.accent + '">' + look.pill + '</font></td></tr></table></td>' +
       '<td align="left" valign="middle" bgcolor="' + look.bg + '" style="text-align:left;padding:18px 16px 18px 8px;background:' + look.bg + '">' +
         '<p style="margin:0;text-align:left;font-size:17px;font-weight:bold;color:' + c.ink + '">' + look.head + '</p>' +
         '<p style="margin:4px 0 0;text-align:left;font-size:13px;color:' + c.soft + '">' + look.msg + '</p>' +
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;direction:ltr;border-collapse:collapse"><tr>' +
-          (barW > 0 ? '<td width="' + barW + '%" height="8" bgcolor="' + scoreColor + '" style="height:8px;background:' + scoreColor + ';font-size:1px;line-height:1px">&nbsp;</td>' : '') +
-          (barW < 100 ? '<td height="8" bgcolor="#dfe3ea" style="height:8px;background:#dfe3ea;font-size:1px;line-height:1px">&nbsp;</td>' : '') +
-        '</tr></table>' +
-        '<p style="margin:4px 0 0;font-size:11px;color:' + c.soft + ';direction:ltr;text-align:left">0% · pass 85% · 100%</p>' +
+        '<p style="margin:8px 0 0;font-size:12px;color:' + c.soft + ';direction:ltr;text-align:left">Pass mark: 85%</p>' +
       '</td></tr></table>';
 
   // Category tiles: Part A (NC) and the three critical buckets.
@@ -441,8 +436,7 @@ function resultMailHtml_(r, o) {
   });
   inner += mailSection_('Score by category', '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>' + tiles.map(function (t, k) {
     const col = t[4] === null ? c.ink : t[4] ? c.green : c.red;
-    return (k ? '<td width="8" style="width:8px;font-size:1px">&nbsp;</td>' : '') +
-      '<td width="25%" align="center" valign="top" style="text-align:center;border:1px solid ' + c.line + ';padding:10px 6px">' +
+    return '<td width="25%" align="center" valign="top" style="text-align:center;border:1px solid ' + c.line + ';padding:10px 6px">' +
       '<p style="margin:0;text-align:center;font-size:11px;color:' + c.soft + '">' + t[0] + ' <span dir="ltr">(' + t[1] + ')</span></p>' +
       '<p style="margin:2px 0;text-align:center;font-size:20px;font-weight:bold;color:' + col + '" dir="ltr"><font color="' + col + '">' + t[2] + '</font></p>' +
       '<p style="margin:0;text-align:center;font-size:11px;color:' + c.soft + '">' + t[3] + '</p></td>';
