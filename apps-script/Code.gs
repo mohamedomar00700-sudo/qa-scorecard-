@@ -106,6 +106,9 @@ function aliasFix_(r, ro) {
   const a = (ro && ro.aliases) || {};
   let hit = false;
   ['agent', 'evaluator'].forEach(function (f) { const to = r && r[f] && a[nameKey_(r[f])]; if (to && to !== r[f]) { r[f] = to; hit = true; } });
+  // A call drawn from the phone-system data belongs to whoever owns that extension, whatever name the form carried.
+  const byExt = r && r.callExt && ro && ro.exts && ro.exts[String(r.callExt)];
+  if (byExt && byExt !== r.agent) { r.agent = byExt; hit = true; }
   return hit;
 }
 
@@ -113,10 +116,24 @@ function readRoster_() {
   const sh = roster_();
   const out = { agents: [], evaluators: [], owners: [], quality: [], emails: {}, evalEmails: {}, daysOff: {}, certDates: {}, certStatus: {}, exts: {}, inactive: [], aliases: {} };
   if (sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues().forEach(function (r) {
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
+  // Old names (after a rename) point to the current name, so records saved under them group with it.
+  // Guarded: a name still active in the list is never someone's old name, emails are ignored, and an old name
+  // written on two different rows is dropped (a pasted or filled-down column must not move people's evaluations).
+  const current = {}, claims = {};
+  rows.forEach(function (r) { const k = nameKey_(r[0]); if (k && String(r[2]).toLowerCase() !== 'no') current[k] = true; });
+  rows.forEach(function (r) {
     const name = String(r[0] || '').trim();
-    // Old names (after a rename) point to the current name, so records saved under them group with it.
-    if (name) String(r[9] || '').split(/[,;\n]+/).forEach(function (x) { x = x.trim(); if (x && nameKey_(x) !== nameKey_(name)) out.aliases[nameKey_(x)] = name; });
+    if (!name) return;
+    String(r[9] || '').split(/[,;\n]+/).forEach(function (x) {
+      x = x.trim(); const k = nameKey_(x);
+      if (!k || x.indexOf('@') !== -1 || current[k]) return;
+      (claims[k] = claims[k] || {})[name] = true;
+    });
+  });
+  Object.keys(claims).forEach(function (k) { const to = Object.keys(claims[k]); if (to.length === 1) out.aliases[k] = to[0]; });
+  rows.forEach(function (r) {
+    const name = String(r[0] || '').trim();
     if (name && String(r[2]).toLowerCase() === 'no') out.inactive.push(name);
     if (!name || String(r[2]).toLowerCase() === 'no') return;
     if (/owner/i.test(String(r[1]).trim())) out.owners.push(name);
