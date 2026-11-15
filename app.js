@@ -664,7 +664,7 @@
             await settle();
             a.header.agent = agent; if (prog) a.header.randAgent = true;
             a.header.callId = c.id; a.header.callTalk = c.talk; a.header.callPool = j.pool || 0; a.header.callPbx = c.pbx || ""; a.header.callExt = c.ext || "";
-            a.header.pick = c.day + " " + c.time; a.header.pickAgent = agent;
+            a.header.pick = c.day + " " + c.time; a.header.pickAgent = agent; a.header.pickWinFrom = j.winFrom || "";
             a.header.interactionDate = c.day + "T" + c.time; a.header.kbVersion = kbFor(a.header.interactionDate);
             a.header.phone = c.num ? (c.num.startsWith("+") ? c.num : "+" + c.num) : "";
             a.header.duration = mmss(Math.round(c.talk)); // exact talk time from the phone system
@@ -687,7 +687,7 @@
     const tile = (icon, k, v, cls) => h("div", { class: "cp-tile" + (cls ? " " + cls : "") }, h("span", { class: "cp-ico", text: icon, "aria-hidden": "true" }), h("div", {}, h("div", { class: "cp-k", text: t(k) }), h("div", { class: "cp-v", dir: "auto", text: v })));
     const show = () => {
       box.innerHTML = "";
-      if (prog && a.header.callId && !current.edit && String(a.header.pick || "").slice(0, 10) < pickWindowFrom()) { for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
+      if (prog && a.header.callId && !current.edit && String(a.header.pick || "").slice(0, 10) < [a.header.pickWinFrom, pickWindowFrom()].filter(Boolean).sort()[0]) { for (const k of ["callId", "callTalk", "callPool", "callPbx", "callExt", "pickWinFrom", "pick", "pickAgent", "randAgent"]) delete a.header[k]; a.header.agent = ""; a.header.interactionDate = ""; a.header.phone = ""; saveDraft(); setTimeout(renderHeader); }
       const picked = a.header.callId && a.header.pickAgent === a.header.agent;
       if (!picked) {
         if (current.edit) return;
@@ -1391,7 +1391,7 @@
       renderDupWarn();
     }, 800);
   }
-  const NEED_BUILD = "2026-11-15.5";
+  const NEED_BUILD = "2026-11-15.6";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
