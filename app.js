@@ -2792,28 +2792,38 @@
       });
       if (p > 0) ev.push({ r, p, why });
     });
-    let stage = 0, until = "", carry = 0;
+    // A stage only rises after the action of the current stage was done (Mohamed, 2026-11-15): the evaluation that raised
+    // the stage (gate) must be coached, and the new error's call must come after that coaching. Errors before that are
+    // recorded ("held") and keep the agent from being clean, but add no points.
+    let stage = 0, until = "", carry = 0, gate = null;
     const hist = [];
+    const coachDay = (g) => (coachTime(g) ? ymdOf(new Date(coachTime(g))) : "");
     const decay = (day) => {
       while (until && day > until) {
-        const from = until; carry = 0;
+        const from = until; carry = 0; gate = null;
         if (stage > 0) { stage--; hist.push({ kind: "down", day: from, stage }); }
         until = stage ? addMonths(from, RF_WIN[stage]) : "";
       }
     };
     ev.forEach(({ r, p, why }) => {
       decay(callDay(r));
-      carry += p;
       const before = stage;
-      while (carry >= 1 && stage < 4) { stage++; carry -= 1; }
-      if (stage === 4) carry = 0;
+      const open = stage === 0 || stage === 4 || !gate || (isCoached(gate) && coachDay(gate) && coachDay(gate) <= callDay(r));
+      if (open) {
+        carry += p;
+        // One stage at a time: the next stage waits for this stage's coaching, so extra points in the same call are not carried.
+        if (carry >= 1 && stage < 4) { stage++; carry = (carry - 1) % 1; }
+        if (stage === 4) carry = 0;
+        if (stage > before) gate = r;
+      }
       // Half a point with no stage change still opens a window, so it expires if nothing follows.
       until = addMonths(callDay(r), RF_WIN[Math.max(1, stage)]);
-      hist.push({ kind: stage > before ? "up" : "pts", day: callDay(r), stage, r, p, why });
+      hist.push({ kind: !open ? "held" : stage > before ? "up" : "pts", day: callDay(r), stage, r, p, why });
     });
     decay(today());
     const last = ev.length ? ev[ev.length - 1].r : null;
-    return { stage, until: stage ? until : "", hist, last, n: ev.length, carry, pts: ev.reduce((sum, x) => sum + x.p, 0) };
+    const waiting = stage && stage < 4 && gate && !isCoached(gate) ? gate : null;
+    return { stage, until: stage ? until : "", hist, last, n: ev.length, carry, waiting, pts: ev.reduce((sum, x) => sum + x.p, 0) };
   }
   const rfAction = (st) => [
     tl("نضيف. مفيش إجراء.", "Clean. No action."),
@@ -2837,8 +2847,8 @@
     const td = today();
     const left = (d) => Math.max(0, Math.round((new Date(d + "T12:00:00") - new Date(td + "T12:00:00")) / 864e5));
     box.append(h("h2", { text: tl("🔁 تكرار الأخطاء الكريتيكال (Repeated failure)", "🔁 Repeated failure (critical errors)") }),
-      h("p", { class: "hint", text: tl("النقاط في Agent level: كومبلاينس كريتيكال = 2، End user كريتيكال = 1، بيزنس كريتيكال = 0.5، ونفس بند النون كريتيكال لو اتكرر في 3 مكالمات مختلفة خلال 60 يوم = 1. كل نقطة كاملة بتطلّع الإيجنت مرحلة، والنص نقطة بيستنى. الموظف الجديد مش بيتحسب أول 30 يوم بعد السرتيفيكيشن. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. البروجرام ليفل مش محسوب. الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
-        "Agent level points: compliance critical 2, end user critical 1, business critical 0.5, the same non-critical item missed in 3 different calls within 60 days 1. Each full point moves the agent up a stage; half points wait. New agents aren't counted for 30 days after certification. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Only the level set in Settings counts. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
+      h("p", { class: "hint", text: tl("النقاط: كومبلاينس كريتيكال = 2، End user كريتيكال = 1، بيزنس كريتيكال = 0.5، ونفس بند النون كريتيكال لو اتكرر في 3 مكالمات مختلفة خلال 60 يوم = 1. كل نقطة كاملة بتطلّع الإيجنت مرحلة، والنص نقطة بيستنى. المرحلة مش بتطلع إلا بعد تسجيل الكوتشينج على التقييم اللي طلّع المرحلة اللي قبلها؛ الغلط اللي قبل كده بيتسجل بس (⏸). الموظف الجديد مش بيتحسب أول 30 يوم بعد السرتيفيكيشن. كل مرحلة ليها مدة لازم يعدّيها نضيف: مرحلة 1 شهرين، مرحلة 2 تلات شهور، مرحلة 3 و4 أربع شهور. لو عدّى المدة نضيف بينزل مرحلة واحدة. بيتحسب بس المستوى المختار في الإعدادات (دلوقتي Program level). الأداة بتوضح المرحلة والخطوة الجاية بس، والإنذارات والقرارات حسب لائحة HR.",
+        "Points: compliance critical 2, end user critical 1, business critical 0.5, the same non-critical item missed in 3 different calls within 60 days 1. Each full point moves the agent up a stage; half points wait. A stage only rises after coaching is logged on the evaluation that raised the previous stage; errors before that are recorded only (⏸). New agents aren't counted for 30 days after certification. Each stage has a clean window: stage 1 two months, stage 2 three, stages 3 and 4 four. A clean window moves the agent down one stage. Only the level set in Settings counts. The tool shows the stage and next step only; warnings and decisions follow HR's rules.") }),
       h("div", { class: "rf-ladder" }, [0, 1, 2, 3, 4].map((st) => h("div", { class: "rf-step s" + st }, h("div", { class: "rf-step-n", text: String(counts[st]) }), h("div", { class: "rf-step-k", text: rfName(st) }), h("div", { class: "rf-step-a", text: rfAction(st) })))));
     const tb = h("table", {}, h("tr", {}, [tl("الإيجنت", "Agent"), tl("المرحلة", "Stage"), tl("المطلوب", "Next step"), tl("لازم يفضل نضيف لحد", "Clean until"), tl("آخر كريتيكال", "Last critical"), tl("السجل", "History")].map((x) => h("th", { text: x }))));
     rows.forEach((x) => {
@@ -2847,10 +2857,10 @@
       tb.append(h("tr", { class: x.stage ? "" : "muted" },
         h("td", {}, h("b", { text: x.a })),
         h("td", {}, h("span", { class: "rf-pill s" + x.stage, text: rfName(x.stage) }), x.carry ? h("div", { class: "meta", text: "+" + x.carry + tl(" نقطة مستنية", " pt pending") }) : null, x.grace ? h("div", { class: "meta", text: tl("جديد، مش بيتحسب لحد ", "New, not counted until ") + x.grace }) : null),
-        h("td", { class: "rf-act", text: x.stage ? rfAction(x.stage) : "–" }),
+        h("td", { class: "rf-act" }, x.stage ? rfAction(x.stage) : "–", x.waiting ? h("div", { class: "meta warn", dir: "auto", text: tl("⏸ مستني تسجيل الكوتشينج على " + evalIdOf(x.waiting) + "، ولحد ما يتسجل أي غلط جديد بيتسجل بس ومش بيطلّعه مرحلة.", "⏸ Waiting for coaching on " + evalIdOf(x.waiting) + " to be logged; until then new errors are recorded only and don't raise the stage.") }) : null),
         h("td", { dir: "ltr", class: "num" }, x.stage ? h("div", {}, h("div", { text: x.until }), h("div", { class: "meta", text: tl("فاضل ", "") + left(x.until) + tl(" يوم", " days left") })) : "–"),
         h("td", {}, last ? h("div", {}, h("div", { dir: "ltr", text: callDay(last) + " · " + evalIdOf(last) }), h("div", { class: "meta", text: crit })) : "–"),
-        h("td", {}, h("div", { class: "rf-hist" }, x.hist.slice(-8).map((e) => h("span", { class: "pill " + (e.kind === "up" ? "bad" : e.kind === "pts" ? "warn" : "good"), dir: "ltr", title: e.r ? evalIdOf(e.r) + " · +" + e.p + tl(" نقطة", " pt") + " (" + (e.why || []).join(", ") + ")" : tl("عدّى المدة نضيف", "Clean window passed"), text: (e.kind === "up" ? "▲ " : e.kind === "pts" ? "+" + e.p + " " : "▼ ") + (e.kind === "pts" ? "" : e.stage + " · ") + e.day.slice(5) }))))));
+        h("td", {}, h("div", { class: "rf-hist" }, x.hist.slice(-8).map((e) => h("span", { class: "pill " + (e.kind === "up" ? "bad" : e.kind === "pts" ? "warn" : e.kind === "held" ? "info" : "good"), dir: "ltr", title: e.r ? evalIdOf(e.r) + " · +" + e.p + tl(" نقطة", " pt") + " (" + (e.why || []).join(", ") + ")" + (e.kind === "held" ? tl(" · اتسجل بس: كوتشينج المرحلة اللي قبلها لسه متعملش", " · recorded only: the previous stage's coaching wasn't done yet") : "") : tl("عدّى المدة نضيف", "Clean window passed"), text: (e.kind === "up" ? "▲ " : e.kind === "pts" ? "+" + e.p + " " : e.kind === "held" ? "⏸ " + e.p + " " : "▼ ") + (e.kind === "pts" || e.kind === "held" ? "" : e.stage + " · ") + e.day.slice(5) }))))));
     });
     box.append(h("div", { class: "table-wrap" }, tb));
     lastLists.repeat = rows;
