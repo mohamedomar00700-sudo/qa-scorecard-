@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.1';
+const SCRIPT_BUILD = '2026-11-15.2';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
