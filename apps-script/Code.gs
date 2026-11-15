@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.3';
+const SCRIPT_BUILD = '2026-11-15.4';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -527,7 +527,7 @@ function mailablePurpose_(p) { return ['live', 'certcall', 'coaching', 'postcoac
 
 // Does this evaluation count on the agent? Only Agent level / Program level depend on the team setting (countLevel, countFrom).
 function countLevelOn_(day, cfg) {
-  const lv = ['live', 'program', 'both'].indexOf(cfg.countLevel) !== -1 ? cfg.countLevel : 'live';
+  const lv = ['live', 'program', 'both'].indexOf(cfg.countLevel) !== -1 ? cfg.countLevel : 'program';
   return cfg.countFrom && day && day < cfg.countFrom ? 'live' : lv;
 }
 function countsOnAgent_(r, cfg) {
@@ -1026,7 +1026,7 @@ function who_(o) {
 
 // Team settings shared by everyone (only the owner can change them).
 function config_() {
-  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', mailSend: 'auto', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60, countLevel: 'live', countFrom: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
+  return Object.assign({ monthlyTarget: 4, leaderWeekly: 4, qualityWeekly: 40, coachingSlaHours: 48, passedSlaHours: 48, pickFrom: '10:00', pickTo: '21:30', pickDays: 3, closedDays: 'Fri', ccResults: '', ccMode: 'each', mailSend: 'auto', senderName: 'Quality Team', callsSource: '', promiseTolMin: 60, countLevel: 'program', countFrom: '' }, JSON.parse(PropertiesService.getScriptProperties().getProperty('cfg') || '{}'));
 }
 function setConfig_(c) {
   const cur = config_();
