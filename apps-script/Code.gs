@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.5';
+const SCRIPT_BUILD = '2026-11-15.6';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -2442,7 +2442,31 @@ function pickCall_(b, me) {
     // counted back from today and skipping the closed days (Friday). Enforced here, whatever the page sends, and never widened.
     const cfg = config_(), wd = Math.max(1, Math.min(31, Math.round(Number(cfg.pickDays) || 3)));
     const win = pickWindow_(wd, cfg.closedDays);
-    if (from < win.from) from = win.from;
+    // The agent's own days off don't use up the window (Mohamed, 2026-11-15): a day the raw data has calls from others
+    // but none from this agent is skipped, so the agent still gets wd working days. A day with no data at all (not uploaded
+    // yet) still counts, so a late upload never pulls older calls in.
+    const anyDay = {}, agentDay = {};
+    calls.forEach(function (x) {
+      anyDay[x.day] = 1;
+      if (!(x.from in mine)) mine[x.from] = nameKey_(callAgent_(x.from, ro).name) === key;
+      if (mine[x.from]) agentDay[x.day] = 1;
+    });
+    const offDays = [];
+    {
+      const tz = Session.getScriptTimeZone() || 'Africa/Cairo';
+      const closed = (Array.isArray(cfg.closedDays) ? cfg.closedDays : String(cfg.closedDays === undefined ? 'Fri' : cfg.closedDays).split(/[,\s]+/)).map(String);
+      const d = new Date(Number(win.to.slice(0, 4)), Number(win.to.slice(5, 7)) - 1, Number(win.to.slice(8, 10)), 12);
+      let left = wd, f = win.to, guard = 0;
+      while (left > 0 && guard++ < 21) {
+        d.setDate(d.getDate() - 1);
+        const s = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+        if (closed.indexOf(Utilities.formatDate(d, tz, 'EEE')) !== -1) continue;
+        if (anyDay[s] && !agentDay[s]) { offDays.push(s); continue; }
+        f = s; left--;
+      }
+      win.from = f;
+    }
+    from = win.from; // the server's window (agent-aware) wins over the page's plain one
     if (to > win.to) to = win.to;
     // Never cross into last week (weeks 1-7, 8-14, 15-21, 22-end, by call date), so a pick made early in the week
     // counts in this week's target. On the week's first day there are no recorded calls yet: that day is for side by side.
@@ -2453,10 +2477,10 @@ function pickCall_(b, me) {
     const weekCut = from < wsFrom;
     if (weekCut) from = wsFrom;
     const list = from <= to ? pool(from, to) : [], wider = false;
-    if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: from, weekFrom: ws, weekCut: weekCut, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
+    if (!list.length) return { ok: true, none: true, dataTo: dataTo, winFrom: from, offDays: offDays, weekFrom: ws, weekCut: weekCut, winDays: wd, agentCalls: calls.filter(function (x) { return mine[x.from]; }).length };
     const x = list[Math.floor(Math.random() * list.length)];
     ph.appendRow([new Date(), x.id, x.day + ' ' + x.time, agent, me.name || 'Owner', 'picked', '', '']);
-    return { ok: true, wider: wider, dataTo: dataTo, winFrom: from, weekFrom: ws, winDays: wd, pool: list.length,
+    return { ok: true, wider: wider, dataTo: dataTo, winFrom: from, offDays: offDays, weekFrom: ws, winDays: wd, pool: list.length,
       call: { id: x.id, day: x.day, time: x.time, num: x.to, talk: x.talk, pbx: callAgent_(x.from, ro).pbx, ext: callAgent_(x.from, ro).ext } };
   } finally {
     lock.releaseLock();
