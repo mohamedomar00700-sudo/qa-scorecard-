@@ -1791,7 +1791,9 @@
     fillSelect($("#recAgent"), [...new Set(all.map((r) => r.agent).filter(Boolean))].sort(), t("f_all_agents"));
     if ($("#recSearch") && /@/.test($("#recSearch").value)) $("#recSearch").value = "";
     const f = { ev: $("#recEvaluator").value, ag: $("#recAgent").value, p: $("#recPurpose").value, tag: $("#recTag").value, m: $("#recMethod").value, sel: $("#recSel").value, q: $("#recSearch").value.trim().toLowerCase(), per: ($("#recPeriod") || {}).value || "" };
-    const [pFrom, pTo] = f.per ? periodRange(f.per) : ["", ""];
+    let [pFrom, pTo] = f.per ? periodRange(f.per) : ["", ""];
+    if ($("#recFrom") && $("#recFrom").value) pFrom = $("#recFrom").value;
+    if ($("#recTo") && $("#recTo").value) pTo = $("#recTo").value;
     const qd = f.q.replace(/[^\d]/g, "");
     const recs = all.filter((r) => (!f.ev || r.evaluator === f.ev) && (!f.ag || r.agent === f.ag) &&
       (!f.p || (f.p === "test" ? r.test : !r.test && purposeOf(r) === f.p)) && (!f.tag || r.callTag === f.tag) && (!f.m || (r.method || "recording") === f.m) && (!f.sel || (f.sel === "unsent" ? mailUnsent(r) : f.sel === "uncoached" ? (needsCoaching(r) && !isCoached(r)) : f.sel === "coached" ? isCoached(r) : selectionOf(r) === f.sel)) &&
@@ -3079,7 +3081,7 @@
     box.append(h("h4", { text: tx("أكتر الأسئلة اللي اتغلط فيها", "Most missed questions") }));
     if (!top.length) box.append(h("div", { class: "hint", text: tx("لسه مفيش بيانات.", "No data yet.") }));
     top.forEach((q) => { const r = q.asked ? q.wrong / q.asked : 0;
-      box.append(h("div", { class: "bar-row" }, h("span", { class: "bar-label", title: q.text, text: q.text }), h("div", { class: "bar-track" }, h("div", { class: "bar-fill", style: "width:" + Math.round(100 * r) + "%;background:var(--bad,#c0392b)" })), h("span", { text: tx(q.wrong + " غلط من " + q.asked, q.wrong + " wrong of " + q.asked) }))); });
+      box.append(h("div", { class: "bar-row" }, h("span", { class: "bar-label", title: q.text, text: q.text }), h("div", { class: "bar-track" }, h("div", { class: "bar-fill", style: "width:" + Math.round(100 * r) + "%;background:var(--bad,#c0392b)" })), h("span", { class: "bar-value", text: tx(q.wrong + " غلط من " + q.asked, q.wrong + " wrong of " + q.asked) }))); });
     // Per agent
     box.append(h("h4", { text: tx("كل إيجنت", "Per agent") }));
     const tbl = h("table", { class: "rec-table" }, h("tr", {}, [tx("الاسم", "Name"), tx("أيام", "Days"), tx("الالتزام", "Participation"), tx("الدقة", "Accuracy"), "5/5", tx("ستريك", "Streak"), tx("الشهري", "Monthly"), tx("آخر كويز", "Last quiz"), tx("بيغلط في", "Gets wrong")].map((x) => h("th", { text: x }))));
@@ -3232,15 +3234,20 @@
           const [a, b] = mWeekRange(ym, w), n = mine.filter((r) => callDay(r) >= a && callDay(r) <= b).length;
           if (!need) return h("td", { class: "num" }, h("span", { class: "pill " + (n ? "info" : a > td ? "na" : "warn"), text: a > td && !n ? "–" : String(n) }));
           const cls = n >= need ? "good" : a > td ? "na" : b < td ? "bad" : n ? "warn" : "warn";
-          return h("td", { class: "num" }, h("span", { class: "pill " + cls, dir: "ltr", text: a > td && !n ? "–" : n + " / " + need }));
+          const byEv = {}; mine.filter((r) => callDay(r) >= a && callDay(r) <= b).forEach((r) => { const k = String(r.evaluator || "?").split(" ")[0]; byEv[k] = (byEv[k] || 0) + 1; });
+          const who = Object.entries(byEv).map(([k, v]) => k + " " + v).join(" · ");
+          return h("td", { class: "num", title: who }, h("span", { class: "pill " + cls, text: a > td && !n ? "–" : tl("اتعمل " + n + " من " + need, n + " done of " + need) }), who ? h("div", { class: "meta", text: who }) : null);
         });
-        tb.append(h("tr", {}, h("td", { text: ag }), ...cells, h("td", { class: "num", dir: "ltr", text: need ? mine.length + " / " + need * 4 : String(mine.length) })));
+        tb.append(h("tr", {}, h("td", { text: ag }), ...cells, h("td", { class: "num", dir: "ltr", text: need ? tl("اتعمل " + mine.length + " من " + need * 4, mine.length + " done of " + need * 4) : String(mine.length) })));
       });
       return h("div", { class: "table-wrap" }, tb);
     };
     const tabs = h("div", { class: "tg-tabs" });
     const body = h("div", {});
-    const show = (k) => { store("qa_db_tg", k); [...tabs.children].forEach((b) => b.classList.toggle("active", b.dataset.k === k)); body.innerHTML = ""; body.append(k === "q" ? grid(prog, 0) : grid(live, perAgent)); };
+    const legend = (k) => h("div", { class: "hint" }, k === "q" ? tl("الرقم = عدد مرات ما الإيجنت اتسمع في الـ Program level في الأسبوع ده (بتاريخ المكالمة).", "Number = how many times the agent was heard at Program level that week (by call date).")
+      : tl("\"اتعمل 5 من 4\" يعني الإيجنت اتقيّم 5 مرات Agent level في الأسبوع ده من كل الليدرز مع بعض، والتارجت " + perAgent + ". تحت الرقم مين عمل كام. الأسبوع بتاريخ المكالمة مش تاريخ التقييم، والإكسترا تارجت مش بيتحسب.",
+        "\"5 done of 4\" means the agent got 5 Agent level evaluations that week from all team leaders together; the target is " + perAgent + ". Below: who did how many. Weeks follow the call date, not the evaluation date; extra-target evaluations don't count."));
+    const show = (k) => { store("qa_db_tg", k); [...tabs.children].forEach((b) => b.classList.toggle("active", b.dataset.k === k)); body.innerHTML = ""; body.append(legend(k), k === "q" ? grid(prog, 0) : grid(live, perAgent)); };
     tabs.append(h("button", { type: "button", class: "chip", "data-k": "l", text: tl("الليدرز: كل إيجنت ", "Team leaders: each agent ") + perAgent + tl(" في الأسبوع", " a week"), onclick: () => show("l") }),
       h("button", { type: "button", class: "chip", "data-k": "q", text: tl("الكواليتي: كل إيجنت اتسمع كام مرة", "Quality: how often each agent was heard"), onclick: () => show("q") }));
     box.append(h("div", { class: "tg-top" }, h("h2", { text: tl("التارجت الأسبوعي · ", "Weekly targets · ") + monthLabel(ym) }),
@@ -3584,6 +3591,7 @@
     // Weeks follow the month: 1-7, 8-14, 15-21, 22-end (same as the dashboard and the weekly targets).
     if (p === "week") return mWeekRange(ymd(d).slice(0, 7), mWeekOf(ymd(d)));
     if (p === "lastweek") { const [m, w] = prevMWeek(ymd(d).slice(0, 7), mWeekOf(ymd(d))); return mWeekRange(m, w); }
+    if (/^w[1-4]$/.test(p)) return mWeekRange(ymd(d).slice(0, 7), Number(p[1]));
     return ["", ""];
   }
   const PURPOSE_KEYS = ["live", "certcall", "program", "coaching", "postcoach", "calibration", "roleplay"];
@@ -3915,10 +3923,10 @@
     // Raw data
     const rd = wb.addWorksheet("Raw Data", { views: [{ state: "frozen", ySplit: 1 }] });
     const srcList = D.all.slice().sort((x, y) => callDay(x).localeCompare(callDay(y)));
-    const rows = recordRows(srcList), hd = rows[0].concat(["Level", "Week"]);
+    const rows = recordRows(srcList), hd = rows[0].concat(["Level"]);
     rd.addRow(hd).eachCell(head); rd.getRow(1).height = 30;
     rows.slice(1).forEach((r, i) => { const rec = srcList[i];
-      rd.addRow(r.map((c) => (c && typeof c === "object" ? c.v : c)).concat([purposeOf(rec) === "program" ? "Program level" : purposeOf(rec) === "live" ? "Agent level" : purposeLabel(rec), "Week " + mWeekOf(callDay(rec))])); });
+      rd.addRow(r.map((c) => (c && typeof c === "object" ? c.v : c)).concat([purposeOf(rec) === "program" ? "Program level" : purposeOf(rec) === "live" ? "Agent level" : purposeLabel(rec)])); });
     rows[0].forEach((k, i) => { if (/score|accuracy/i.test(k)) rd.getColumn(i + 1).numFmt = PCT; });
     rd.columns.forEach((c, i) => (c.width = Math.min(40, Math.max(12, String(hd[i] || "").length + 2))));
     rd.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: hd.length } };
@@ -3980,20 +3988,20 @@
       if (card.hidden || card.closest("[hidden]") || card.style.display === "none") return;
       const title = card.dataset.sheet || ((card.querySelector("h2") || {}).textContent || "").trim();
       const rows = [];
-      card.querySelectorAll(".tile").forEach((x) => rows.push([$(".tile-k", x).textContent, $(".tile-v", x).textContent, ($(".tile-s", x) || {}).textContent || ""]));
+      card.querySelectorAll(".tile").forEach((x) => rows.push([($(".tile-k", x) || {}).textContent || "", ($(".tile-v", x) || {}).textContent || "", ($(".tile-s", x) || {}).textContent || ""]));
       card.querySelectorAll("table").forEach((tb) => { if (rows.length) rows.push([]); tb.querySelectorAll("tr").forEach((tr) => {
         const cells = [...tr.children].filter((c) => !c.classList.contains("actions") && !(c.tagName === "TH" && !c.textContent.trim() && c === tr.firstElementChild && tr.parentNode.querySelector("td.actions")));
         rows.push(cells.map((c) => c.innerText.replace(/\s*\n\s*/g, " · ").trim())); }); });
-      card.querySelectorAll(".bar-row").forEach((b) => rows.push([$(".bar-label", b).textContent, $(".bar-value", b).textContent]));
+      card.querySelectorAll(".bar-row").forEach((b) => rows.push([($(".bar-label", b) || {}).textContent || "", ($(".bar-value", b) || b.lastElementChild || {}).textContent || ""]));
       if (rows.length && title) out.push({ name: title, rows });
     });
     return out;
   }
   const phoneCell = (r) => (r.phone ? { v: normPhone(r.phone), t: "s" } : ""); // text, so Excel does not show 9.71E+11
   function recordRows(list) {
-    const head = ["Evaluation ID", "Call date/time", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag", "Call duration (AHT, mm:ss)", "Call duration (seconds)",
+    const head = ["Evaluation ID", "Call date/time", "Week (call date)", "Counts in weekly target", "Agent", "Evaluator", "Form", "Interaction type", "Purpose", "How heard", "How chosen", "Call tag", "Customer number", "Odoo ref", "Ended on (Odoo stage)", "Odoo tag", "Call duration (AHT, mm:ss)", "Call duration (seconds)",
       "NC score", "CC accuracy", "EU accuracy", "BC accuracy", "Critical errors", "Final score", "Result", "Missed items", "Strengths", "Areas to improve", "Coaching", "Coached 1-on-1", "Coached at", "Coached by", "Coaching points", "Coaching agreed", "Follow-up of", "Post-coaching result", "KB version", "Evaluation date", "Edited by", "Random pick history"];
-    return [head, ...list.map((r) => [evalIdOf(r), whenText(r), r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
+    return [head, ...list.map((r) => [evalIdOf(r), whenText(r), callDay(r) ? callDay(r).slice(0, 7) + " · Week " + mWeekOf(callDay(r)) : "", r.test ? "No" : purposeOf(r) === "live" ? "Team leaders" : purposeOf(r) === "program" ? "Quality" : "No", r.agent || "", r.evaluator || "", F.forms[r.form] ? F.forms[r.form].name : r.form, r.type || "", purposeLabel(r),
       short(t("m_" + (r.method || "recording"))), short(t("sel_" + selectionOf(r))), r.callTag ? short(t("tag_" + r.callTag)) : "", phoneCell(r), r.odooRef || "", r.outcome || "", r.odooTag || "", durSec(r) === null ? "" : mmss(durSec(r)), durSec(r) === null ? "" : { v: durSec(r), t: "n" },
       ...[r.ncScore, r.cc, r.eu, r.bc].map((x) => (x === null || x === undefined ? "" : { v: x, t: "n", z: "0.0%" })), r.critical || 0,
       r.final === null || r.final === undefined ? "" : { v: r.final, t: "n", z: "0.0%" }, r.result || "",
@@ -4023,6 +4031,9 @@
     return out;
   }
   async function exportExcel(name) {
+    try { await exportExcel_(name); } catch (e) { console.error(e); alert(t("xlsx_failed") + " (" + e.message + ")"); }
+  }
+  async function exportExcel_(name) {
     const view = $(".view.active"); if (!view) return;
     let X;
     try { X = await loadXlsx(); } catch (e) { alert(t("xlsx_failed")); return; }
@@ -4587,7 +4598,7 @@
     $("#calSample").addEventListener("input", renderCalibration);
     $("#kbAdd").onclick = addKbUpdate;
     ["#coAgent", "#coType", "#coStatus", "#coPeriod"].forEach((x) => $(x) && $(x).addEventListener("input", renderCoachingView));
-    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch", "#recPeriod"].forEach((s) => $(s).addEventListener("input", renderRecords));
+    ["#recEvaluator", "#recAgent", "#recPurpose", "#recTag", "#recMethod", "#recSel", "#recSearch", "#recPeriod", "#recFrom", "#recTo"].forEach((s) => $(s) && $(s).addEventListener("input", renderRecords));
     $("#guideForm").addEventListener("input", renderGuide);
     ["#ctMode", "#ctForm", "#ctFrom", "#ctTo"].forEach((s) => { if ($(s)) $(s).addEventListener("input", renderCertification); });
     $("#ctReset").onclick = () => { certRules = Object.assign({}, CERT_DEFAULT); store(LS_CERT_RULES, null); CERT = certCfg(); renderCertification(); };
