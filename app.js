@@ -1382,7 +1382,7 @@
       renderDupWarn();
     }, 800);
   }
-  const NEED_BUILD = "2026-11-15.1";
+  const NEED_BUILD = "2026-11-15.2";
   async function loadFromSheet() {
     const say = (t) => $$(".loadInfo").forEach((i) => (i.textContent = t));
     if (!connected()) { say(t("not_connected_load")); return; }
