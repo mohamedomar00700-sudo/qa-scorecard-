@@ -20,7 +20,7 @@ const COLUMNS = ['Saved at', 'ID', 'Form', 'Agent', 'Evaluator', 'Evaluation dat
   'NC score', 'CC accuracy', 'EU accuracy', 'BC accuracy', 'Critical errors', 'Final score', 'Result',
   'Missed items', 'Strengths', 'Areas to improve', 'Coaching', 'Record (JSON)', 'Purpose', 'Test', 'Customer phone', 'Edited at', 'Edited by', 'Emailed to agent'];
 // Bumped with every change the page depends on; the page warns when the deployed script is older.
-const SCRIPT_BUILD = '2026-11-15.6';
+const SCRIPT_BUILD = '2026-11-15.7';
 const DELETED_NAME = 'Deleted';
 const KB_NAME = 'KB Log';
 const KB_COLUMNS = ['No', 'Logged at', 'Effective from', 'Type', 'What changed', 'Logged by'];
@@ -2473,7 +2473,26 @@ function pickCall_(b, me) {
     // Exception (Mohamed, 2026-11-10): on the week's first working day the last working day of last week can be drawn too,
     // so the last day of every week is still heard (side by side is the other option that day).
     const ws = win.to.slice(0, 8) + ['01', '08', '15', '22'][Math.min(3, Math.floor((Number(win.to.slice(8, 10)) - 1) / 7))];
-    const wsFrom = weekFloor_(win.to, ws, cfg.closedDays);
+    let wsFrom = weekFloor_(win.to, ws, cfg.closedDays);
+    // On that first working day, if the agent was off on last week's last working day, go back to the last day the
+    // agent did work last week (Mohamed, 2026-11-15: worked Thursday, off Friday and Saturday).
+    if (wsFrom < ws) {
+      const tz2 = Session.getScriptTimeZone() || 'Africa/Cairo';
+      const closed2 = (Array.isArray(cfg.closedDays) ? cfg.closedDays : String(cfg.closedDays === undefined ? 'Fri' : cfg.closedDays).split(/[,\s]+/)).map(String);
+      const p = new Date(Number(wsFrom.slice(0, 4)), Number(wsFrom.slice(5, 7)) - 1, Number(wsFrom.slice(8, 10)), 12);
+      let g = 0;
+      while (g++ < 6) {
+        const s2 = Utilities.formatDate(p, tz2, 'yyyy-MM-dd');
+        const isClosed = closed2.indexOf(Utilities.formatDate(p, tz2, 'EEE')) !== -1;
+        if (!isClosed && !(anyDay[s2] && !agentDay[s2])) break;
+        p.setDate(p.getDate() - 1);
+      }
+      wsFrom = Utilities.formatDate(p, tz2, 'yyyy-MM-dd');
+      if (from > wsFrom) from = wsFrom;
+      // That day the random pick is for last week's last worked day only (today is for side by side; today's data is partial).
+      const eve = new Date(Number(ws.slice(0, 4)), Number(ws.slice(5, 7)) - 1, Number(ws.slice(8, 10)) - 1, 12);
+      to = Utilities.formatDate(eve, tz2, 'yyyy-MM-dd');
+    }
     const weekCut = from < wsFrom;
     if (weekCut) from = wsFrom;
     const list = from <= to ? pool(from, to) : [], wider = false;
