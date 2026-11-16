@@ -1211,6 +1211,7 @@ function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
     if (body.action === 'quiz') return reply_(saveQuiz_(body)); // knowledge base quiz (needs a KB sign-in)
+    if (body.action === 'quizPractice') return reply_(kbPractice_(body)); // a practice round after the daily quiz (counted for the leads report, no points)
     if (body.action === 'kbOtpRequest') return reply_(kbOtpRequest_(body.email, body.via));
     if (body.action === 'kbOtpVerify') return reply_(kbOtpVerify_(body.email, body.code));
     if (body.action === 'translate') return reply_(translateTexts_(body)); // English for Arabic typed text in emails
@@ -1569,6 +1570,24 @@ function saveQuiz_(b) {
   } finally { lock.releaseLock(); }
   return { ok: true, name: name };
 }
+// Practice rounds after the daily quiz (the knowledge base allows 2 a day). Only today's counts are kept, in script
+// properties, so team leads can see who plays a lot; nothing goes to the Quiz tab and no points are given.
+function kbPracticeToday_() {
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const d = JSON.parse(PropertiesService.getScriptProperties().getProperty('kbPractice') || '{}');
+  return d.date === today ? d : { date: today, n: {} };
+}
+function kbPractice_(b) {
+  const who = kbWho_(b.session);
+  if (!who) return { ok: false, error: 'signed_out' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const d = kbPracticeToday_(), k = who.name;
+    d.n[k] = (d.n[k] || 0) + 1;
+    PropertiesService.getScriptProperties().setProperty('kbPractice', JSON.stringify(d));
+    return { ok: true, n: d.n[k] };
+  } finally { lock.releaseLock(); }
+}
 // Each agent picks a character for the quiz and the leaderboard. Only a picture id is kept (no photos).
 function kbAvatars_() { return JSON.parse(PropertiesService.getScriptProperties().getProperty('kbAvatars') || '{}'); }
 function kbAvatar_(b) {
@@ -1913,6 +1932,8 @@ function kbLeadsReport() {
     const top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 7);
     if (top.length) parts.push(mailBox_('🎯 Most missed questions this week (' + asked + ' quizzes)', '<ol style="margin:0;padding-inline-start:20px">' + top.map(function (k) { return '<li>' + enHtml_(k) + ' <span style="color:#A63D63">(' + cnt[k] + ' times)</span></li>'; }).join('') + '</ol><p style="margin:8px 0 0">These are the coaching priorities for next week.</p>'));
   }
+  const prac = kbPracticeToday_().n, pk = Object.keys(prac).sort(function (a, b) { return prac[b] - prac[a]; });
+  if (pk.length) parts.push(mailBox_('🎮 Practice rounds today (max 2 each)', '<p style="margin:0">' + pk.map(function (k) { return esc_(k) + ' ' + prac[k]; }).join(', ') + '</p><p style="margin:6px 0 0;color:#777;font-size:13px">Practice gives no points; it is extra training on the questions and their own mistakes.</p>'));
   const calls = bkLeadsBox_(today);
   if (calls) parts.unshift(calls);
   const ask = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ASK_NAME);
