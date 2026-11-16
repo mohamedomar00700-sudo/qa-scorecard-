@@ -417,6 +417,111 @@ function mailNote_(bg, border, color, title, body) {
     (title ? '<div style="font-weight:bold;margin-bottom:4px">' + title + '</div>' : '') + '<div style="color:' + MAIL_.ink + '" dir="auto">' + body + '</div></td></tr></table>';
 }
 
+// ---------- what exactly went wrong: evaluator comment → a specific mistake and how to fix it ----------
+// Generated from one source (the KB quiz uses the same ids for its questions). Written from the kinds of comments
+// evaluators write; no names or customer data. A comment can match up to 2 mistakes; no match → the item's own tip.
+const MISTAKES_ = [
+  { id: "slang", items: ["14", "16"], re: /slang|سلانج|عامي|عاميه|ماشي|معلش|إيه|ايه|بص[يى]?\b|كده|دلوقت|علشان|عشان|ثوان|باي|بردو|برضو|حنين|جامد|اوكيه|أوكيه|بقي|بقى/i, label: "Egyptian slang words on the call", tip: "Swap Egyptian slang for clear, polite Arabic that a UAE customer understands. Prepare your replacement words before the shift." },
+  { id: "english", items: ["14"], re: /english|انجليز|إنجليز|accent|doesn.?t speak arabic|dosen.?t speak arabic|لا يتحدث العربي/i, label: "Customer not comfortable in Arabic", tip: "If the customer struggles with Arabic, ask \"Do you prefer English?\" and wait for the answer before you go on." },
+  { id: "overused", items: ["13", "14", "16"], re: /كثير|كتير|اكتر من كلم|أكثر من كلم|overus|too many|repeat(ed|s)? (the )?word|تمام كثير/i, label: "Repeating the same word (تمام / حضرتك)", tip: "Don't repeat the same word after every sentence. Vary it (أكيد / حاضر / فاهمة حضرتك) and use حضرتك naturally, not in every line." },
+  { id: "clarity", items: ["13", "14", "2", "16"], re: /clear|واضح|مفهوم|filler|umm|\beh\b|tayeb|articulat|pronunc|حاد|غير موحد/i, label: "Clear speech and filler words", tip: "Speak clearly and at an even level: finish your words, drop fillers (umm, eh, tayeb) and pause instead." },
+  { id: "hesitant", items: ["13"], re: /متردد|تردد|hesita|confus|lack(ed)? confiden|disappoint|مش واثق/i, label: "Hesitant, unsure voice", tip: "Sound sure: know the answer from the guide before the call, and when you need to check, say so confidently and use hold properly." },
+  { id: "pace", items: ["13", "14"], re: /fast|سريع|مستعجل|speedy|pace|impatien|rush|raised (her|his)? ?voice|علت صوت|صوت عالي/i, label: "Speaking too fast or rushed", tip: "Slow down, especially on prices, dates and times, and repeat them once so the customer can confirm." },
+  { id: "energy", items: ["13", "2"], re: /نايم|sleep|bored|not active|monoton|ملل|طاقة|energ|flat|enthusias|disinterest/i, label: "Sleepy or bored tone", tip: "Sit up, smile while you talk and keep the same energy from the first second to the closing line." },
+  { id: "interrupt", items: ["6", "15"], re: /interrupt|interupt|attr?[ei]?put|قاطع|تقاطيع|مقاطع|didn.?t give .*chance/i, label: "Interrupting the customer", tip: "Let the customer finish, then confirm what you heard (\"So what matters most to you is…\") before you answer." },
+  { id: "notlisten", items: ["6", "4", "14"], re: /locat|موقع|out of area|understand|فهم|فاهم|unable to recommend|مرتين|twice|اكتر من مر|أكثر من مر|اكثر من مر|عدم سمع|not listen|listens|figure/i, label: "Catching what the customer already said (location, area, need)", tip: "Catch the details the customer already gave (area, branch, service). Confirm them back instead of asking twice." },
+  { id: "centername", items: ["2", "1", "C16"], re: /center|centre|clinic name|اسم المركز|المركز|الاسم|mispronoun|spell|wrong name|introduc/i, label: "Center name and introduction at the start", tip: "Open with your name and \"مركز H&P الطبي\" clearly, right after the greeting, without rushing it." },
+  { id: "lategreet", items: ["1"], re: /late|متأخر|after \d+ ?s|seconds/i, label: "Late greeting", tip: "Start speaking within 6 seconds of the line opening. Have your opening line ready before you dial." },
+  { id: "whatsapp", items: ["C9", "C13", "18", "11"], re: /what.?s|واتس|وتس/i, label: "Sending offers or the location on WhatsApp", tip: "When you promise to send offers or the location on WhatsApp, send them before you close the lead, to the number the customer asked for, and note it in Odoo." },
+  { id: "callback", items: ["C13", "C22", "C17", "C10"], re: /call (him|her|the cs|the customer)? ?back|callback|call later|after \d|بعد الساع|وقت اخر|وقت آخر|موعد المكالم|activity|off tomorrow|assign/i, label: "Calling back at the promised time", tip: "Set the callback as an Odoo activity at the exact time the customer asked (UAE time) and call on time. If you are off that day, assign the lead to a colleague." },
+  { id: "offerdetails", items: ["C8", "C9", "7"], re: /\b\d{3,4}\b|session|جلس|area|منطقة|منطقه|package|باكدج|باقة|mounjaro|مونجارو|price|سعر|offer details|included|بيشمل|informat|معلوم|self service|consultion|book any/i, label: "Offer details (price, sessions, areas, what is included)", tip: "Quote the offer line exactly as it is in the guide: price, number of sessions, which area(s) it covers and what is included. Open the offers page before you say a number." },
+  { id: "gift", items: ["C18", "C8"], re: /gift|هدي|deal|ديل|discount|خصم|تختار|chose|choose/i, label: "Gift and discount promises", tip: "Offer only the approved gift written in the offer. Never let the customer pick a gift from another service, and never promise a discount or a \"deal\"; pass special requests to your team leader." },
+  { id: "professional", items: ["16"], re: /مجال|field|ليكي|ليك عندنا|أم مين|ام مين|unprofessional|professional/i, label: "Unprofessional wording", tip: "Use polished wording: we offer \"services\" (خدمات), not \"fields\" (مجال). Address the customer as حضرتك, never انتي / انت." },
+  { id: "hold", items: ["17"], re: /hold|هولد|exceed|1 ?min|دقيق|mute|ميوت/i, label: "Hold etiquette", tip: "Ask before you put the customer on hold, use the hold button (not mute), keep it under 1 minute and thank them when you come back." },
+  { id: "deadair", items: ["17", "C15"], re: /silen|سكوت|dead ?air|15 ?s/i, label: "Long silence on the call", tip: "Never leave more than 15 seconds of silence. Talk the customer through what you are doing, or use hold." },
+  { id: "discovery", items: ["4", "5", "7", "9"], re: /discover|probing|ask(ed)? (about|the|any)|didn.?t ask|مسئلتش|مسألتش|سبب|reason|need|احتياج/i, label: "Discovery questions before the offer", tip: "Ask 2-3 questions first (concern and area, past treatments, preferred branch and time, reason for not booking) and only then offer what fits." },
+  { id: "oneservice", items: ["7"], re: /only one|one service|only offer|other (available )?services|explor|alternative|forgot/i, label: "Offering only one service", tip: "Don't stop at one service. Link the customer's need to the other services that fit (for weight loss, for example, the nutrition and Mounjaro options)." },
+  { id: "doctorname", items: ["7", "9", "11", "C9"], re: /doctor|دكتور|الدكتور|dr\b/i, label: "The doctor's name", tip: "Know the doctor for the service and branch (see the service page in the guide) and mention the doctor's name when you summarise the booking." },
+  { id: "odootag", items: ["C21", "18"], re: /tag|stage|تاج|black ?list|un_?-?reachable|not interested|disposition|مرحلة/i, label: "Odoo tag and stage", tip: "Pick the tag and stage that match what the customer actually said (for example Not Interested is not Un-Reachable or Black List). Check the Odoo page in the guide if unsure." },
+  { id: "odooname", items: ["C10", "18", "C21"], re: /name|اسم العميل|اسم العمل|الاسم/i, label: "Logging the customer's name in Odoo", tip: "Whenever the customer says their name, write it on the lead or ticket in Odoo before you close." },
+  { id: "odooactivity", items: ["C22", "18", "C21"], re: /activity|mark as done|due|ملخص|summary|notes|crm|update|logged|at \d/i, label: "Odoo notes and next activity", tip: "After every call: mark the activity done, write a short summary in the customer's words, and set the next activity when a follow-up is needed." },
+  { id: "booking", items: ["C10", "11"], re: /booking|book|حجز|موعد|ميعاد|date|address|عنوان|building|مبنى|pin|landmark|الفرع|branch|mail/i, label: "Booking summary (address, date, branch)", tip: "Before closing, read back the service, branch with building number and landmark (offer the location pin), day, date and time, and the doctor. The booking email must match exactly what you agreed." },
+  { id: "freeconsult", items: ["3", "8", "C17"], re: /free consult|consult|استشار/i, label: "Offering the free consultation", tip: "Always offer the free consultation as the no-commitment next step, even to a relative the customer mentions." },
+  { id: "closing", items: ["12", "C15", "17"], re: /clos|اقفال|إقفال|اغلاق|إغلاق|hang|استفسار اخر|استفسار آخر|ended the call|قفل/i, label: "Closing the call", tip: "Ask \"Is there anything else I can help you with?\" and close with the approved closing line. Never end the call abruptly." },
+  { id: "gender", items: ["15"], re: /رجل|راجل|مواطن|gender|\bmale\b|female|مذكر|مؤنث/i, label: "Addressing the customer correctly", tip: "Listen for who you are talking to and address them correctly (male / female) from the first reply; correct yourself politely if you slip." },
+  { id: "competitor", items: ["9"], re: /device|جهاز|competitor|منافس|بيعمله ب|candela|كانديلا|elsewhere|another center/i, label: "Price objection or comparison with another center", tip: "When the customer compares prices: ask which device and how many sessions they get elsewhere, explain what our Candela GentleMax Pro Plus offers, and invite them to the free consultation. Never speak badly of the other center." },
+  { id: "medical", items: ["C1", "C2", "C6", "C4"], re: /meso|botox|بوتوكس|medical|طبي|describ|بيشد|guarantee|مضمون|نتيج|result|wrong info/i, label: "Medical information or result promises", tip: "Describe treatments only with the approved wording in the guide, never promise results, and leave suitability and medical questions to the doctor in the free consultation." },
+];
+const SLANG_ = [["ماشي", "حاضر / أكيد"], ["أوكيه", "حاضر / أكيد"], ["معلش", "عذراً / آسفة على الإزعاج"], ["إيه", "عفواً، ممكن توضّح أكتر؟"], ["بصي", "اسمحيلي أوضح لحضرتك"], ["بص", "اسمحلي أوضح لحضرتك"], ["كده", "بهذا الشكل"], ["دلوقتي", "حالياً"], ["علشان", "لأن"], ["ثواني", "لحظة من فضلك"], ["باي", "مع السلامة، يومك سعيد"], ["بردو", "أيضاً"], ["كمان", "أيضاً"], ["حنينة", "مناسبة جداً"], ["جامد جداً", "ممتاز"], ["حلو أوي", "ممتاز"], ["امتى", "أي وقت يناسب حضرتك؟"], ["بقى", "–"], ["ديه", "هذه"], ["دول", "هؤلاء / هذه"], ["اه", "نعم"], ["هتاخدي", "هتستفيدي من"]];
+const ITEM_COACH_ = {"1": "Start speaking as soon as the call connects; have the opening line ready before dialling.", "2": "Always say your name and 'H&P Medical Center' clearly at the start.", "3": "Say why you are calling (her enquiry / the offer / the follow-up) and lead with the free consultation right away. If she says she is busy, set a call back time.", "4": "Ask at least 2–3 questions about the concern, area, previous treatments and expectations before mentioning any price.", "5": "Ask how the consultation went and dig into the real reason for not booking (price, timing, doubts, doctor's advice) before offering anything.", "6": "Let the customer finish, then confirm what you heard ('so your main concern is…') before answering.", "7": "Present one offer that matches what she told you, benefit first, instead of reading the offers list.", "8": "Explain the value of the free consultation: a doctor assesses her case and the follow-up is free too.", "9": "Use acknowledge, clarify, answer, then ask again; practise the two top objections from the guide.", "10": "Listen, apologise for the experience, collect name, number, branch, date and issue, and explain the clinic team will follow up. No promises.", "11": "Before closing, repeat the service, branch and landmark, date and time, and any pre-visit instructions.", "12": "Offer further help and use the closing line; don't end abruptly.", "13": "Smile while talking, keep a steady pace and energy; listen back to this call to hear the difference.", "14": "Use clear Arabic that a UAE customer understands; avoid Egyptian slang and English jargon. Review the Gulf terms page.", "15": "Acknowledge her concern before answering and address her respectfully throughout.", "16": "Replace negative phrases ('I can't') with what you can do; keep it warm but professional.", "17": "Ask before placing on hold, keep it under 1 minute, thank her after; fill silences while you check information.", "18": "Re-read your Odoo notes before saving; keep them short, clear and complete.", "C1": "Never advise on medical suitability. Say: 'The doctor will assess this in the free consultation' and book it.", "C2": "Use only approved wording: 'results vary from person to person'. Never 'guaranteed', 'permanent', '100%' or kg promises.", "C3": "Review the pregnancy rule: put her on Hold and schedule a call after delivery; book only if she insists, and note it.", "C4": "Don't quote VAT %, installment fees or session counts. Say these details are confirmed before booking.", "C5": "Confirm you are speaking to the lead herself before discussing any treatment or personal details.", "C6": "Use only the approved reasons for calling; never invent deadlines or pretexts.", "C7": "Respect a clear refusal: thank the customer, mark 'Not interested' in Odoo and do not call again.", "C8": "Check the offers sheet before quoting and always say prices are before VAT.", "C9": "Use the booking checklist: branch and address, hours, free consultation, pre-laser prep, shaving fee.", "C10": "Double-check date, time, branch and service in Odoo before ending the call, and read them back to the customer.", "C11": "Log every complaint or negative experience in Odoo and escalate it to the UAE team the same day.", "C12": "When a customer asks for a supervisor or something you can't decide, say you'll pass it on and escalate it to your team leader the same day.", "C13": "Set every promise as an Odoo activity with a reminder: call at the promised time, and send what you promised on WhatsApp as soon as the call ends. If WhatsApp is blocked, note it in Odoo and use 📲 in the knowledge base so a colleague sends it.", "C14": "Stay calm and polite even when the customer is not; never argue. Ask the TL for support on difficult calls.", "C15": "Never hang up on or ignore a customer; if the line is bad, call back and note it in Odoo.", "C16": "Introduce the clinic only as 'H&P Medical Center'.", "C17": "Always offer the free consultation and handle at least one objection before ending the call.", "C18": "Offer only what is on the approved offers sheet; escalate any special request to the TL.", "C19": "Take complaint details and escalate; don't promise outcomes or comment on the doctor or clinic.", "C20": "Follow the mandatory script lines, calling hours and attempt rules.", "C21": "Update the lead stage, disposition and reason for not booking in Odoo right after every call.", "C22": "Add clear notes and set the next activity (callback date) on every lead that needs follow-up.", "C23": "Search Odoo by phone number before creating a new lead or activity.", "C24": "Keep comments about the clinic, doctors, colleagues and competitors positive or neutral."};
+const SVC_HINTS_ = [['laser', /laser|ليزر|lhr|hrl/i], ['beard', /beard|لحي|لحيه|لحية/i], ['mounjaro', /mounjaro|مونجارو/i], ['nutrition', /nutrition|تغذي|diet|weight|وزن/i],
+  ['botox', /botox|بوتوكس/i], ['filler', /filler|فيلر/i], ['hifu', /hifu|هايفو/i], ['sculptra', /sculptra|سكلبترا/i], ['meso', /meso|ميزو/i], ['body', /full body|فل بادي|جسم كامل/i]];
+function arNorm_(s) { return String(s || '').replace(/[ً-ْـ]/g, '').replace(/[إأآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').toLowerCase(); }
+// The mistakes a missed item's comment points to (max 2). Calls form only; other forms match on the comment alone.
+function mistakesOf_(it, form) {
+  if (!it || !(it.result === 'Not met' || it.result === 'Error')) return [];
+  const c = String(it.comment || ''), id = String(it.id || '');
+  if (!c) return [];
+  if (form && form !== 'calls') return MISTAKES_.filter(function (m) { return m.re.test(c); }).slice(0, 1);
+  const out = MISTAKES_.filter(function (m) { return m.items.indexOf(id) !== -1 && m.re.test(c); }).slice(0, 2);
+  if (!out.length && id === '14' && /[؀-ۿ]/.test(c)) return MISTAKES_.filter(function (m) { return m.id === 'slang'; });
+  return out;
+}
+// Egyptian words quoted in a comment → [word, better word]
+function slangIn_(text) {
+  const t = ' ' + arNorm_(text).replace(/[^؀-ۿa-z0-9]+/g, ' ') + ' ', seen = {};
+  return SLANG_.filter(function (s) { const k = arNorm_(s[0]); if (seen[s[1]] || t.indexOf(' ' + k + ' ') === -1) return false; seen[s[1]] = 1; return true; });
+}
+function svcIn_(text) { return SVC_HINTS_.filter(function (h) { return h[1].test(String(text || '')); }).map(function (h) { return h[0]; }); }
+// The same improvement point as one line of the email ("Next time: …").
+function fixLine_(it, form) {
+  const ms = mistakesOf_(it, form);
+  let tip = esc_(ms.length ? ms.map(function (m) { return m.tip; }).join(' ') : (form === 'calls' || !form ? ITEM_COACH_[String(it.id)] || '' : ''));
+  if (ms.some(function (m) { return m.id === 'slang'; })) {
+    const sw = slangIn_(it.comment).filter(function (s) { return s[1] !== '–'; }).slice(0, 4);
+    if (sw.length) tip += ' Try: ' + sw.map(function (s) { return '<span dir="rtl">«' + esc_(s[1]) + '»</span> instead of <span dir="rtl">«' + esc_(s[0]) + '»</span>'; }).join(', ') + '.';
+  }
+  return tip;
+}
+// Team mistakes (14 days) and each agent's own (45 days) from the evaluators' comments, for the knowledge base quiz.
+// Returns ids and counts only; comments never leave the sheet.
+function mistakeScan_() {
+  const cache = CacheService.getScriptCache(), hit = cache.get('mistakeScan');
+  if (hit) return JSON.parse(hit);
+  const sh = sheet_(), n = sh.getLastRow() - 1, tz = Session.getScriptTimeZone();
+  const res = { team: {}, slang: {}, svc: {}, evals: 0, by: {} };
+  if (n >= 1) {
+    const d14 = Utilities.formatDate(new Date(Date.now() - 14 * 864e5), tz, 'yyyy-MM-dd'), d45 = Utilities.formatDate(new Date(Date.now() - 45 * 864e5), tz, 'yyyy-MM-dd');
+    const take = Math.min(n, 800), del = deletedIds_();
+    sh.getRange(2 + n - take, JSON_COL, take, 1).getValues().flat().forEach(function (j) {
+      let r; try { r = JSON.parse(j); } catch (e) { return; }
+      if (!r || r.test || r.sampleRef || r.rolePlay || del.indexOf(r.id) !== -1) return;
+      if (['live', 'program', 'certcall', 'coaching', 'postcoach', 'tlnc'].indexOf(r.purpose || 'live') === -1) return;
+      const day = String(r.evalDate || r.interactionDate || '').slice(0, 10);
+      if (day < d45) return;
+      const team = day >= d14, k = nameKey_(r.agent || ''); if (team) res.evals++;
+      const mine = k ? (res.by[k] = res.by[k] || { m: {}, slang: {}, svc: {} }) : null;
+      (r.items || []).forEach(function (it) {
+        mistakesOf_(it, r.form).forEach(function (m) {
+          if (team) res.team[m.id] = (res.team[m.id] || 0) + 1;
+          if (mine) mine.m[m.id] = (mine.m[m.id] || 0) + 1;
+          if (m.id === 'slang') slangIn_(it.comment).forEach(function (s) { if (team) res.slang[s[0]] = (res.slang[s[0]] || 0) + 1; if (mine) mine.slang[s[0]] = 1; });
+          if (m.id === 'offerdetails' || m.id === 'oneservice' || m.id === 'competitor') svcIn_(it.comment).forEach(function (h) { if (team) res.svc[h] = (res.svc[h] || 0) + 1; if (mine) mine.svc[h] = 1; });
+        });
+      });
+    });
+  }
+  try { cache.put('mistakeScan', JSON.stringify(res), 600); } catch (e) {}
+  return res;
+}
+function topKeys_(o, n) { return Object.keys(o || {}).sort(function (a, b) { return o[b] - o[a]; }).slice(0, n); }
+function mistakeFocus_(meName) {
+  const s = mistakeScan_();
+  const out = { evals: s.evals, team: topKeys_(s.team, 8).map(function (id) { return { id: id, n: s.team[id] }; }), slang: topKeys_(s.slang, 10), svc: topKeys_(s.svc, 4) };
+  if (meName) { const m = s.by[nameKey_(meName)]; out.mine = m ? { m: topKeys_(m.m, 6).map(function (id) { return { id: id, n: m.m[id] }; }), slang: Object.keys(m.slang), svc: Object.keys(m.svc) } : { m: [], slang: [], svc: [] }; }
+  return out;
+}
+
 function resultMailHtml_(r, o) {
   const c = MAIL_, its = r.items || [], fb = r.feedback || {};
   const score = Math.max(0, Math.min(1, Number(r.final) || 0)), pctTxt = pct_(r.final);
@@ -464,12 +569,18 @@ function resultMailHtml_(r, o) {
   // What needs fixing: critical errors first, each with the evaluator's comment.
   const missed = its.filter(function (i) { return i.result === 'Not met' || i.result === 'Error'; })
     .sort(function (a, b) { return (b.result === 'Error') - (a.result === 'Error'); });
+  // The exact improvement points, from each missed item + the evaluator's comment (shown when there are 2 or more).
+  const pts = [], seenPt = {};
+  missed.forEach(function (i) { mistakesOf_(i, r.form).forEach(function (m) { if (!seenPt[m.id]) { seenPt[m.id] = 1; pts.push(m.label); } }); });
+  if (pts.length >= 2) inner += mailSection_('🎯 Your improvement points', '<ol style="margin:0;padding-left:22px;text-align:left">' + pts.slice(0, 5).map(function (x) { return '<li style="margin:2px 0">' + esc_(x) + '</li>'; }).join('') + '</ol>' +
+    '<p style="margin:6px 0 0;font-size:12px;color:' + c.soft + '">How to fix each one is under the items below. They will also come up in your knowledge base quiz.</p>');
   if (missed.length) inner += mailSection_('Items to work on (' + missed.length + ')', missed.map(function (i) {
     const crit = i.result === 'Error';
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0;border-collapse:collapse"><tr><td align="left" valign="top" style="text-align:left;border:1px solid ' + c.line + ';border-left:4px solid ' + (crit ? c.red : c.amber) + ';padding:10px 12px">' +
       '<div style="font-size:11px;font-weight:bold;color:' + (crit ? c.red : c.amber) + '">' + (crit ? 'Critical error · ' + esc_(i.kind) : 'Non-critical') + ' · <span dir="ltr">' + esc_(i.id) + '</span></div>' +
       '<div dir="auto" style="color:' + c.ink + '">' + esc_(i.text) + '</div>' +
-      (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + enHtml_(i.comment) + '</div>' : '') + '</td></tr></table>';
+      (i.comment ? '<div dir="auto" style="color:' + c.soft + ';font-size:13px;margin-top:3px">💬 ' + enHtml_(i.comment) + '</div>' : '') +
+      (fixLine_(i, r.form) ? '<div style="color:' + c.green + ';font-size:13px;margin-top:5px"><b>✅ Next time:</b> <span style="color:' + c.ink + '">' + fixLine_(i, r.form) + '</span></div>' : '') + '</td></tr></table>';
   }).join(''));
   else inner += mailSection_('Items', mailNote_(c.greenBg, c.green, c.green, '', 'All items were done right 👌'));
 
@@ -1514,7 +1625,7 @@ function pulse_(p) {
   const avs = kbAvatars_();
   const list = Object.keys(board).map(function (k) { const b = board[k]; return { name: b.name, points: b.points, days: b.days, pct: b.asked ? Math.round(100 * b.right / b.asked) : 0, monthly: b.monthly, streak: streak_(days[k] || [], today), av: avs[k] || '' }; })
     .sort(function (a, b) { return b.points - a.points || b.pct - a.pct || a.name.localeCompare(b.name); });
-  const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14), hard: quizHard_(today) };
+  const out = { ok: true, today: today, month: month, board: list.slice(0, 30), doneToday: doneToday, top: topMissed_(14), hard: quizHard_(today), focus: mistakeFocus_(me ? me.name : '') };
   if (p.session) {
     if (!me) out.signedOut = true;
     else {
