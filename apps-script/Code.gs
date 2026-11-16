@@ -1223,6 +1223,8 @@ function doPost(e) {
     if (body.action === 'kbCall') return reply_(frAfter_(kbCall_(body)));
     if (body.action === 'kbFresha') return reply_(kbFresha_(body)); // team leads: booking entered in Fresha
     if (body.action === 'kbAssign') return reply_(kbAssign_(body));
+    if (body.action === 'kbEdSave') return reply_(kbEdSave_(body)); // knowledge base content editor (team leads, Quality, owner)
+    if (body.action === 'kbEdUndo') return reply_(kbEdUndo_(body));
     if (body.action === 'otpRequest') return reply_(otpRequest_(body.email));
     if (body.action === 'otpVerify') return reply_(otpVerify_(body.email, body.code));
     const me = who_(body);
@@ -1370,6 +1372,9 @@ function doGet(e) {
   if (p.action === 'kbMisses') return reply_(kbMisses_(p)); // signed-in evaluators only: what agents searched for and didn't find
   if (p.action === 'kbBookings') return reply_(kbBookings_(p)); // team leads: bookings for Fresha (list + download)
   if (p.action === 'kbCalls') return reply_(kbCalls_(p)); // signed-in: my follow-up calls (team leads: everyone's)
+  if (p.action === 'kbEdWho') return reply_(kbEdWho_(p)); // knowledge base content editor: may I edit?
+  if (p.action === 'kbEdRead') return reply_(kbEdRead_(p)); // ... the content tabs with row numbers
+  if (p.action === 'kbEdLog') return reply_(kbEdLog_(p)); // ... the change log
   if (p.action === 'kbDash') return reply_(kbDash_(p)); // signed-in evaluators only // public list, no names: questions waiting for / answered by the client
   if (p.action === 'pulse') return reply_(pulse_(p)); // public: knowledge base quiz board + team's most missed items (no names, no customers)
   const me = who_(p);
@@ -2727,4 +2732,172 @@ function promiseMark_(b, me) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ---------- knowledge base content editor (Bousla "✏️ تعديل المحتوى") ----------
+// Team leads, Quality and the owner (Roster Evaluator / Owner roles) add, edit and hide offers, prices, doctors,
+// updates, the team list and the guide's built-in text straight from the knowledge base, without opening the sheet.
+// The content lives in the KB sheet below (the one the guide reads); every change is logged here in "KB edits"
+// with who, when, the old and the new values, so any change can be undone.
+const KB_CONTENT_ID = '11iBUzUHrWENOZsSaiF-MUDwf1HfjdXkydhdeeJr2WUc';
+const KB_ED_TABS = ['العروض', 'أسعار عادية', 'الدكاترة', 'الاستثناءات', 'التحديثات', 'الفريق', 'محتوى إضافي'];
+const KB_ED_EXTRA = 'محتوى إضافي';
+const KB_ED_EXTRA_HEAD = ['القسم', 'الكود', 'الإجراء', 'بالعربي (JSON)', 'English (JSON)', 'آخر تعديل بواسطة', 'وقت التعديل', 'متعدلش هنا: التعديل من صفحة "تعديل المحتوى" في بوصلة'];
+const KB_ED_LOG = 'KB edits';
+const KB_ED_LOG_HEAD = ['No', 'When', 'By', 'Email', 'Tab', 'Change', 'Row', 'Item', 'Before (JSON)', 'After (JSON)', 'Undone'];
+
+function kbEditor_(session) {
+  const who = kbWho_(session);
+  if (!who) return { error: 'signed_out' };
+  const em = String(who.email || '').toLowerCase();
+  const p = rosterPeople_().filter(function (x) { return x.email.toLowerCase() === em; })[0];
+  if (!p || !isEvalRole_(p.role)) return { error: 'forbidden' };
+  return { who: { name: p.name || who.name, email: em, owner: /owner/i.test(p.role) } };
+}
+function kbEdSheet_(tab) {
+  if (KB_ED_TABS.indexOf(tab) < 0) return null;
+  const ss = SpreadsheetApp.openById(KB_CONTENT_ID);
+  let sh = ss.getSheetByName(tab);
+  if (!sh && tab === KB_ED_EXTRA) {
+    sh = ss.insertSheet(tab);
+    sh.getRange(1, 1, 1, KB_ED_EXTRA_HEAD.length).setValues([KB_ED_EXTRA_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function kbEdLogSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(KB_ED_LOG);
+  if (!sh) {
+    sh = ss.insertSheet(KB_ED_LOG);
+    sh.getRange(1, 1, 1, KB_ED_LOG_HEAD.length).setValues([KB_ED_LOG_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function kbEdWidth_(sh) { return Math.max(1, Math.min(26, sh.getLastColumn())); }
+function kbEdRows_(sh) {
+  const w = kbEdWidth_(sh), n = sh.getLastRow();
+  const head = sh.getRange(1, 1, 1, w).getDisplayValues()[0];
+  const rows = n < 2 ? [] : sh.getRange(2, 1, n - 1, w).getDisplayValues().map(function (v, i) { return { n: i + 2, v: v }; });
+  return { head: head, rows: rows, width: w };
+}
+function kbEdTrim_(v) { const a = (v || []).map(function (x) { return String(x == null ? '' : x).replace(/^'(?=[=+@-])/, '').trim(); }); while (a.length && !a[a.length - 1]) a.pop(); return a; }
+function kbEdSame_(a, b) { return JSON.stringify(kbEdTrim_(a)) === JSON.stringify(kbEdTrim_(b)); }
+function kbEdClean_(vals) {
+  return (Array.isArray(vals) ? vals : []).slice(0, 26).map(function (x) {
+    let s = String(x == null ? '' : x).replace(/\r\n?/g, '\n').slice(0, 8000);
+    if (/^[=+@]/.test(s) || /^-[^\d\s]/.test(s)) s = "'" + s; // never a formula
+    return s;
+  });
+}
+// Writes plain text so dates, times and "400 / 700" stay exactly as typed.
+function kbEdWrite_(sh, row, vals) {
+  const w = Math.max(vals.length, 1);
+  if (sh.getMaxColumns() < w) sh.insertColumnsAfter(sh.getMaxColumns(), w - sh.getMaxColumns());
+  const pad = vals.slice(); while (pad.length < w) pad.push('');
+  const rg = sh.getRange(row, 1, 1, w);
+  rg.setNumberFormat('@');
+  rg.setValues([pad]);
+}
+function kbEdFind_(sh, vals, prefer) {
+  const d = kbEdRows_(sh);
+  if (prefer) { const r = d.rows.filter(function (x) { return x.n === prefer; })[0]; if (r && kbEdSame_(r.v, vals)) return prefer; }
+  const hit = d.rows.filter(function (x) { return kbEdSame_(x.v, vals); })[0];
+  return hit ? hit.n : 0;
+}
+function kbEdLogAdd_(who, tab, change, row, item, before, after) {
+  const sh = kbEdLogSheet_(), no = Math.max(0, sh.getLastRow() - 1) + 1;
+  sh.appendRow([no, new Date(), who.name, who.email, tab, change, row || '', String(item || '').slice(0, 200), before ? JSON.stringify(before) : '', after ? JSON.stringify(after) : '', '']);
+  return no;
+}
+
+function kbEdWho_(p) {
+  const ed = kbEditor_(p.session);
+  return ed.error ? { ok: false, error: ed.error } : { ok: true, name: ed.who.name, owner: ed.who.owner };
+}
+function kbEdRead_(p) {
+  const ed = kbEditor_(p.session);
+  if (ed.error) return { ok: false, error: ed.error };
+  const tabs = p.tab ? [String(p.tab)] : KB_ED_TABS, out = {};
+  tabs.forEach(function (t) { const sh = kbEdSheet_(t); if (sh) { const d = kbEdRows_(sh); out[t] = { head: d.head, rows: d.rows }; } });
+  return { ok: true, tabs: out };
+}
+// op: add (append, or under the header with top:true) | edit (row + old values must still match) | delete (row + old)
+function kbEdSave_(b) {
+  const ed = kbEditor_(b.session);
+  if (ed.error) return { ok: false, error: ed.error };
+  const tab = String(b.tab || ''), sh = kbEdSheet_(tab);
+  if (!sh) return { ok: false, error: 'bad_tab' };
+  const op = String(b.op || ''), vals = kbEdClean_(b.vals), item = String(b.item || '');
+  if ((op === 'add' || op === 'edit') && !kbEdTrim_(vals).length) return { ok: false, error: 'empty' };
+  const lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    let row = 0, before = null;
+    if (op === 'edit' || op === 'delete') {
+      row = Math.floor(Number(b.row));
+      if (op === 'delete' && row < 2) return { ok: false, error: 'bad_row' };
+      const cur = row >= 1 && row <= sh.getLastRow() ? sh.getRange(row, 1, 1, kbEdWidth_(sh)).getDisplayValues()[0] : null;
+      if (!cur || !kbEdSame_(cur, b.old)) {
+        const moved = kbEdFind_(sh, b.old || [], 0); // someone added or removed a row above it
+        if (!moved) return { ok: false, error: 'changed', current: cur };
+        row = moved;
+      }
+      before = kbEdTrim_(sh.getRange(row, 1, 1, kbEdWidth_(sh)).getDisplayValues()[0]);
+    }
+    if (op === 'add') {
+      if (b.top && sh.getLastRow() >= 1) { sh.insertRowAfter(1); row = 2; } else row = sh.getLastRow() + 1;
+      kbEdWrite_(sh, row, vals);
+    } else if (op === 'edit') {
+      const w = Math.max(vals.length, kbEdWidth_(sh)), pad = vals.slice(); while (pad.length < w) pad.push('');
+      kbEdWrite_(sh, row, pad);
+    } else if (op === 'delete') {
+      sh.deleteRow(row);
+    } else return { ok: false, error: 'bad_op' };
+    const after = op === 'delete' ? null : kbEdTrim_(vals);
+    const no = kbEdLogAdd_(ed.who, tab, op, row, item, before, after);
+    return { ok: true, row: op === 'delete' ? 0 : row, no: no };
+  } finally { lock.releaseLock(); }
+}
+function kbEdLog_(p) {
+  const ed = kbEditor_(p.session);
+  if (ed.error) return { ok: false, error: ed.error };
+  const sh = kbEdLogSheet_(), n = sh.getLastRow() - 1, tz = Session.getScriptTimeZone();
+  if (n < 1) return { ok: true, items: [] };
+  const k = Math.min(n, 150);
+  const items = sh.getRange(n - k + 2, 1, k, KB_ED_LOG_HEAD.length).getValues().reverse().map(function (r) {
+    return { no: r[0], at: r[1] instanceof Date ? Utilities.formatDate(r[1], tz, 'yyyy-MM-dd HH:mm') : String(r[1]), by: r[2], tab: r[4], op: r[5], row: r[6], item: r[7],
+      before: r[8] ? JSON.parse(r[8]) : null, after: r[9] ? JSON.parse(r[9]) : null, undone: String(r[10] || '') };
+  });
+  return { ok: true, items: items };
+}
+function kbEdUndo_(b) {
+  const ed = kbEditor_(b.session);
+  if (ed.error) return { ok: false, error: ed.error };
+  const log = kbEdLogSheet_(), no = Math.floor(Number(b.no));
+  if (!(no >= 1 && no <= log.getLastRow() - 1)) return { ok: false, error: 'not_found' };
+  const lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    const r = log.getRange(no + 1, 1, 1, KB_ED_LOG_HEAD.length).getValues()[0];
+    if (Number(r[0]) !== no) return { ok: false, error: 'not_found' };
+    if (String(r[10] || '')) return { ok: false, error: 'already_undone' };
+    if (String(r[5]).indexOf('undo') === 0) return { ok: false, error: 'is_undo' };
+    const tab = String(r[4]), sh = kbEdSheet_(tab), op = String(r[5]), prefer = Number(r[6]) || 0;
+    if (!sh) return { ok: false, error: 'bad_tab' };
+    const before = r[8] ? JSON.parse(r[8]) : null, after = r[9] ? JSON.parse(r[9]) : null;
+    let row = 0;
+    if (op === 'add' || op === 'edit') {
+      row = kbEdFind_(sh, after, prefer);
+      if (!row) return { ok: false, error: 'changed_since' }; // edited again after this change: undo the newer one first
+      if (op === 'add') sh.deleteRow(row);
+      else { const w = Math.max(before.length, kbEdWidth_(sh)), pad = before.slice(); while (pad.length < w) pad.push(''); kbEdWrite_(sh, row, pad); }
+    } else if (op === 'delete') {
+      row = Math.min(Math.max(2, prefer), sh.getLastRow() + 1);
+      if (row <= sh.getLastRow()) sh.insertRowBefore(row);
+      kbEdWrite_(sh, row, before);
+    } else return { ok: false, error: 'bad_op' };
+    log.getRange(no + 1, 11).setValue('Undone ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' by ' + ed.who.name);
+    kbEdLogAdd_(ed.who, tab, 'undo #' + no, row, r[7], after, op === 'add' ? null : before);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
