@@ -1793,7 +1793,10 @@ function kbMisses_(p) {
 //  • kbDailyDigest at 9 am: ONE email to everyone in the Roster (only when there is something new): new knowledge base
 //    updates (the "التحديثات" tab of the KB sheet), newly answered client questions, yesterday's quiz stars, and on the
 //    first days of a month the monthly champions.
-//  • kbCallsReminder at 10 am: each agent with booking follow-up calls today gets a short list (see Bookings below).
+//  • kbCallsReminder at 7 am Cairo (9 am UAE): each agent with booking follow-ups today gets a short list before the
+//    10:30 AM UAE WhatsApp reminders (see Bookings below).
+//  • kbCallsAfternoon at 3 pm Cairo: each agent gets the day-before customers who still haven't replied, for the
+//    5:00 PM Saudi time WhatsApp (4 pm Cairo).
 //  • kbLeadsReport at 3 pm: to the operations team leads (and the owner): who did today's quiz, who didn't yet, and on
 //    Thursdays the quiz questions the team got wrong most this week, for coaching.
 // Fridays are skipped. Emails go from the account that owns this script, with the sender name below.
@@ -1801,9 +1804,10 @@ const KB_SHEET_ID = '1kKXesKcnse3ofMTc0_FbuUWOz6I6fPf7';
 const KB_LINK = 'https://hidden-hat-5831.mohamed-omar00700.workers.dev/';
 const KB_SENDER = 'H&P Knowledge Base';
 function setupKbEmails() {
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport', 'kbCallsReminder'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport', 'kbCallsReminder', 'kbCallsAfternoon'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('kbDailyDigest').timeBased().everyDays(1).atHour(9).create();
-  ScriptApp.newTrigger('kbCallsReminder').timeBased().everyDays(1).atHour(10).create();
+  ScriptApp.newTrigger('kbCallsReminder').timeBased().everyDays(1).inTimezone('Africa/Cairo').atHour(7).create();
+  ScriptApp.newTrigger('kbCallsAfternoon').timeBased().everyDays(1).inTimezone('Africa/Cairo').atHour(15).create();
   ScriptApp.newTrigger('kbLeadsReport').timeBased().everyDays(1).atHour(15).create();
   kbNewsNew_(true); // what's already in the updates tab counts as sent
   return 'ok';
@@ -2031,10 +2035,13 @@ function kbDashData_(p, who, acc) {
 }
 
 // ---------- booking follow-up calls (knowledge base) ----------
-// Every booking email sent from the knowledge base is also saved here, so the agent is reminded of the 3 follow-up calls:
-//  1) confirm: the working day before the appointment (Fridays are off, so a Saturday appointment is confirmed on Thursday)
-//  2) same day: on the appointment day, before the appointment
-//  3) after the visit: the next working day (did they go, how was it)
+// Every booking email sent from the knowledge base is also saved here, so the agent is reminded of the 3 follow-ups.
+// Client's confirmed reminder process (17 Nov 2026), times as the client wrote them:
+//  1) the day before (working day; Fridays are off, so a Saturday appointment is done on Thursday):
+//     WhatsApp reminder 10:30-11:00 AM UAE → no reply: call 30 minutes later → still no reply: WhatsApp at 5:00 PM Saudi time → no reply: call
+//  2) the visit day: WhatsApp reminder 10:30-11:00 AM UAE → no reply: call 30 minutes later
+//  3) after the visit: the next working day (did they go, how was it); not part of the client's process, kept from before
+// Each "no reply" step is saved as 'noreply (n)' in the result column; n tells the knowledge base which step is next.
 // A call is skipped when the booking itself was made that day (the booking call already covers it).
 // Team leads (any Evaluator / Owner) see everyone's calls, see who is off today and can give a call to someone else.
 // Result columns can also be edited by hand: the first word is the result (confirmed, noanswer, rescheduled, cancelled, went, noshow, n/a).
@@ -2072,7 +2079,11 @@ function bkNow_() { return Utilities.formatDate(new Date(), Session.getScriptTim
 function bkRes_(v) { // 'confirmed · Nada · 03 Nov 14:20' → {key, tries}
   const s = String(v || '').trim().toLowerCase(); if (!s) return { key: '', tries: 0 };
   const m = /^([a-z/]+)(?:\s*\((\d+)\))?/.exec(s);
-  return { key: m ? m[1] : 'other', tries: m && m[2] ? Number(m[2]) : (m && m[1] === 'noanswer' ? 1 : 0) };
+  return { key: m ? m[1] : 'other', tries: m && m[2] ? Number(m[2]) : (m && (m[1] === 'noanswer' || m[1] === 'noreply') ? 1 : 0) };
+}
+function bkAt_(v) { // when the last step was saved ('… · 17 Nov 10:42' → epoch ms), so the knowledge base can say when the next step is due
+  const m = /(\d{2} [A-Za-z]{3} \d{2}:\d{2})\s*$/.exec(String(v || '')); if (!m) return 0;
+  try { const tz = Session.getScriptTimeZone(); return Utilities.parseDate(m[1] + ' ' + Utilities.formatDate(new Date(), tz, 'yyyy'), tz, 'dd MMM HH:mm yyyy').getTime(); } catch (e) { return 0; }
 }
 const BK_DONE_ = { confirmed: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1, 'n/a': 1, other: 1 };
 function bkLead_(who) { return !!who && kbAccess_(who.email).dash; }
@@ -2139,7 +2150,7 @@ function bkCalls_(r, today) {
   return out;
 }
 function bkItem_(r, row, c, full) {
-  const o = { id: row, call: c.call, due: c.due, state: c.state, tries: c.tries, to: String(r[BK_C.to]), cust: String(r[BK_C.cust]), branch: String(r[BK_C.branch]), svc: String(r[BK_C.svc]),
+  const o = { id: row, call: c.call, due: c.due, state: c.state, tries: c.tries, at: bkAt_(r[BK_C['r' + c.call]]), to: String(r[BK_C.to]), cust: String(r[BK_C.cust]), branch: String(r[BK_C.branch]), svc: String(r[BK_C.svc]),
     doc: String(r[BK_C.doc]), kind: String(r[BK_C.kind]), date: ymdOf_(r[BK_C.date]), time: hmOf_(r[BK_C.time]), notes: String(r[BK_C.notes] || '') };
   if (full) { o.phone = String(r[BK_C.phone]).replace(/^'/, ''); o.odoo = String(r[BK_C.odoo]).replace(/^'/, ''); }
   return o;
@@ -2175,12 +2186,12 @@ function kbCall_(b) {
   try {
     const rg = sh.getRange(row, 1, 1, BK_COLS.length), r = rg.getValues()[0];
     if (!bkMine_(r, who) && !bkLead_(who)) return { ok: false, error: 'not_yours' };
-    const res = String(b.result || ''), ok = { confirmed: 1, noanswer: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1 };
+    const res = String(b.result || ''), ok = { confirmed: 1, noanswer: 1, noreply: 1, rescheduled: 1, cancelled: 1, went: 1, noshow: 1 };
     if (!ok[res]) return { ok: false, error: 'bad_result' };
     const stamp = ' · ' + who.name + ' · ' + bkNow_(), note = String(b.note || '').trim().slice(0, 500);
     const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
     const set = function (c, v) { r[c] = v; };
-    if (res === 'noanswer') set(BK_C['r' + k], 'noanswer (' + (bkRes_(r[BK_C['r' + k]]).tries + 1) + ')' + stamp);
+    if (res === 'noanswer' || res === 'noreply') set(BK_C['r' + k], res + ' (' + (bkRes_(r[BK_C['r' + k]]).tries + 1) + ')' + stamp);
     else if (res === 'rescheduled') {
       const nd = ymdOf_(b.date), nt = hmOf_(b.time);
       if (!nd || nd < today) return { ok: false, error: 'bad_date' };
@@ -2358,12 +2369,29 @@ function kbFresha_(b) { // tick / untick "In Fresha" from the knowledge base
 
 // 10 am: each agent with calls today gets one short email, with the customers' numbers.
 // Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
+const BK_NAMES_ = ['', 'Day before: WhatsApp reminder 10:30-11:00 AM UAE, call 30 min later if no reply', 'Visit day: WhatsApp reminder 10:30-11:00 AM UAE, call 30 min later if no reply', 'After the visit: did they go, and how was it?'];
+// 3 pm Cairo: the day-before customers who still haven't replied get the second WhatsApp at 5:00 PM Saudi time (4 pm Cairo), then a call.
+function kbCallsAfternoon() {
+  const tz = Session.getScriptTimeZone(), now = new Date();
+  if (Utilities.formatDate(now, 'Africa/Cairo', 'u') === '5') return 'friday';
+  const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), ro = readRoster_(), by = {};
+  bkAll_(today).forEach(function (x) { if (x.c.call === 1 && (x.c.state === 'due' || x.c.state === 'late') && !bkOffOn_(String(x.r[BK_C.to]), today, ro)) { const em = String(x.r[BK_C.toEmail] || ro.emails[x.r[BK_C.to]] || '').trim(); if (em) (by[em] = by[em] || []).push(x); } });
+  let sent = 0;
+  Object.keys(by).forEach(function (em) {
+    const L = by[em];
+    const body = mailBox_('📲 No reply yet to tomorrow\'s reminder (' + L.length + ')', '<p style="margin:0 0 8px">At <b>5:00 PM Saudi time (4:00 PM Cairo, 6:00 PM UAE)</b> send these customers a second WhatsApp reminder. If they still don\'t reply, call them.</p><ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
+      return '<li style="margin-bottom:6px">' + esc_(x.r[BK_C.cust]) + bkPh_(x.r) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + '</li>';
+    }).join('') + '</ol><p style="margin:8px 0 0;color:#555">The message is ready in the "📞 Follow-up calls" tab of the Knowledge Base. If a customer already replied, press ✅ there so they drop off this list.</p>');
+    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'Second reminder at 5 PM Saudi time: ' + L.length, htmlBody: mailWrap_('Good afternoon 🌸', body) }); sent++;
+  });
+  return 'sent ' + sent;
+}
 function kbCallsReminder() {
   const tz = Session.getScriptTimeZone(), now = new Date();
   if (Utilities.formatDate(now, tz, 'u') === '5') return 'friday';
   const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), ro = readRoster_(), by = {};
   bkAll_(today).forEach(function (x) { if ((x.c.state === 'due' || x.c.state === 'late') && !bkOffOn_(String(x.r[BK_C.to]), today, ro)) { const em = String(x.r[BK_C.toEmail] || ro.emails[x.r[BK_C.to]] || '').trim(); if (em) (by[em] = by[em] || []).push(x); } });
-  const names = ['', 'Confirm the appointment (the day before)', 'Reminder on the day', 'After the visit: did they go, and how was it?'];
+  const names = BK_NAMES_;
   let sent = 0;
   Object.keys(by).forEach(function (em) {
     const L = by[em].sort(function (a, b) { return a.c.call - b.c.call; });
@@ -2379,7 +2407,7 @@ function kbCallsReminder() {
     const per = {}; all.forEach(function (x) { const n = String(x.r[BK_C.to]); (per[n] = per[n] || []).push(x); });
     const cnt = [0, 0, 0, 0]; all.forEach(function (x) { cnt[x.c.call]++; });
     const late = all.filter(function (x) { return x.c.state === 'late'; }).length;
-    const sum = '<p style="margin:0 0 10px">' + all.length + ' calls today: ' + cnt[1] + ' confirmations, ' + cnt[2] + ' same-day reminders, ' + cnt[3] + ' after-visit calls' + (late ? ', of which <b style="color:#A63D63">' + late + ' late</b>' : '') + '.</p>';
+    const sum = '<p style="margin:0 0 10px">' + all.length + ' follow-ups today: ' + cnt[1] + ' day-before reminders, ' + cnt[2] + ' visit-day reminders, ' + cnt[3] + ' after-visit calls' + (late ? ', of which <b style="color:#A63D63">' + late + ' late</b>' : '') + '.</p>';
     const list = Object.keys(per).sort().map(function (n) {
       const off = bkOffOn_(n, today, ro);
       return '<p style="margin:10px 0 4px"><b>' + esc_(n) + '</b> (' + per[n].length + ')' + (off ? ' <span style="color:#A63D63;font-weight:bold">· Off today: give the calls to someone else from the Knowledge Base</span>' : '') + '</p><ul style="margin:0;padding-inline-start:20px">' +
