@@ -1795,8 +1795,8 @@ function kbMisses_(p) {
 //    first days of a month the monthly champions.
 //  • kbCallsReminder at 7 am Cairo (9 am UAE): each agent with booking follow-ups today gets a short list before the
 //    10:30 AM UAE WhatsApp reminders (see Bookings below).
-//  • kbCallsAfternoon at 3 pm Cairo: each agent gets the day-before customers who still haven't replied, for the
-//    5:00 PM Saudi time WhatsApp (4 pm Cairo).
+//  • kbCallsAfternoon at 2 pm Cairo: each agent gets the day-before customers who still haven't replied, for the
+//    5:00 PM UAE WhatsApp (3 pm Cairo).
 //  • kbLeadsReport at 3 pm: to the operations team leads (and the owner): who did today's quiz, who didn't yet, and on
 //    Thursdays the quiz questions the team got wrong most this week, for coaching.
 // Fridays are skipped. Emails go from the account that owns this script, with the sender name below.
@@ -1807,7 +1807,7 @@ function setupKbEmails() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (['kbDailyDigest', 'kbLeadsReport', 'kbCallsReminder', 'kbCallsAfternoon'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('kbDailyDigest').timeBased().everyDays(1).atHour(9).create();
   ScriptApp.newTrigger('kbCallsReminder').timeBased().everyDays(1).inTimezone('Africa/Cairo').atHour(7).create();
-  ScriptApp.newTrigger('kbCallsAfternoon').timeBased().everyDays(1).inTimezone('Africa/Cairo').atHour(15).create();
+  ScriptApp.newTrigger('kbCallsAfternoon').timeBased().everyDays(1).inTimezone('Africa/Cairo').atHour(14).create();
   ScriptApp.newTrigger('kbLeadsReport').timeBased().everyDays(1).atHour(15).create();
   kbNewsNew_(true); // what's already in the updates tab counts as sent
   return 'ok';
@@ -2038,7 +2038,7 @@ function kbDashData_(p, who, acc) {
 // Every booking email sent from the knowledge base is also saved here, so the agent is reminded of the 3 follow-ups.
 // Client's confirmed reminder process (17 Nov 2026), times as the client wrote them:
 //  1) the day before (working day; Fridays are off, so a Saturday appointment is done on Thursday):
-//     WhatsApp reminder 10:30-11:00 AM UAE → no reply: call 30 minutes later → still no reply: WhatsApp at 5:00 PM Saudi time → no reply: call
+//     WhatsApp reminder 10:30-11:00 AM UAE → no reply: call 30 minutes later → still no reply: WhatsApp at 5:00 PM UAE (3 pm Cairo) → no reply: call
 //  2) the visit day: WhatsApp reminder 10:30-11:00 AM UAE → no reply: call 30 minutes later
 //  3) after the visit: the next working day (did they go, how was it); not part of the client's process, kept from before
 // Each "no reply" step is saved as 'noreply (n)' in the result column; n tells the knowledge base which step is next.
@@ -2370,7 +2370,7 @@ function kbFresha_(b) { // tick / untick "In Fresha" from the knowledge base
 // 10 am: each agent with calls today gets one short email, with the customers' numbers.
 // Agents who are off today (Roster days off) get nothing; the 3 pm team leads report shows their calls to give to someone else.
 const BK_NAMES_ = ['', 'Day before: WhatsApp reminder 10:30-11:00 AM UAE, call 30 min later if no reply', 'Visit day: WhatsApp reminder 10:30-11:00 AM UAE, call 30 min later if no reply', 'After the visit: did they go, and how was it?'];
-// 3 pm Cairo: the day-before customers who still haven't replied get the second WhatsApp at 5:00 PM Saudi time (4 pm Cairo), then a call.
+// 2 pm Cairo: the day-before customers who still haven't replied get the second WhatsApp at 5:00 PM UAE (3 pm Cairo), then a call.
 function kbCallsAfternoon() {
   const tz = Session.getScriptTimeZone(), now = new Date();
   if (Utilities.formatDate(now, 'Africa/Cairo', 'u') === '5') return 'friday';
@@ -2379,10 +2379,10 @@ function kbCallsAfternoon() {
   let sent = 0;
   Object.keys(by).forEach(function (em) {
     const L = by[em];
-    const body = mailBox_('📲 No reply yet to tomorrow\'s reminder (' + L.length + ')', '<p style="margin:0 0 8px">At <b>5:00 PM Saudi time (4:00 PM Cairo, 6:00 PM UAE)</b> send these customers a second WhatsApp reminder. If they still don\'t reply, call them.</p><ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
+    const body = mailBox_('📲 No reply yet to tomorrow\'s reminder (' + L.length + ')', '<p style="margin:0 0 8px">At <b>5:00 PM UAE time (3:00 PM Cairo)</b> send these customers a second WhatsApp reminder. If they still don\'t reply, call them.</p><ol style="margin:0;padding-inline-start:20px">' + L.map(function (x) {
       return '<li style="margin-bottom:6px">' + esc_(x.r[BK_C.cust]) + bkPh_(x.r) + ' · ' + esc_(ymdOf_(x.r[BK_C.date])) + ' ' + esc_(hmOf_(x.r[BK_C.time])) + (x.r[BK_C.branch] ? ' · ' + esc_(brEn_(x.r[BK_C.branch])) : '') + '</li>';
     }).join('') + '</ol><p style="margin:8px 0 0;color:#555">The message is ready in the "📞 Follow-up calls" tab of the Knowledge Base. If a customer already replied, press ✅ there so they drop off this list.</p>');
-    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'Second reminder at 5 PM Saudi time: ' + L.length, htmlBody: mailWrap_('Good afternoon 🌸', body) }); sent++;
+    MailApp.sendEmail({ to: em, name: KB_SENDER, subject: 'Second reminder at 5 PM UAE (3 PM Cairo): ' + L.length, htmlBody: mailWrap_('Good afternoon 🌸', body) }); sent++;
   });
   return 'sent ' + sent;
 }
